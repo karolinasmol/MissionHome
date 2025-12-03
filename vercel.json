@@ -1,5 +1,5 @@
 {
   "version": 2,
-  "buildCommand": "npx expo export --platform web",
+  "buildCommand": "echo 'Skipping build on Vercel'",
   "outputDirectory": "dist"
 }

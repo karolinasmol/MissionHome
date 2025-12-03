@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "MissionHome",
+    "slug": "missionhome",
+    "scheme": "missionhome",
+    "plugins": ["expo-router"],
+    "android": {
+      "package": "com.mission.missionhome",
+      "googleServicesFile": "./google-services.json"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "637708982974",
+    "project_id": "domowe-443e7",
+    "storage_bucket": "domowe-443e7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:637708982974:android:3a96b6cb67b77af3e25cef",
+        "android_client_info": {
+          "package_name": "com.mission.missionhome"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAY8ifOrYJGz7DaHSe_sjI8DocP1f4fywA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

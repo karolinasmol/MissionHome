@@ -1,0 +1,155 @@
+[debug] [2025-11-30T21:04:05.038Z] ----------------------------------------------------------------------
+[debug] [2025-11-30T21:04:05.043Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Karolina\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js functions:shell
+[debug] [2025-11-30T21:04:05.043Z] CLI Version:   14.26.0
+[debug] [2025-11-30T21:04:05.043Z] Platform:      win32
+[debug] [2025-11-30T21:04:05.043Z] Node Version:  v24.11.1
+[debug] [2025-11-30T21:04:05.043Z] Time:          Sun Nov 30 2025 22:04:05 GMT+0100 (czas środkowoeuropejski standardowy)
+[debug] [2025-11-30T21:04:05.043Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-30T21:04:05.217Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-30T21:04:05.218Z] > authorizing via signed-in user (karolina.smol@gmail.com)
+[debug] [2025-11-30T21:04:05.218Z] [iam] checking project domowe-443e7 for permissions ["firebase.projects.get"]
+[debug] [2025-11-30T21:04:05.219Z] Checked if tokens are valid: true, expires at: 1764537749316
+[debug] [2025-11-30T21:04:05.219Z] Checked if tokens are valid: true, expires at: 1764537749316
+[debug] [2025-11-30T21:04:05.219Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/domowe-443e7:testIamPermissions [none]
+[debug] [2025-11-30T21:04:05.219Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/domowe-443e7:testIamPermissions x-goog-quota-user=projects/domowe-443e7
+[debug] [2025-11-30T21:04:05.220Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/domowe-443e7:testIamPermissions {"permissions":["firebase.projects.get"]}
+[debug] [2025-11-30T21:04:06.030Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/domowe-443e7:testIamPermissions 200
+[debug] [2025-11-30T21:04:06.030Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/domowe-443e7:testIamPermissions {"permissions":["firebase.projects.get"]}
+[debug] [2025-11-30T21:04:06.030Z] Emulator locator file path: C:\Users\Karolina\AppData\Local\Temp\hub-domowe-443e7.json
+[debug] [2025-11-30T21:04:06.034Z] [functions] Functions Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2025-11-30T21:04:06.060Z] defaultcredentials: writing to file C:\Users\Karolina\AppData\Roaming\firebase\karolina_smol_gmail.com_application_default_credentials.json
+[debug] [2025-11-30T21:04:06.062Z] DEBUG: Setting GAC to C:\Users\Karolina\AppData\Roaming\firebase\karolina_smol_gmail.com_application_default_credentials.json
+[debug] [2025-11-30T21:04:06.062Z] Checked if tokens are valid: true, expires at: 1764537749316
+[debug] [2025-11-30T21:04:06.062Z] Checked if tokens are valid: true, expires at: 1764537749316
+[debug] [2025-11-30T21:04:06.062Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/domowe-443e7/adminSdkConfig [none]
+[debug] [2025-11-30T21:04:06.611Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/domowe-443e7/adminSdkConfig 200
+[debug] [2025-11-30T21:04:06.611Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/domowe-443e7/adminSdkConfig {"projectId":"domowe-443e7","storageBucket":"domowe-443e7.firebasestorage.app"}
+[debug] [2025-11-30T21:04:06.620Z] [functions] Watching "C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions" for Cloud Functions...
+[debug] [2025-11-30T21:04:06.624Z] Validating nodejs source
+[debug] [2025-11-30T21:04:07.793Z] > [functions] package.json contents: {
+  "name": "functions",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "npm run build && firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.0.0",
+    "luxon": "^3.7.2",
+    "stripe": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
+[debug] [2025-11-30T21:04:07.794Z] Building nodejs source
+[debug] [2025-11-30T21:04:07.794Z] Failed to find version of module node: reached end of search path C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules
+[warn] !  functions: Your requested "node" version "20" doesn't match your global version "24". Using node@24 from host. 
+[info] i  functions: Loaded environment variables from .env. 
+[debug] [2025-11-30T21:04:07.798Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-11-30T21:04:07.810Z] Found firebase-functions binary at 'C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules\.bin\firebase-functions'
+[info] Serving at port 8343
+
+[debug] [2025-11-30T21:04:08.919Z] Got response from /__/functions.yaml {"endpoints":{"onMissionCompleted":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"onMissionCompleted"},"handleRepeatingMissions":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"handleRepeatingMissions"},"paymentsApi":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"paymentsApi"},"handleSubscriptionWebhook":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"handleSubscriptionWebhook"},"expirePremiumDaily":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 24 hours","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"expirePremiumDaily"},"seedAutoChoresOnUserCreated":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.created","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}"},"retry":false},"entryPoint":"seedAutoChoresOnUserCreated"},"generateAutoChallenges":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 1 minutes","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"generateAutoChallenges"},"onChallengeAcceptedCreateMission":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeAcceptedCreateMission"},"onChallengeDeclinedStamp":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeDeclinedStamp"}},"specVersion":"v1alpha1","requiredAPIs":[{"api":"cloudscheduler.googleapis.com","reason":"Needed for scheduled functions."}],"extensions":{}}
+[debug] [2025-11-30T21:04:12.964Z] [functions] Loaded functions definitions from source: onMissionCompleted, handleRepeatingMissions, paymentsApi, handleSubscriptionWebhook, expirePremiumDaily, seedAutoChoresOnUserCreated, generateAutoChallenges, onChallengeAcceptedCreateMission, onChallengeDeclinedStamp.
+[debug] [2025-11-30T21:04:12.964Z] [functions[europe-central2-onMissionCompleted]] function ignored because the firestore emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.964Z] [functions[europe-central2-handleRepeatingMissions]] function ignored because the firestore emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-paymentsApi]] http function initialized (http://127.0.0.1:5000/domowe-443e7/europe-central2/paymentsApi).
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-handleSubscriptionWebhook]] http function initialized (http://127.0.0.1:5000/domowe-443e7/europe-central2/handleSubscriptionWebhook).
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-expirePremiumDaily]] function ignored because the pubsub emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-seedAutoChoresOnUserCreated]] function ignored because the firestore emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-generateAutoChallenges]] function ignored because the pubsub emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-onChallengeAcceptedCreateMission]] function ignored because the firestore emulator does not exist or is not running.
+[debug] [2025-11-30T21:04:12.965Z] [functions[europe-central2-onChallengeDeclinedStamp]] function ignored because the firestore emulator does not exist or is not running.
+[info] i  functions: Loaded functions: onMissionCompleted, handleRepeatingMissions, paymentsApi, handleSubscriptionWebhook, expirePremiumDaily, seedAutoChoresOnUserCreated, generateAutoChallenges, onChallengeAcceptedCreateMission, onChallengeDeclinedStamp 
+[warn] !  functions: The following emulators are not running, calls to these services will affect production: firestore, database, pubsub, storage, eventarc, tasks 
+[debug] [2025-11-30T21:06:34.440Z] DEBUG: File C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\src\manual_seed.ts changed, reloading triggers
+[debug] [2025-11-30T21:06:35.455Z] Validating nodejs source
+[debug] [2025-11-30T21:06:36.887Z] > [functions] package.json contents: {
+  "name": "functions",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "npm run build && firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.0.0",
+    "luxon": "^3.7.2",
+    "stripe": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
+[debug] [2025-11-30T21:06:36.888Z] Building nodejs source
+[debug] [2025-11-30T21:06:36.889Z] Failed to find version of module node: reached end of search path C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules
+[warn] !  functions: Your requested "node" version "20" doesn't match your global version "24". Using node@24 from host. 
+[info] i  functions: Loaded environment variables from .env. 
+[debug] [2025-11-30T21:06:36.896Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-11-30T21:06:36.924Z] Found firebase-functions binary at 'C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules\.bin\firebase-functions'
+[info] Serving at port 8154
+
+[debug] [2025-11-30T21:06:38.245Z] Got response from /__/functions.yaml {"endpoints":{"onMissionCompleted":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"onMissionCompleted"},"handleRepeatingMissions":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"handleRepeatingMissions"},"paymentsApi":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"paymentsApi"},"handleSubscriptionWebhook":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"handleSubscriptionWebhook"},"expirePremiumDaily":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 24 hours","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"expirePremiumDaily"},"seedAutoChoresOnUserCreated":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.created","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}"},"retry":false},"entryPoint":"seedAutoChoresOnUserCreated"},"generateAutoChallenges":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 1 minutes","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"generateAutoChallenges"},"onChallengeAcceptedCreateMission":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeAcceptedCreateMission"},"onChallengeDeclinedStamp":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeDeclinedStamp"}},"specVersion":"v1alpha1","requiredAPIs":[{"api":"cloudscheduler.googleapis.com","reason":"Needed for scheduled functions."}],"extensions":{}}
+[debug] [2025-11-30T21:06:40.481Z] DEBUG: File C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\src\index.ts changed, reloading triggers
+[debug] [2025-11-30T21:06:41.495Z] Validating nodejs source
+[debug] [2025-11-30T21:06:42.536Z] > [functions] package.json contents: {
+  "name": "functions",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "npm run build && firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.0.0",
+    "luxon": "^3.7.2",
+    "stripe": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
+[debug] [2025-11-30T21:06:42.536Z] Building nodejs source
+[debug] [2025-11-30T21:06:42.537Z] Failed to find version of module node: reached end of search path C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules
+[warn] !  functions: Your requested "node" version "20" doesn't match your global version "24". Using node@24 from host. 
+[info] i  functions: Loaded environment variables from .env. 
+[debug] [2025-11-30T21:06:42.539Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-11-30T21:06:42.559Z] Found firebase-functions binary at 'C:\Users\Karolina\Desktop\Domoweobowizki\domoweobowizki\functions\node_modules\.bin\firebase-functions'
+[debug] [2025-11-30T21:06:42.647Z] [functions] Loaded functions definitions from source: onMissionCompleted, handleRepeatingMissions, paymentsApi, handleSubscriptionWebhook, expirePremiumDaily, seedAutoChoresOnUserCreated, generateAutoChallenges, onChallengeAcceptedCreateMission, onChallengeDeclinedStamp.
+[info] Serving at port 8599
+
+[debug] [2025-11-30T21:06:43.636Z] Got response from /__/functions.yaml {"endpoints":{"onMissionCompleted":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"onMissionCompleted"},"handleRepeatingMissions":{"availableMemoryMb":null,"timeoutSeconds":null,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"missions/{missionId}"},"retry":false},"entryPoint":"handleRepeatingMissions"},"paymentsApi":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"paymentsApi"},"handleSubscriptionWebhook":{"availableMemoryMb":null,"timeoutSeconds":30,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"httpsTrigger":{},"entryPoint":"handleSubscriptionWebhook"},"expirePremiumDaily":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 24 hours","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"expirePremiumDaily"},"seedAutoChoresOnUserCreated":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.created","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}"},"retry":false},"entryPoint":"seedAutoChoresOnUserCreated"},"generateAutoChallenges":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"scheduleTrigger":{"schedule":"every 1 minutes","retryConfig":{},"timeZone":"Europe/Warsaw"},"entryPoint":"generateAutoChallenges"},"onChallengeAcceptedCreateMission":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeAcceptedCreateMission"},"onChallengeDeclinedStamp":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":10,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["europe-central2"],"secretEnvironmentVariables":[{"key":"STRIPE_SECRET"},{"key":"STRIPE_SECRET_KEY"},{"key":"RESEND_API_KEY"},{"key":"SENDGRID_API_KEY"},{"key":"STRIPE_SUBS_WEBHOOK_SECRET"}],"labels":{},"eventTrigger":{"eventType":"google.cloud.firestore.document.v1.updated","eventFilters":{"database":"(default)","namespace":"(default)"},"eventFilterPathPatterns":{"document":"users/{userId}/new_challenges/{challengeId}"},"retry":false},"entryPoint":"onChallengeDeclinedStamp"}},"specVersion":"v1alpha1","requiredAPIs":[{"api":"cloudscheduler.googleapis.com","reason":"Needed for scheduled functions."}],"extensions":{}}
+[debug] [2025-11-30T21:06:47.673Z] [functions] Loaded functions definitions from source: onMissionCompleted, handleRepeatingMissions, paymentsApi, handleSubscriptionWebhook, expirePremiumDaily, seedAutoChoresOnUserCreated, generateAutoChallenges, onChallengeAcceptedCreateMission, onChallengeDeclinedStamp.

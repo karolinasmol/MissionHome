@@ -236,37 +236,53 @@ function useConfettiManager() {
   const [particles, setParticles] = useState<any[]>([]);
 
   const shoot = (missionId: string) => {
-    const COLORS = ["#22c55e", "#0ea5e9", "#eab308", "#f43f5e", "#a855f7"];
-    const items: any[] = [];
+    const COLORS = [
+      "#22c55e",
+      "#0ea5e9",
+      "#eab308",
+      "#f43f5e",
+      "#a855f7",
+      "#f472b6",
+      "#2dd4bf",
+    ];
 
-    for (let i = 0; i < 14; i++) {
-      items.push({
-        id: Math.random() + "_" + i,
+    const count = 45 + Math.floor(Math.random() * 15); // 45–60 cząsteczek
+    const newParticles: any[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2; // pełne 360°
+      const speed = 60 + Math.random() * 80; // mocniejszy wybuch
+
+      newParticles.push({
+        id: `${missionId}_${Date.now()}_${i}`,
         missionId,
         x: new Animated.Value(0),
         y: new Animated.Value(0),
         opacity: new Animated.Value(1),
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        dx: Math.cos(angle) * speed,
+        dy: Math.sin(angle) * speed,
       });
     }
 
-    setParticles((prev) => [...prev, ...items]);
+    setParticles((prev) => [...prev, ...newParticles]);
 
-    items.forEach((p) => {
+    newParticles.forEach((p) => {
+      // 🔥 3-sekundowa animacja z grawitacją
       Animated.parallel([
         Animated.timing(p.x, {
-          toValue: (Math.random() - 0.5) * 70,
-          duration: 500,
+          toValue: p.dx,
+          duration: 2600,
           useNativeDriver: true,
         }),
         Animated.timing(p.y, {
-          toValue: -60 - Math.random() * 40,
-          duration: 500,
+          toValue: p.dy + 120, // grawitacja
+          duration: 2600,
           useNativeDriver: true,
         }),
         Animated.timing(p.opacity, {
           toValue: 0,
-          duration: 600,
+          duration: 2600,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -277,6 +293,7 @@ function useConfettiManager() {
 
   return { particles, shoot };
 }
+
 
 /* --------------------------------------------------------- */
 /* --------------------- MAIN COMPONENT --------------------- */
@@ -1698,28 +1715,29 @@ export default function HomeScreen() {
                         </TouchableOpacity>
 
                         {/* Confetti TYLKO dla tej misji */}
-                        {confetti
-                          .filter((p) => p.missionId === m.id)
-                          .map((p) => (
-                            <Animated.View
-                              key={p.id}
-                              style={{
-                                position: "absolute",
-                                top: 14,
-                                left: 14,
-                                width: 6,
-                                height: 6,
-                                borderRadius: 999,
-                                backgroundColor: p.color,
-                                transform: [
-                                  { translateX: p.x },
-                                  { translateY: p.y },
-                                ],
-                                opacity: p.opacity,
-                                zIndex: 50,
-                              }}
-                            />
-                          ))}
+                  {confetti
+                    .filter((p) => p.missionId === m.id)
+                    .map((p) => (
+                      <Animated.View
+                        key={p.id}
+                        style={{
+                          position: "absolute",
+                          top: 14,
+                          left: 14,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          backgroundColor: p.color,
+                          transform: [
+                            { translateX: p.x },
+                            { translateY: p.y },
+                          ],
+                          opacity: p.opacity,
+                          zIndex: 999,
+                        }}
+                      />
+                    ))}
+
                       </View>
 
                       <View style={{ flex: 1 }}>

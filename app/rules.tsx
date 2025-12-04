@@ -22,7 +22,7 @@ const RulesScreen = () => {
         backgroundColor: colors.card,
         borderRadius: 18,
         padding: 16,
-        marginBottom: 14,
+        marginBottom: 18,
         borderWidth: 1,
         borderColor: colors.border,
       }}
@@ -31,113 +31,35 @@ const RulesScreen = () => {
     </View>
   );
 
-  const SectionTitle = ({
-    icon,
-    title,
-    subtitle,
-  }: {
-    icon: any;
-    title: string;
-    subtitle?: string;
-  }) => (
-    <View style={{ marginBottom: subtitle ? 10 : 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <View
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 999,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.accent + "22",
-            marginRight: 8,
-          }}
-        >
-          <Ionicons name={icon} size={15} color={colors.accent} />
-        </View>
-        <Text
-          style={{
-            color: colors.text,
-            fontSize: 15,
-            fontWeight: "800",
-          }}
-        >
-          {title}
-        </Text>
-      </View>
-      {subtitle ? (
-        <Text
-          style={{
-            marginTop: 4,
-            color: colors.textMuted,
-            fontSize: 12,
-          }}
-        >
-          {subtitle}
-        </Text>
-      ) : null}
+  const SectionTitle = ({ title }: { title: string }) => (
+    <View style={{ marginBottom: 8 }}>
+      <Text
+        style={{
+          color: colors.text,
+          fontSize: 16,
+          fontWeight: "800",
+        }}
+      >
+        {title}
+      </Text>
     </View>
   );
 
-  const Bullet = ({ children }: { children: React.ReactNode }) => (
-    <View
+  const P = ({ children }: { children: React.ReactNode }) => (
+    <Text
       style={{
-        flexDirection: "row",
-        alignItems: "flex-start",
-        marginTop: 4,
+        color: colors.text,
+        fontSize: 13,
+        lineHeight: 20,
+        marginBottom: 10,
       }}
     >
-      <Text
-        style={{
-          marginTop: 5,
-          marginRight: 6,
-          fontSize: 10,
-          color: colors.accent,
-        }}
-      >
-        ●
-      </Text>
-      <Text
-        style={{
-          flex: 1,
-          color: colors.text,
-          fontSize: 13,
-          lineHeight: 19,
-        }}
-      >
-        {children}
-      </Text>
-    </View>
-  );
-
-  const LinkLike = ({
-    label,
-    onPress,
-  }: {
-    label: string;
-    onPress: () => void;
-  }) => (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
-      <Text
-        style={{
-          color: colors.accent,
-          fontSize: 13,
-          fontWeight: "700",
-          textDecorationLine: "underline",
-        }}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
+      {children}
+    </Text>
   );
 
   return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: colors.bg,
-      }}
-    >
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: 20,
@@ -187,238 +109,447 @@ const RulesScreen = () => {
                 marginTop: 2,
               }}
             >
-              Zasady korzystania z MissionHome w wersji przyjaznej dla
-              normalnych ludzi, nie tylko dla prawników.
+              Pełny regulamin korzystania z aplikacji MissionHome.
             </Text>
           </View>
         </View>
 
-        {/* 1. POSTANOWIENIA OGÓLNE */}
+        {/* §1 INFORMACJE OGÓLNE */}
         <SectionCard>
-          <SectionTitle
-            icon="book-outline"
-            title="1. Postanowienia ogólne"
-            subtitle="Co właściwie regulujemy w tym miejscu."
-          />
+          <SectionTitle title="§1. Informacje ogólne" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            Niniejszy regulamin określa zasady korzystania z aplikacji
-            MissionHome. Akceptując regulamin, zgadzasz się na opisane tutaj
-            zasady korzystania z aplikacji.
-          </Text>
+          <P>
+            Niniejszy regulamin („Regulamin”) określa zasady korzystania z
+            aplikacji mobilnej MissionHome („Aplikacja”), świadczonej drogą
+            elektroniczną przez przedsiębiorcę prowadzącego jednoosobową
+            działalność gospodarczą pod nazwą MissionHome, z siedzibą w Gdańsku
+            (adres do uzupełnienia), NIP xxx, adres kontaktowy: xxx
+            („Usługodawca”).
+          </P>
 
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              lineHeight: 18,
-            }}
-          >
-            Treść na tym ekranie ma charakter roboczy i może zostać zastąpiona
-            pełną wersją regulaminu przygotowaną we współpracy z prawnikiem.
-          </Text>
+          <P>
+            Aplikacja umożliwia organizację zadań domowych, planowanie
+            obowiązków, współpracę w grupach rodzinnych oraz korzystanie z
+            systemu misji, poziomów oraz punktów doświadczenia (EXP).
+          </P>
+
+          <P>
+            Aplikacja dostępna jest za pośrednictwem sklepów Google Play oraz
+            Apple App Store. Korzystanie z Aplikacji oznacza akceptację
+            Regulaminu.
+          </P>
         </SectionCard>
 
-        {/* 2. KORZYSTANIE Z APLIKACJI */}
+        {/* §2 DEFINICJE */}
         <SectionCard>
-          <SectionTitle
-            icon="home-outline"
-            title="2. Korzystanie z aplikacji"
-          />
+          <SectionTitle title="§2. Definicje" />
 
-          <Bullet>
-            Aplikacja MissionHome służy do organizowania domowych zadań,
-            obowiązków i postępów użytkowników – w formie misji, poziomów i EXP.
-          </Bullet>
-          <Bullet>
-            Korzystasz z aplikacji dobrowolnie. Możesz w każdej chwili
-            zaprzestać korzystania i usunąć swoje konto.
-          </Bullet>
-          <Bullet>
-            Zobowiązujesz się korzystać z aplikacji w sposób zgodny z prawem,
-            regulaminem oraz dobrymi obyczajami – bez nadużyć, spamu i
-            wykorzystywania aplikacji do celów niezgodnych z jej przeznaczeniem.
-          </Bullet>
+          <P>
+            <Text style={{ fontWeight: "700" }}>Aplikacja</Text> — oprogramowanie
+            mobilne MissionHome udostępniane Użytkownikom.
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Użytkownik</Text> — osoba
+            fizyczna korzystająca z Aplikacji.
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Konto</Text> — indywidualny
+            profil Użytkownika tworzony w ramach Aplikacji.
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Usługi</Text> — funkcje
+            dostępne w Aplikacji, zarówno bezpłatne, jak i płatne (Premium).
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Subskrypcja</Text> — płatna
+            usługa Premium odnawiana automatycznie co miesiąc lub rok, zakupiona
+            za pośrednictwem Google Play lub Apple App Store.
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Rodzina</Text> — grupa
+            Użytkowników współdzielących funkcje Aplikacji.
+          </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>Treści Użytkownika</Text> —
+            wszelkie treści dodawane w Aplikacji przez Użytkownika, takie jak
+            zadania, wpisy, opisy, zdjęcia, komentarze.
+          </P>
         </SectionCard>
 
-        {/* 3. KONTO UŻYTKOWNIKA */}
+        {/* §3 WARUNKI TECHNICZNE */}
         <SectionCard>
-          <SectionTitle
-            icon="person-circle-outline"
-            title="3. Konto użytkownika"
-          />
+          <SectionTitle title="§3. Warunki techniczne korzystania" />
 
-          <Bullet>
-            Do korzystania z części funkcji konieczne jest utworzenie konta
-            (np. poprzez adres e-mail lub inne wspierane metody logowania).
-          </Bullet>
-          <Bullet>
-            Jesteś odpowiedzialna/y za utrzymanie poufności danych logowania i
-            nieudostępnianie konta osobom trzecim.
-          </Bullet>
-          <Bullet>
-            Twórcy aplikacji mogą zablokować lub usunąć konto w przypadku
-            poważnego naruszenia regulaminu, prób nadużyć lub działań
-            zagrażających bezpieczeństwu innych użytkowników.
-          </Bullet>
+          <P>
+            Do korzystania z Aplikacji wymagane jest urządzenie mobilne z
+            systemem Android lub iOS oraz aktywne połączenie z Internetem.
+          </P>
+
+          <P>
+            Usługodawca nie ponosi odpowiedzialności za niesprawność urządzenia
+            Użytkownika ani brak dostępu do Internetu.
+          </P>
+
+          <P>
+            Aplikacja może ulegać aktualizacjom, które mogą wpływać na sposób jej
+            działania lub dostępne funkcje.
+          </P>
+        </SectionCard>
+        {/* §4 ZAWARCIE I ROZWIĄZANIE UMOWY */}
+        <SectionCard>
+          <SectionTitle title="§4. Zawarcie i rozwiązanie umowy" />
+
+          <P>
+            1. Umowa o świadczenie usług drogą elektroniczną zostaje zawarta
+            z chwilą rozpoczęcia korzystania z Aplikacji przez Użytkownika,
+            w tym instalacji lub założenia Konta.
+          </P>
+
+          <P>
+            2. Umowa o świadczenie usługi Premium (Subskrypcji) zostaje zawarta
+            z chwilą zakupu Subskrypcji za pośrednictwem Google Play lub
+            Apple App Store, zgodnie z regulaminami tych platform.
+          </P>
+
+          <P>
+            3. Użytkownik może zakończyć korzystanie z Aplikacji poprzez jej
+            odinstalowanie, co równoznaczne jest z rozwiązaniem umowy
+            o świadczenie usług bezpłatnych.
+          </P>
+
+          <P>
+            4. Usługodawca może rozwiązać umowę lub zablokować Konto Użytkownika,
+            jeśli ten:
+            - narusza Regulamin,
+            - działa na szkodę innych Użytkowników lub Usługodawcy,
+            - próbuje obejść system płatności Premium,
+            - wykorzystuje Aplikację niezgodnie z jej przeznaczeniem.
+          </P>
         </SectionCard>
 
-        {/* 4. WERSJA PREMIUM / PŁATNOŚCI (PLACEHOLDER) */}
+        {/* §5 KONTO UŻYTKOWNIKA */}
         <SectionCard>
-          <SectionTitle
-            icon="star-outline"
-            title="4. Subskrypcja i funkcje premium"
-            subtitle="Jeśli w przyszłości pojawią się płatne plany."
-          />
+          <SectionTitle title="§5. Konto użytkownika" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            MissionHome może w przyszłości oferować płatne funkcje lub plany
-            subskrypcyjne. Szczegółowe zasady (okres rozliczeniowy, cena,
-            warunki anulowania) będą widoczne przed dokonaniem płatności i mogą
-            zostać uzupełnione w pełnej wersji regulaminu.
-          </Text>
+          <P>
+            1. Użytkownik jest zobowiązany do podania prawdziwych, aktualnych
+            danych podczas zakładania Konta, jeśli są wymagane.
+          </P>
 
-          <Bullet>
-            Informacje o cenach i warunkach subskrypcji będą prezentowane w
-            aplikacji w sposób jasny i zrozumiały.
-          </Bullet>
-          <Bullet>
-            W przypadku płatności realizowanych przez zewnętrznych dostawców
-            (np. Google Play, App Store), obowiązują również regulaminy tych
-            platform.
-          </Bullet>
+          <P>
+            2. Użytkownik odpowiada za bezpieczeństwo danych logowania
+            i nie powinien ich udostępniać osobom trzecim.
+          </P>
+
+          <P>
+            3. Użytkownik ponosi odpowiedzialność za wszelkie działania
+            wykonywane za pomocą jego Konta.
+          </P>
+
+          <P>
+            4. Usługodawca może czasowo zawiesić lub trwale usunąć Konto
+            naruszające Regulamin lub prawo.
+          </P>
         </SectionCard>
 
-        {/* 5. OBOWIĄZKI UŻYTKOWNIKA */}
+        {/* §6 FUNKCJE APLIKACJI */}
         <SectionCard>
-          <SectionTitle
-            icon="checkmark-done-outline"
-            title="5. Obowiązki użytkownika"
-          />
+          <SectionTitle title="§6. Funkcje Aplikacji" />
 
-          <Bullet>
-            Podajesz prawdziwe dane w zakresie niezbędnym do korzystania z
-            aplikacji (np. poprawny adres e-mail do logowania).
-          </Bullet>
-          <Bullet>
-            Nie podejmujesz działań mających na celu zakłócenie działania
-            aplikacji, omijanie zabezpieczeń, testowanie luk bezpieczeństwa bez
-            wcześniejszej zgody twórców.
-          </Bullet>
-          <Bullet>
-            Nie wykorzystujesz aplikacji do treści bezprawnych, obraźliwych lub
-            naruszających dobra osobiste innych osób.
-          </Bullet>
+          <P>
+            1. Aplikacja umożliwia korzystanie z funkcji takich jak:
+            - tworzenie zadań i obowiązków,
+            - planowanie misji i celów,
+            - zdobywanie punktów doświadczenia (EXP),
+            - rywalizacja w rankingach,
+            - tworzenie Rodzin i zarządzanie ich członkami.
+          </P>
+
+          <P>
+            2. Usługodawca może rozwijać, modyfikować lub usuwać funkcje,
+            jeśli wymaga tego bezpieczeństwo, prawo lub względy techniczne.
+          </P>
+
+          <P>
+            3. Niektóre funkcje są dostępne wyłącznie dla Użytkowników Premium.
+          </P>
         </SectionCard>
 
-        {/* 6. ODPOWIEDZIALNOŚĆ */}
+        {/* §7 FUNKCJE PREMIUM / SUBSKRYPCJE */}
         <SectionCard>
-          <SectionTitle
-            icon="warning-outline"
-            title="6. Odpowiedzialność i ograniczenia"
-          />
+          <SectionTitle title="§7. Subskrypcja Premium" />
 
-          <Bullet>
-            Twórcy aplikacji dokładają starań, aby MissionHome działała
-            stabilnie i bezpiecznie, jednak nie mogą zagwarantować pełnej
-            bezawaryjności.
-          </Bullet>
-          <Bullet>
-            Nie ponosimy odpowiedzialności za skutki niewłaściwego korzystania
-            z aplikacji (np. za spory domowe o to, kto miał wynieść śmieci 😉).
-          </Bullet>
-          <Bullet>
-            W przypadku awarii lub błędów mogą wystąpić czasowe utrudnienia w
-            dostępie do aplikacji lub utrata części danych. Zawsze staramy się
-            minimalizować takie sytuacje.
-          </Bullet>
+          <P>
+            1. Funkcje Premium dostępne są w modelu Subskrypcji miesięcznej
+            lub rocznej, odnawianej automatycznie, chyba że Użytkownik
+            dezaktywuje automatyczne odnowienie na swoim koncie Google Play
+            lub App Store.
+          </P>
+
+          <P>
+            2. Przed zakupem Użytkownik otrzymuje jasną informację o:
+            - cenie Subskrypcji,
+            - okresie rozliczeniowym,
+            - zasadach odnowienia,
+            - warunkach anulowania.
+          </P>
+
+          <P>
+            3. Płatności przetwarzane są wyłącznie przez Google lub Apple.
+            Usługodawca nie gromadzi ani nie przetwarza danych kart płatniczych.
+          </P>
+
+          <P>
+            4. Zwroty płatności są realizowane wyłącznie przez Google Play
+            lub Apple App Store, zgodnie z ich regulaminami.
+          </P>
+
+          <P>
+            5. Brak opłacenia Subskrypcji po okresie rozliczeniowym powoduje
+            automatyczny powrót do wersji bezpłatnej Aplikacji.
+          </P>
+
+          <P>
+            6. Funkcje Premium mogą obejmować m.in.:
+            - rozszerzone możliwości tworzenia zadań i misji,
+            - dostęp do zaawansowanych statystyk,
+            - możliwość tworzenia wiadomości rodzinnych,
+            - dodatkowe elementy personalizacji,
+            - priorytetową obsługę wsparcia.
+          </P>
+        </SectionCard>
+        {/* §8 PRAWO ODSTĄPIENIA */}
+        <SectionCard>
+          <SectionTitle title="§8. Prawo odstąpienia od umowy" />
+
+          <P>
+            1. Użytkownik ma prawo odstąpić od zakupu Subskrypcji Premium
+            zgodnie z zasadami określonymi przez Google Play lub Apple App Store.
+          </P>
+
+          <P>
+            2. Usługodawca nie posiada możliwości ręcznej realizacji zwrotów
+            ani anulowania zakupów wykonanych za pośrednictwem platform Google
+            lub Apple.
+          </P>
+
+          <P>
+            3. Jeżeli Użytkownik wyraził zgodę na natychmiastowe rozpoczęcie
+            świadczenia usługi cyfrowej Premium, może utracić prawo odstąpienia,
+            zgodnie z art. 38 ustawy o prawach konsumenta.
+          </P>
         </SectionCard>
 
-        {/* 7. ZMIANY REGULAMINU */}
+        {/* §9 TREŚCI UŻYTKOWNIKA */}
         <SectionCard>
-          <SectionTitle
-            icon="refresh-outline"
-            title="7. Zmiany regulaminu"
-          />
+          <SectionTitle title="§9. Treści tworzone przez Użytkownika" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            Regulamin może być aktualizowany wraz z rozwojem aplikacji i
-            wprowadzaniem nowych funkcji.
-          </Text>
+          <P>
+            1. Użytkownik ponosi pełną odpowiedzialność za treści, które
+            tworzy, zapisuje lub publikuje w Aplikacji, w tym m.in. zadania,
+            wpisy, komentarze i zdjęcia.
+          </P>
 
-          <Bullet>
-            O istotnych zmianach regulaminu poinformujemy Cię w aplikacji lub
-            innym wyraźnym kanałem komunikacji.
-          </Bullet>
-          <Bullet>
-            Dalsze korzystanie z aplikacji po wejściu w życie zmian oznacza ich
-            akceptację.
-          </Bullet>
+          <P>
+            2. Zabrania się publikowania treści:
+            - naruszających prawo,
+            - obraźliwych,
+            - naruszających prywatność lub dobra osobiste innych osób,
+            - zawierających dane wrażliwe,
+            - o charakterze spamowym.
+          </P>
+
+          <P>
+            3. Usługodawca ma prawo usuwać treści niezgodne z Regulaminem lub
+            obowiązującym prawem.
+          </P>
+
+          <P>
+            4. Użytkownik udziela Usługodawcy niewyłącznej licencji na
+            przetwarzanie treści w zakresie niezbędnym do prawidłowego działania
+            Aplikacji.
+          </P>
         </SectionCard>
 
-        {/* 8. KONTAKT W SPRAWIE REGULAMINU */}
+        {/* §10 RODZINY */}
         <SectionCard>
-          <SectionTitle
-            icon="chatbubble-ellipses-outline"
-            title="8. Kontakt w sprawie regulaminu"
-          />
+          <SectionTitle title="§10. Funkcje rodzinne i współdzielenie danych" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            Jeśli masz wątpliwości dotyczące regulaminu albo chcesz dopytać o
-            konkretne zapisy, możesz napisać do nas.
-          </Text>
+          <P>
+            1. Użytkownik, który dołącza do Rodziny lub ją tworzy, akceptuje,
+            że inni członkowie Rodziny mogą widzieć jego aktywność, m.in.:
+            wykonane zadania, zdobyte punkty, statystyki i udział w misjach.
+          </P>
 
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              marginBottom: 4,
-            }}
-          >
-            Najprościej skontaktować się przez ekran:
-          </Text>
+          <P>
+            2. Użytkownik może w dowolnym momencie opuścić Rodzinę, chyba że
+            pełni rolę administratora i musi najpierw przekazać tę rolę innej
+            osobie.
+          </P>
 
-          <LinkLike
-            label="Przejdź do kontaktu"
-            onPress={() => router.push("/contact")}
-          />
+          <P>
+            3. Niektóre funkcje Rodziny — np. wiadomości, statystyki grupowe,
+            wspólne misje — mogą wymagać aktywnej Subskrypcji Premium.
+          </P>
         </SectionCard>
 
-        {/* STOPKA INFO */}
-        <View
-          style={{
-            marginTop: 4,
-            alignItems: "center",
-          }}
-        >
+        {/* §11 ODPOWIEDZIALNOŚĆ USŁUGODAWCY */}
+        <SectionCard>
+          <SectionTitle title="§11. Odpowiedzialność Usługodawcy" />
+
+          <P>
+            1. Aplikacja jest dostarczana w modelu „tak jak jest”
+            („as is”), bez gwarancji nieprzerwanego działania.
+          </P>
+
+          <P>
+            2. Usługodawca dokłada starań, aby Aplikacja była bezpieczna
+            i wolna od błędów, jednak nie gwarantuje pełnej niezawodności.
+          </P>
+
+          <P>
+            3. Usługodawca nie ponosi odpowiedzialności za:
+            - skutki błędnego korzystania z Aplikacji,
+            - spory pomiędzy członkami Rodziny,
+            - utratę danych wynikającą z przyczyn technicznych,
+            - szkody wynikłe z działania siły wyższej lub awarii dostawców usług.
+          </P>
+
+          <P>
+            4. Usługodawca może czasowo ograniczyć dostęp do Aplikacji
+            z przyczyn technicznych, bezpieczeństwa lub aktualizacji.
+          </P>
+        </SectionCard>
+
+        {/* §12 REKLAMACJE */}
+        <SectionCard>
+          <SectionTitle title="§12. Postępowanie reklamacyjne" />
+
+          <P>
+            1. Reklamacje dotyczące działania Aplikacji należy zgłaszać na adres
+            e-mail: xxx
+          </P>
+
+          <P>
+            2. Usługodawca rozpatruje reklamacje w terminie do 14 dni roboczych
+            od daty ich otrzymania.
+          </P>
+
+          <P>
+            3. Reklamacje dotyczące płatności, odnowienia Subskrypcji lub zwrotów
+            są obsługiwane wyłącznie przez Google Play i Apple App Store.
+          </P>
+
+          <P>
+            4. Usługodawca nie ma możliwości wpływu na decyzje sklepów
+            dotyczące zwrotów.
+          </P>
+        </SectionCard>
+
+        {/* §13 DANE OSOBOWE */}
+        <SectionCard>
+          <SectionTitle title="§13. Dane osobowe i prywatność" />
+
+          <P>
+            1. Dane osobowe Użytkowników przetwarzane są zgodnie z obowiązującymi
+            przepisami prawa, w tym z Rozporządzeniem Parlamentu Europejskiego
+            i Rady (UE) 2016/679 (RODO).
+          </P>
+
+          <P>
+            2. Szczegółowe zasady przetwarzania danych określa Polityka
+            Prywatności dostępna w Aplikacji.
+          </P>
+
+          <P>
+            3. Użytkownikowi przysługuje prawo dostępu, sprostowania, usunięcia,
+            ograniczenia przetwarzania, przenoszenia danych oraz wniesienia
+            sprzeciwu zgodnie z RODO.
+          </P>
+
+          <P>
+            4. Użytkownik ma również prawo wniesienia skargi do Prezesa Urzędu
+            Ochrony Danych Osobowych.
+          </P>
+        </SectionCard>
+        {/* §14 WŁASNOŚĆ INTELEKTUALNA */}
+        <SectionCard>
+          <SectionTitle title="§14. Własność intelektualna" />
+
+          <P>
+            1. Wszelkie prawa własności intelektualnej do Aplikacji, w tym:
+            kodu źródłowego, interfejsu, grafiki, nazwy aplikacji, opisów,
+            mechanik działania oraz materiałów audiowizualnych przysługują
+            Usługodawcy.
+          </P>
+
+          <P>
+            2. Zabrania się kopiowania, modyfikowania, dekompilacji,
+            dystrybucji lub odsprzedaży Aplikacji bez pisemnej zgody
+            Usługodawcy.
+          </P>
+
+          <P>
+            3. Użytkownik może korzystać z Aplikacji wyłącznie na własne
+            potrzeby, zgodnie z Regulaminem i obowiązującymi przepisami prawa.
+          </P>
+        </SectionCard>
+
+        {/* §15 ZMIANY REGULAMINU */}
+        <SectionCard>
+          <SectionTitle title="§15. Zmiany Regulaminu" />
+
+          <P>
+            1. Usługodawca może wprowadzać zmiany Regulaminu z ważnych przyczyn,
+            w szczególności:
+            - zmian prawa,
+            - zmian funkcjonalnych Aplikacji,
+            - zmian organizacyjnych,
+            - konieczności poprawy bezpieczeństwa.
+          </P>
+
+          <P>
+            2. O istotnych zmianach Użytkownik zostanie poinformowany w Aplikacji
+            lub poprzez inne środki komunikacji.
+          </P>
+
+          <P>
+            3. Dalsze korzystanie z Aplikacji po wejściu zmian w życie oznacza
+            akceptację nowej treści Regulaminu.
+          </P>
+        </SectionCard>
+
+        {/* §16 POSTANOWIENIA KOŃCOWE */}
+        <SectionCard>
+          <SectionTitle title="§16. Postanowienia końcowe" />
+
+          <P>
+            1. W sprawach nieuregulowanych w Regulaminie zastosowanie mają
+            przepisy prawa polskiego, w szczególności:
+            - Kodeks cywilny,
+            - Ustawa o świadczeniu usług drogą elektroniczną,
+            - Ustawa o prawach konsumenta,
+            - Rozporządzenie RODO.
+          </P>
+
+          <P>
+            2. Wszelkie spory pomiędzy Użytkownikiem a Usługodawcą będą
+            rozstrzygane przez sąd właściwy zgodnie z przepisami prawa.
+          </P>
+
+          <P>
+            3. Regulamin obowiązuje od dnia publikacji w Aplikacji.
+          </P>
+        </SectionCard>
+
+        {/* FOOTER */}
+        <View style={{ marginTop: 8, alignItems: "center" }}>
           <Text
             style={{
               color: colors.textMuted,
@@ -428,13 +559,11 @@ const RulesScreen = () => {
           >
             Ostatnia aktualizacja:{" "}
             <Text style={{ fontWeight: "700", color: colors.text }}>
-              2025-11-29
+              2025-12-01
             </Text>
-            .{"\n"}
-            Ten tekst może zostać zastąpiony pełnym regulaminem przygotowanym
-            przez prawnika – layout ekranu jest już gotowy.
           </Text>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );

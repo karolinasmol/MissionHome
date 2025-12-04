@@ -218,7 +218,10 @@ export default function CalendarScreen() {
     [missions]
   );
 
-  const myTasks = useMemo(() => allMissions.filter(isMyTask), [allMissions, myId]);
+  const myTasks = useMemo(
+    () => allMissions.filter(isMyTask),
+    [allMissions, myId]
+  );
 
   const delegatedTasks = useMemo(
     () => allMissions.filter(isDelegatedTask),
@@ -291,7 +294,6 @@ export default function CalendarScreen() {
 
   /* ✅ WYKONANE PRZEZ (z fallbackami) */
   const getCompletedByLabel = (m: any) => {
-    // jeśli kiedyś zaczniesz to zapisywać – zadziała od razu
     const completedByName = m?.completedByName ? String(m.completedByName) : null;
     const completedByUserId = m?.completedByUserId
       ? String(m.completedByUserId)
@@ -305,7 +307,6 @@ export default function CalendarScreen() {
       if (found) return found.displayName || found.username || "Nieznane";
     }
 
-    // fallback: kto jest przypisany
     const assignedToId = m?.assignedToUserId ? String(m.assignedToUserId) : null;
     if (assignedToId && myId && assignedToId === myId) return "Ty";
     if (m?.assignedToName) return String(m.assignedToName);
@@ -483,7 +484,11 @@ export default function CalendarScreen() {
               }
               style={styles.monthNavBtn}
             >
-              <Ionicons name="chevron-forward" size={18} color={colors.text} />
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.text}
+              />
             </TouchableOpacity>
           </View>
 
@@ -615,7 +620,8 @@ export default function CalendarScreen() {
               <ActivityIndicator color={colors.accent} />
             ) : (
               <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                {myPendingMissions.length} otwarte • {myCompletedMissions.length} wykonane
+                {myPendingMissions.length} otwarte •{" "}
+                {myCompletedMissions.length} wykonane
               </Text>
             )}
           </View>
@@ -654,7 +660,7 @@ export default function CalendarScreen() {
                           styles.missionRow,
                           {
                             borderColor: colors.border,
-                            backgroundColor: "#020617",
+                            backgroundColor: colors.card,
                           },
                         ]}
                       >
@@ -754,8 +760,8 @@ export default function CalendarScreen() {
                         style={[
                           styles.missionRow,
                           {
-                            borderColor: "#22c55e66",
-                            backgroundColor: "#022c22",
+                            borderColor: colors.accent + "66",
+                            backgroundColor: colors.card,
                           },
                         ]}
                       >
@@ -765,24 +771,24 @@ export default function CalendarScreen() {
                             height: 28,
                             borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: "#22c55eAA",
+                            borderColor: colors.accent + "AA",
                             marginRight: 10,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: "#22c55e22",
+                            backgroundColor: colors.accent + "22",
                           }}
                         >
                           <Ionicons
                             name="checkmark"
                             size={16}
-                            color="#22c55e"
+                            color={colors.accent}
                           />
                         </View>
 
                         <View style={{ flex: 1 }}>
                           <Text
                             style={{
-                              color: "#ecfeff",
+                              color: colors.text,
                               fontSize: 14,
                               fontWeight: "700",
                             }}
@@ -793,7 +799,7 @@ export default function CalendarScreen() {
 
                           <Text
                             style={{
-                              color: "#bbf7d0",
+                              color: colors.textMuted,
                               fontSize: 11,
                               marginTop: 2,
                             }}
@@ -804,7 +810,7 @@ export default function CalendarScreen() {
                           {creator?.label && (
                             <Text
                               style={{
-                                color: "#bbf7d0",
+                                color: colors.textMuted,
                                 fontSize: 11,
                                 marginTop: 2,
                               }}
@@ -821,13 +827,13 @@ export default function CalendarScreen() {
                               paddingVertical: 4,
                               borderRadius: 999,
                               borderWidth: 1,
-                              borderColor: "#22c55eAA",
-                              backgroundColor: "#22c55e33",
+                              borderColor: colors.accent + "88",
+                              backgroundColor: colors.accent + "22",
                             }}
                           >
                             <Text
                               style={{
-                                color: "#bbf7d0",
+                                color: colors.accent,
                                 fontSize: 11,
                                 fontWeight: "700",
                               }}
@@ -883,7 +889,8 @@ export default function CalendarScreen() {
               <ActivityIndicator color={colors.accent} />
             ) : (
               <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                {delegatedPending.length} otwarte • {delegatedCompleted.length} wykonane
+                {delegatedPending.length} otwarte •{" "}
+                {delegatedCompleted.length} wykonane
               </Text>
             )}
           </View>
@@ -922,7 +929,7 @@ export default function CalendarScreen() {
                           styles.missionRow,
                           {
                             borderColor: colors.border,
-                            backgroundColor: "#020617",
+                            backgroundColor: colors.card,
                           },
                         ]}
                       >
@@ -1034,8 +1041,8 @@ export default function CalendarScreen() {
                         style={[
                           styles.missionRow,
                           {
-                            borderColor: "#22c55e66",
-                            backgroundColor: "#022c22",
+                            borderColor: colors.accent + "66",
+                            backgroundColor: colors.card,
                           },
                         ]}
                       >
@@ -1045,24 +1052,24 @@ export default function CalendarScreen() {
                             height: 28,
                             borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: "#22c55eAA",
+                            borderColor: colors.accent + "AA",
                             marginRight: 10,
                             alignItems: "center",
                             justifyContent: "center",
-                            backgroundColor: "#22c55e22",
+                            backgroundColor: colors.accent + "22",
                           }}
                         >
                           <Ionicons
                             name="checkmark"
                             size={16}
-                            color="#22c55e"
+                            color={colors.accent}
                           />
                         </View>
 
                         <View style={{ flex: 1 }}>
                           <Text
                             style={{
-                              color: "#ecfeff",
+                              color: colors.text,
                               fontSize: 14,
                               fontWeight: "700",
                             }}
@@ -1073,7 +1080,7 @@ export default function CalendarScreen() {
 
                           <Text
                             style={{
-                              color: "#bbf7d0",
+                              color: colors.textMuted,
                               fontSize: 11,
                               marginTop: 2,
                             }}
@@ -1084,7 +1091,7 @@ export default function CalendarScreen() {
                           {!!m.assignedToName && (
                             <Text
                               style={{
-                                color: "#bbf7d0",
+                                color: colors.textMuted,
                                 fontSize: 11,
                                 marginTop: 2,
                               }}
@@ -1096,7 +1103,7 @@ export default function CalendarScreen() {
                           {creator?.label && (
                             <Text
                               style={{
-                                color: "#bbf7d0",
+                                color: colors.textMuted,
                                 fontSize: 11,
                                 marginTop: 2,
                               }}
@@ -1113,13 +1120,13 @@ export default function CalendarScreen() {
                               paddingVertical: 4,
                               borderRadius: 999,
                               borderWidth: 1,
-                              borderColor: "#22c55eAA",
-                              backgroundColor: "#22c55e33",
+                              borderColor: colors.accent + "88",
+                              backgroundColor: colors.accent + "22",
                             }}
                           >
                             <Text
                               style={{
-                                color: "#bbf7d0",
+                                color: colors.accent,
                                 fontSize: 11,
                                 fontWeight: "700",
                               }}
@@ -1187,7 +1194,7 @@ export default function CalendarScreen() {
                   styles.missionRow,
                   {
                     borderColor: "#ef444466",
-                    backgroundColor: "#111827",
+                    backgroundColor: colors.card,
                   },
                 ]}
               >

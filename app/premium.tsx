@@ -12,6 +12,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -39,8 +40,6 @@ const DangerRed = "#EF4444";
 /** ====== API ====== */
 const ENV_BASE = (process.env.EXPO_PUBLIC_PAYMENTS_BASE || "").trim();
 const ENV_KEY = (process.env.EXPO_PUBLIC_PAYMENTS_API_KEY || "").trim();
-
-/** IMPORTANT: na mobile MUSI być https (np. Firebase Hosting) */
 const STRIPE_RETURN_HTTPS = (process.env.EXPO_PUBLIC_STRIPE_RETURN_HTTPS || "").trim();
 
 let RESOLVED_BASE: string | null = null;
@@ -79,13 +78,10 @@ async function readJsonOrThrow(res: Response) {
     json = text ? JSON.parse(text) : null;
   } catch {}
 
-  // ❗najważniejsze: jak to nie JSON, to NIE udawaj że jest ok
   if (!isJsonContentType(ct) || json == null) {
     const snippet = (text || "").slice(0, 220);
     throw new Error(
-      `API zwróciło nie-JSON (content-type: ${ct || "brak"}). ` +
-        `To prawie na pewno oznacza zły BASE / rewrite do frontu. ` +
-        `Snippet: ${snippet}`
+      `API zwróciło nie-JSON (content-type: ${ct || "brak"}). Snippet: ${snippet}`
     );
   }
 
@@ -114,10 +110,8 @@ async function resolveBaseOnce(): Promise<string> {
   const candidates: string[] = [];
   if (ENV_BASE) candidates.push(ENV_BASE);
 
-  // WEB: tylko jeśli hosting ma rewrite /paymentsApi -> funkcja
   if (Platform.OS === "web") candidates.push("/paymentsApi");
 
-  // emulatory / local
   const proj = (globalThis as any).__FIREBASE_DEFAULT_PROJECT_ID__ || "";
   if (proj) {
     candidates.push(`http://localhost:5001/${proj}/europe-central2/paymentsApi`);
@@ -132,13 +126,12 @@ async function resolveBaseOnce(): Promise<string> {
     const r = await probeHealth(base);
     if (r.ok) {
       RESOLVED_BASE = base;
-      console.log("[premium][api] RESOLVED_BASE =", base, "healthz =", r.json);
       return base;
     }
     errors.push(`- ${base}: ${r.reason}`);
   }
 
-  throw new Error(`Nie mogę połączyć z API płatności (healthz). Sprawdzone:\n${errors.join("\n")}`);
+  throw new Error(`Nie mogę połączyć z API płatności. Próbowano:\n${errors.join("\n")}`);
 }
 
 async function authHeaders() {
@@ -185,42 +178,23 @@ async function apiGet<T = any>(path: string, qs?: Record<string, any>): Promise<
 }
 
 /** RPC */
-async function createPaymentIntent(payload: any): Promise<{
-  id: string;
-  redirectUrl?: string | null;
-  url?: string | null;
-  redirect_url?: string | null;
-  sessionId?: string | null;
-}> {
+async function createPaymentIntent(payload: any) {
   return apiPost("/rpc/createPaymentIntent", payload);
 }
 
-async function getPaymentStatus(args: { paymentIntentId?: string; sessionId?: string }): Promise<{
-  status: string;
-  metadata?: any;
-  amount?: number;
-  currency?: string;
-}> {
+async function getPaymentStatus(args: { paymentIntentId?: string; sessionId?: string }) {
   return apiPost("/rpc/getPaymentIntentStatus", args);
 }
 
-async function finalizePayment(args: { paymentIntentId?: string; sessionId?: string }): Promise<{
-  ok: boolean;
-  already?: boolean;
-  premiumUntil?: string | null;
-  status?: string;
-}> {
+async function finalizePayment(args: { paymentIntentId?: string; sessionId?: string }) {
   return apiPost("/rpc/finalizePayment", args);
 }
 
-async function getUserPremium(uid: string): Promise<{
-  isPremium: boolean;
-  premiumUntil: string | null;
-}> {
+async function getUserPremium(uid: string) {
   return apiGet("/rpc/userPremium", { uid });
 }
 
-/** ====== Helpers ====== */
+/** Helpers */
 function toDateSafe(v: any): Date | null {
   try {
     if (!v) return null;
@@ -321,7 +295,7 @@ export default function PremiumScreen() {
         if (status === "processing") {
           uiAlert(
             "Płatność w trakcie ⏳",
-            "Stripe jeszcze potwierdza płatność. Premium pojawi się automatycznie po potwierdzeniu (webhook)."
+            "Stripe jeszcze potwierdza płatność."
           );
           return;
         }
@@ -338,7 +312,7 @@ export default function PremiumScreen() {
               const d = new Date(fin.premiumUntil);
               if (!Number.isNaN(d.getTime())) untilLabel = d.toLocaleDateString("pl-PL");
             }
-            uiAlert("Premium aktywne ✅", untilLabel ? `Aktywne do: ${untilLabel}` : "Płatność przyjęta.");
+            uiAlert("Premium aktywne ✅", untilLabel || "Płatność przyjęta.");
             return;
           }
 
@@ -376,27 +350,27 @@ export default function PremiumScreen() {
       });
 
       if (Platform.OS === "web") {
-        cleanWebQueryParams(["session_id", "payment_intent", "payment_intent_client_secret", "cancelled"]);
+        cleanWebQueryParams([
+          "session_id",
+          "payment_intent",
+          "payment_intent_client_secret",
+          "cancelled",
+        ]);
       } else {
         try {
           router.replace("/premium");
         } catch {}
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.session_id, params?.payment_intent, params?.cancelled]);
 
   const openPlan = (planId: PlanId) => {
-    console.log("[premium] click wybierz", { planId, authReady, hasUser: !!auth.currentUser });
-
     if (!authReady) {
-      setErr("Ładowanie sesji… spróbuj za chwilę.");
-      uiAlert("Chwila", "Ładowanie sesji… spróbuj za chwilę.");
+      uiAlert("Chwila", "Ładowanie sesji…");
       return;
     }
     if (!auth.currentUser) {
-      setErr("Musisz być zalogowany, aby wykupić Premium.");
-      uiAlert("Zaloguj się", "Musisz być zalogowany, aby wykupić Premium.");
+      uiAlert("Zaloguj się", "Musisz być zalogowany.");
       return;
     }
 
@@ -408,7 +382,6 @@ export default function PremiumScreen() {
 
   const doCheckout = async () => {
     if (!payModal.planId) return;
-    const planId = payModal.planId;
 
     try {
       setBusy(true);
@@ -421,48 +394,37 @@ export default function PremiumScreen() {
 
       const returnUrl =
         Platform.OS === "web" && typeof window !== "undefined"
-          ? `${window.location.origin}${window.location.pathname}` // bez query
+          ? `${window.location.origin}${window.location.pathname}`
           : (() => {
               if (!STRIPE_RETURN_HTTPS || !/^https?:\/\//i.test(STRIPE_RETURN_HTTPS)) {
-                throw new Error("Brak EXPO_PUBLIC_STRIPE_RETURN_HTTPS (musi być https URL do strony return na hostingu).");
+                throw new Error("Brak EXPO_PUBLIC_STRIPE_RETURN_HTTPS.");
               }
               const glue = STRIPE_RETURN_HTTPS.includes("?") ? "&" : "?";
               return `${STRIPE_RETURN_HTTPS}${glue}appReturn=${encodeURIComponent(appReturn)}`;
             })();
 
       const payload = {
-        planId,
+        planId: payModal.planId,
         returnUrl,
         customerEmail: u.email || undefined,
         customerName: u.displayName || "Użytkownik",
       };
 
-      const base = await resolveBaseOnce();
-      console.log("[premium] API base =", base);
-      console.log("[premium] createPaymentIntent payload", payload);
-
       const r = await createPaymentIntent(payload);
-      console.log("[premium] createPaymentIntent response", r);
 
-      // ✅ obsłuż różne formaty, jeśli trafisz w starszy backend
       const redirectUrl =
-        (r as any)?.redirectUrl ||
-        (r as any)?.url ||
-        (r as any)?.redirect_url ||
-        (r as any)?.data?.redirectUrl ||
-        (r as any)?.data?.url ||
+        r?.redirectUrl ||
+        r?.url ||
+        r?.redirect_url ||
+        r?.data?.redirectUrl ||
+        r?.data?.url ||
         null;
 
       if (!redirectUrl) {
-        throw new Error(
-          "Brak redirectUrl z backendu. " +
-            "Jeśli widzisz w logu response = {}, to na pewno uderzasz w zły BASE (HTML zamiast JSON)."
-        );
+        throw new Error("Brak redirectUrl z backendu.");
       }
 
       closePayModal();
-
-      console.log("[premium] redirect =>", redirectUrl);
 
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.location.href = redirectUrl;
@@ -473,7 +435,6 @@ export default function PremiumScreen() {
       }
     } catch (e: any) {
       const msg = e?.message || "Błąd inicjalizacji płatności.";
-      console.error("[premium] doCheckout error", e);
       setErr(msg);
       uiAlert("Płatność", msg);
     } finally {
@@ -490,11 +451,7 @@ export default function PremiumScreen() {
       const until = r?.premiumUntil ? new Date(r.premiumUntil) : null;
       uiAlert(
         "Status Premium",
-        r?.isPremium && until && !Number.isNaN(until.getTime())
-          ? `Aktywne do: ${until.toLocaleDateString("pl-PL")}`
-          : r?.isPremium
-            ? "Premium aktywne."
-            : "Premium nieaktywne."
+        r?.isPremium && until ? `Aktywne do: ${until.toLocaleDateString("pl-PL")}` : "Premium nieaktywne."
       );
     } catch (e: any) {
       setErr(e?.message || "Nie udało się odświeżyć statusu Premium.");
@@ -504,32 +461,56 @@ export default function PremiumScreen() {
   };
 
   /** ====== UI ====== */
+
   const perks = [
     "Rodzina MAX: do 6 osób łącznie (Ty + 5).",
     "Możesz zapraszać członków rodziny spośród znajomych.",
-    "Wspólne funkcje domu / udostępnienia (w roadmapie).",
-    "Odznaka Premium w profilu (opcjonalnie).",
+    "Wspólne funkcje zadań oraz wiadomości z rodziną.",
+    "Odznaka Premium w profilu.",
   ];
 
+  /** NOWE PREMIUM CARD STYLE */
   const cardStyle = useMemo(
-    () => ({ backgroundColor: colors.card, borderColor: colors.border }),
+    () => ({
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: 20,
+      padding: 18,
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
+    }),
     [colors.card, colors.border]
   );
 
   const PayModalContent = (
-    <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 16, width: "100%", maxWidth: 520 }}>
+    <View
+      style={{
+        ...cardStyle,
+        width: "100%",
+        maxWidth: 520,
+        padding: 20,
+      }}
+    >
       <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <Ionicons name="sparkles" size={20} color={PremiumGold} />
-        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16, marginLeft: 10 }}>Płatność za Premium</Text>
+        <Ionicons name="sparkles" size={22} color={PremiumGold} />
+        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 17, marginLeft: 10 }}>
+          Płatność za Premium
+        </Text>
         <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={closePayModal} style={{ padding: 6 }} activeOpacity={0.8}>
-          <Ionicons name="close" size={20} color={colors.textMuted} />
+          <Ionicons name="close" size={22} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
 
-      <View style={{ marginTop: 12 }}>
-        <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>WYBRANY PLAN</Text>
-        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>
+      <View style={{ marginTop: 16 }}>
+        <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+          WYBRANY PLAN
+        </Text>
+        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 20, marginTop: 4 }}>
           {payModal.planId ? PLANS[payModal.planId].title : "—"}
         </Text>
         <Text style={{ color: colors.textMuted, marginTop: 6 }}>
@@ -540,26 +521,35 @@ export default function PremiumScreen() {
         </Text>
       </View>
 
-      {!!err && <Text style={{ color: DangerRed, marginTop: 10, fontWeight: "800" }}>{err}</Text>}
+      {!!err && <Text style={{ color: DangerRed, marginTop: 12, fontWeight: "800" }}>{err}</Text>}
 
-      <TouchableOpacity
-        onPress={doCheckout}
-        style={{
-          marginTop: 14,
-          backgroundColor: PrimaryBlue,
-          paddingVertical: 12,
-          borderRadius: 12,
-          alignItems: "center",
-          opacity: busy ? 0.7 : 1,
-        }}
-        activeOpacity={0.9}
-        disabled={busy}
-      >
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "900" }}>Przejdź do płatności (P24 / BLIK / karta)</Text>}
+      <TouchableOpacity onPress={doCheckout} disabled={busy} activeOpacity={0.9}>
+        <LinearGradient
+          colors={["#3B82F6", "#2563EB"]}
+          style={{
+            marginTop: 20,
+            paddingVertical: 14,
+            borderRadius: 14,
+            alignItems: "center",
+            opacity: busy ? 0.7 : 1,
+          }}
+        >
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>
+              Przejdź do płatności (P24 / BLIK / karta)
+            </Text>
+          )}
+        </LinearGradient>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={closePayModal} style={{ marginTop: 10, paddingVertical: 10, alignItems: "center" }} disabled={busy}>
-        <Text style={{ color: colors.textMuted, fontWeight: "800" }}>Anuluj</Text>
+      <TouchableOpacity
+        onPress={closePayModal}
+        style={{ marginTop: 14, paddingVertical: 10, alignItems: "center" }}
+        disabled={busy}
+      >
+        <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
       </TouchableOpacity>
     </View>
   );
@@ -578,18 +568,24 @@ export default function PremiumScreen() {
       >
         {/* HEADER */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <TouchableOpacity onPress={() => router.back()} style={{ paddingVertical: 4, paddingRight: 8 }}>
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{ paddingVertical: 4, paddingRight: 8 }}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "900" }}>Premium</Text>
+
+          <Text style={{ color: colors.text, fontSize: 20, fontWeight: "900" }}>Premium</Text>
+
           <View style={{ flex: 1 }} />
+
           <TouchableOpacity
             onPress={refreshPremiumNow}
             style={{
               borderWidth: 1,
               borderColor: colors.border,
               backgroundColor: colors.bg,
-              paddingHorizontal: 12,
+              paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 999,
               flexDirection: "row",
@@ -598,31 +594,49 @@ export default function PremiumScreen() {
             }}
             activeOpacity={0.9}
           >
-            <Ionicons name="refresh" size={16} color={colors.text} />
+            <Ionicons name="refresh" size={18} color={colors.text} />
             <Text style={{ color: colors.text, fontWeight: "900" }}>Sprawdź</Text>
           </TouchableOpacity>
         </View>
 
         {/* STATUS CARD */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Ionicons name={isPremium ? "sparkles" : "sparkles-outline"} size={22} color={PremiumGold} />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>
+        <View style={{ ...cardStyle }}>
+          <LinearGradient
+            colors={[colors.card, "rgba(251,191,36,0.12)"]}
+            style={{ padding: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 10 }}
+          >
+            <Ionicons
+              name={isPremium ? "sparkles" : "sparkles-outline"}
+              size={24}
+              color={PremiumGold}
+            />
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
               {isPremium ? "Premium aktywne" : "Premium nieaktywne"}
             </Text>
+
             <View style={{ flex: 1 }} />
+
             {isPremium ? (
-              <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 12 }}>AKTYWNE</Text>
+              <View
+                style={{
+                  backgroundColor: "rgba(251,191,36,0.25)",
+                  paddingHorizontal: 14,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                }}
+              >
+                <Text style={{ color: PremiumGold, fontWeight: "900", fontSize: 12 }}>
+                  AKTYWNE
+                </Text>
               </View>
             ) : null}
-          </View>
+          </LinearGradient>
 
-          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6 }}>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10 }}>
             {isPremium
               ? premiumUntilText
                 ? `Aktywne do: ${premiumUntilText}`
-                : "Aktywne (brak daty w profilu)."
+                : "Aktywne."
               : "Aktywuj Premium, żeby odblokować dodatki."}
           </Text>
 
@@ -630,16 +644,26 @@ export default function PremiumScreen() {
         </View>
 
         {/* PERKS */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Ionicons name="sparkles" size={20} color={PremiumGold} />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>Co daje Premium?</Text>
-          </View>
+        <View style={{ ...cardStyle }}>
+          <LinearGradient
+            colors={[colors.card, "rgba(251,191,36,0.12)"]}
+            style={{ padding: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 10 }}
+          >
+            <Ionicons name="sparkles" size={22} color={PremiumGold} />
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+              Co daje Premium?
+            </Text>
+          </LinearGradient>
 
-          <View style={{ marginTop: 10, gap: 10 }}>
-            {perks.map((p, idx) => (
-              <View key={idx} style={{ flexDirection: "row", gap: 10 }}>
-                <Ionicons name="checkmark-circle" size={18} color={SuccessGreen} style={{ marginTop: 1 }} />
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {perks.map((p, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={20}
+                  color={SuccessGreen}
+                  style={{ marginTop: 1 }}
+                />
                 <Text style={{ color: colors.text, flex: 1, lineHeight: 20 }}>{p}</Text>
               </View>
             ))}
@@ -647,48 +671,76 @@ export default function PremiumScreen() {
         </View>
 
         {/* PLANS */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>Wybierz plan</Text>
-          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
-            Płatność przez Stripe Checkout (P24 / BLIK / karta).
-          </Text>
+        <View style={{ ...cardStyle }}>
+          <LinearGradient
+            colors={[colors.card, "rgba(59,130,246,0.15)"]}
+            style={{ padding: 12, borderRadius: 16 }}
+          >
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+              Wybierz plan
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
+              Płatność przez Stripe Checkout (P24 / BLIK / karta).
+            </Text>
+          </LinearGradient>
 
-          {!authReady ? <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "800" }}>Ładowanie sesji…</Text> : null}
+          {!authReady ? (
+            <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "800" }}>
+              Ładowanie sesji…
+            </Text>
+          ) : null}
 
-          <View style={{ marginTop: 12, gap: 10 }}>
+          <View style={{ marginTop: 16, gap: 14 }}>
             {(Object.keys(PLANS) as PlanId[]).map((planId) => {
               const plan = PLANS[planId];
+
               return (
                 <View
                   key={planId}
                   style={{
                     borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 14,
-                    padding: 12,
-                    backgroundColor: colors.bg,
+                    borderColor: PremiumGold,
+                    borderRadius: 18,
+                    padding: 16,
+                    backgroundColor: colors.card,
+                    shadowColor: PremiumGold,
+                    shadowOpacity: 0.2,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: 4,
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>{plan.title}</Text>
-                      <Text style={{ color: colors.textMuted, marginTop: 4, fontWeight: "700" }}>{plan.priceLabel}</Text>
+                      <Text style={{ color: colors.text, fontWeight: "900", fontSize: 17 }}>
+                        {plan.title}
+                      </Text>
+                      <Text style={{ color: colors.textMuted, marginTop: 4, fontWeight: "700" }}>
+                        {plan.priceLabel}
+                      </Text>
                     </View>
 
-                    <TouchableOpacity
-                      onPress={() => openPlan(planId)}
-                      style={{
-                        backgroundColor: PrimaryBlue,
-                        paddingHorizontal: 14,
-                        paddingVertical: 10,
-                        borderRadius: 12,
-                        opacity: busy ? 0.7 : 1,
-                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                      }}
-                      activeOpacity={0.9}
-                      disabled={busy}
-                    >
-                      {busy ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "900" }}>Wybierz</Text>}
+                    <TouchableOpacity onPress={() => openPlan(planId)} activeOpacity={0.9}>
+                      <LinearGradient
+                        colors={["#FBBF24", "#F59E0B"]}
+                        style={{
+                          paddingHorizontal: 18,
+                          paddingVertical: 10,
+                          borderRadius: 14,
+                          opacity: busy ? 0.7 : 1,
+                          ...(Platform.OS === "web"
+                            ? ({ cursor: "pointer" } as any)
+                            : null),
+                        }}
+                      >
+                        {busy ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>
+                            Wybierz
+                          </Text>
+                        )}
+                      </LinearGradient>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -701,9 +753,31 @@ export default function PremiumScreen() {
       {/* PAY MODAL */}
       {Platform.OS === "web" ? (
         payModal.open ? (
-          <View style={styles.webOverlayRoot as any} pointerEvents="box-none">
-            <Pressable style={styles.webBackdrop} onPress={closePayModal}>
-              <Pressable onPress={(e: any) => e?.stopPropagation?.()} style={{ width: "100%", alignItems: "center", padding: 16 }}>
+          <View
+            style={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              zIndex: 9999,
+            }}
+            pointerEvents="box-none"
+          >
+            <Pressable
+              style={{
+                flex: 1,
+                backgroundColor: "rgba(0,0,0,0.55)",
+                justifyContent: "center",
+                alignItems: "center",
+                backdropFilter: "blur(6px)",
+              }}
+              onPress={closePayModal}
+            >
+              <Pressable
+                onPress={(e) => e.stopPropagation()}
+                style={{ width: "100%", alignItems: "center", padding: 16 }}
+              >
                 {PayModalContent}
               </Pressable>
             </Pressable>
@@ -711,7 +785,15 @@ export default function PremiumScreen() {
         ) : null
       ) : (
         <Modal visible={payModal.open} transparent animationType="fade" onRequestClose={closePayModal}>
-          <Pressable onPress={closePayModal} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", padding: 16, justifyContent: "center" }}>
+          <Pressable
+            onPress={closePayModal}
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.55)",
+              padding: 16,
+              justifyContent: "center",
+            }}
+          >
             <Pressable onPress={() => {}} style={{ width: "100%", alignItems: "center" }}>
               {PayModalContent}
             </Pressable>
@@ -739,12 +821,15 @@ export default function PremiumScreen() {
               backgroundColor: colors.card,
               borderColor: colors.border,
               borderWidth: 1,
-              paddingHorizontal: 16,
+              paddingHorizontal: 18,
               paddingVertical: 14,
-              borderRadius: 16,
+              borderRadius: 18,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
+              gap: 12,
+              shadowColor: "#000",
+              shadowOpacity: 0.15,
+              shadowRadius: 20,
             }}
           >
             <ActivityIndicator color={colors.accent} />
@@ -755,20 +840,3 @@ export default function PremiumScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = {
-  webOverlayRoot: {
-    position: Platform.OS === "web" ? ("fixed" as any) : ("absolute" as any),
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 9999,
-  },
-  webBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-};

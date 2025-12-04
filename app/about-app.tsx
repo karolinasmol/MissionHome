@@ -1,4 +1,3 @@
-// app/about-app.tsx
 import React from "react";
 import {
   SafeAreaView,
@@ -212,10 +211,12 @@ const AboutAppScreen = () => {
               marginBottom: 6,
             }}
           >
-            MissionHome to aplikacja, która zamienia codzienne obowiązki
-            domowe w system misji, poziomów i EXP. Zamiast zwykłej listy zadań
-            masz lekką formę, która pomaga odhaczać rzeczy bez
-            frustracji i ciągłego „muszę”.
+            MissionHome to Twoje domowe centrum dowodzenia – takie, które naprawdę działa.
+            To aplikacja stworzona po to, żeby codzienność była lżejsza, bardziej ogarnięta i…
+            wreszcie Twoja. Zamiast zwykłej listy zadań dostajesz system misji, poziomów i EXP,
+            który zmienia codzienność w coś, co naprawdę chce się robić. Każde zadanie to misja,
+            każdy krok daje poczucie progresu, a wspólne działanie z rodziną tworzy zgraną drużynę.
+            MissionHome wspiera Twój dzień – nie przytłacza, nie zmusza i nie dodaje presji.
           </Text>
 
           <Text
@@ -225,8 +226,10 @@ const AboutAppScreen = () => {
               lineHeight: 18,
             }}
           >
-            Aplikacja jest w wersji beta – wiele elementów jeszcze dopieszczamy,
-            ale podstawowe misje, rodzina i poziomy już działają.
+            Aplikacja jest w wersji beta, ale jej najważniejsze elementy już działają: misje i
+            osiągnięcia, system EXP, wersja Premium, tworzenie rodziny i wspólne wsparcie,
+            lekka i przyjazna forma. MissionHome rozwija się z każdym tygodniem – po to, by
+            codzienne obowiązki były prostsze, bardziej intuicyjne i mniej stresujące.
           </Text>
         </SectionCard>
 
@@ -235,23 +238,20 @@ const AboutAppScreen = () => {
           <SectionTitle
             icon="people-outline"
             title="2. Dla kogo jest aplikacja?"
-            subtitle="Jeśli czujesz, że ogarnianie domu i bieżących obowiązków wychodzi spod kontroli – koniecznie spróbuj MissionHome."
+            subtitle="Jeśli czujesz, że ogarnianie domu wymyka się spod kontroli – spróbuj MissionHome."
           />
 
           <Bullet>
-            dla par i rodzin, które chcą uczciwie dzielić się obowiązkami, a nie
-            kłócić o to, kto znowu wynosi śmieci,
+            dla par i rodzin, które chcą jasno dzielić się obowiązkami, zamiast kłócić się o to, kto znowu wynosi śmieci,
           </Bullet>
           <Bullet>
-          dla rodziców, którzy chcą w przystępny sposób przekazać dzieciom obowiązki,
+            dla rodziców, którzy chcą w prosty sposób wprowadzić dzieci w domowe zadania,
           </Bullet>
           <Bullet>
-            dla osób, które lubią mieć plan i widzieć postęp – także w domowym
-            chaosie,
+            dla osób, które lubią mieć plan i widzieć realny postęp – także w codziennych obowiązkach,
           </Bullet>
           <Bullet>
-            dla tych, którzy potrzebują delikatnej motywacji do sprzątania,
-            zmywania i innych „ulubionych” aktywności 😉
+            dla tych, którzy potrzebują delikatnej motywacji do sprzątania, zmywania i innych „ulubionych” aktywności 😉
           </Bullet>
         </SectionCard>
 
@@ -264,23 +264,26 @@ const AboutAppScreen = () => {
           />
 
           <Bullet>
-            Tworzenie zadań domowych jako misji z kategoriami, priorytetem i
-            terminem.
+            Tworzenie zadań domowych jako misji z kategoriami, priorytetem i terminem.
           </Bullet>
           <Bullet>
-            Przydzielanie misji domownikom w ramach jednej rodziny – każdy widzi
-            swoje zadania.
+          Proponowanie misji dnia — codzienne powiadomienie, które przy pierwszym logowaniu danego
+          dnia podpowiada gotowe zadania do ogarnięcia i pomaga zacząć dzień z energią.
           </Bullet>
           <Bullet>
-            Zbieranie EXP i poziomów za wykonane misje, dzięki czemu widać, kto
-            ile ogarnia.
+            Przydzielanie misji domownikom w ramach jednej rodziny – każdy widzi swoje zadania.
           </Bullet>
           <Bullet>
-          Widok miesiąca, który pozwala na weryfikację zadań domowników.
+            Zbieranie EXP i poziomów za wykonane misje, dzięki czemu widać, kto ile ogarnia.
           </Bullet>
           <Bullet>
-            Widok tygodnia, który pomaga zaplanować sprzątanie i inne domowe
-            rzeczy tak, żeby nie wszystko spadało na ostatni dzień.
+            Widok miesiąca, który pozwala na weryfikację zadań domowników.
+          </Bullet>
+          <Bullet>
+            Widok tygodnia, który pomaga zaplanować sprzątanie i inne domowe sprawy.
+          </Bullet>
+          <Bullet>
+            Wysyłanie wiadomości w obrębie członków rodziny, z filtrem wulgaryzmów.
           </Bullet>
 
           <View
@@ -290,9 +293,7 @@ const AboutAppScreen = () => {
               marginTop: 8,
             }}
           >
-            <Tag label="misje zamiast listy" />
-            <Tag label="rodzina w jednym miejscu" />
-            <Tag label="EXP i poziomy" />
+
           </View>
         </SectionCard>
 
@@ -301,24 +302,22 @@ const AboutAppScreen = () => {
           <SectionTitle
             icon="sparkles-outline"
             title="4. Co planujemy dalej?"
-            subtitle="Lista rzeczy, które mamy w roadmapie (i w głowie)."
+            subtitle="Rzeczy, które mamy w roadmapie."
           />
 
           <Bullet>
-            Więcej statystyk i podsumowań dla rodziny – kto co robi, jak często,
-            jak wygląda balans obowiązków.
+            bardziej rozbudowane statystyki rodzinne – czytelne podsumowania, które pokażą,
+            jak wygląda podział obowiązków,
           </Bullet>
           <Bullet>
-            Wspólne cele i nagrody za ogarnięte misje, żeby dało się świętować
-            nie tylko posprzątane mieszkanie.
+            wspólne cele i mini-nagrody dla domowników, żeby ogarnianie było czymś,
+            co naprawdę łączy,
           </Bullet>
           <Bullet>
-            Lepszą personalizację powiadomień, widoków i kategorii – tak, żeby
-            MissionHome dało się dopasować do Twojego domu, a nie odwrotnie.
+            pełna personalizacja aplikacji – własne kategorie, kolory, powiadomienia i widoki dopasowane do stylu Twojego domu,
           </Bullet>
           <Bullet>
-            Dodatkowe widoki i tryby (np. szybkie sprzątanie, misje sezonowe,
-            checklisty przed wyjazdem).
+            nowe tryby działania, m.in. misje sezonowe czy checklisty na wyjazdy.
           </Bullet>
         </SectionCard>
 
@@ -338,19 +337,17 @@ const AboutAppScreen = () => {
               marginBottom: 6,
             }}
           >
-            MissionHome jest aktualnie rozwijana małymi krokami. Możliwe, że
-            trafisz na drobne błędy, elementy niedokończone lub funkcje, które
-            zmienią się z czasem.
+            MissionHome rozwijamy małymi, regularnymi krokami - dlatego możesz natrafić
+            na drobne błędy lub funkcje, które wciąż dopracowujemy.
           </Text>
 
           <Bullet>
-            Jeśli coś nie działa, wygląda dziwnie albo masz pomysł, jak
-            uprościć życie w aplikacji – daj znać z poziomu ekranu kontaktu.
+            Jeśli coś nie działa, wygląda inaczej niż powinno lub masz pomysł na usprawnienie -
+            daj nam znać przez ekran kontaktu.
           </Bullet>
           <Bullet>
-            Twoje uwagi pomagają zdecydować, co rozwijać najpierw i które
-            pomysły mają największy sens w prawdziwym domu, a nie tylko na
-            makietach.
+            Twoje uwagi pomagają nam podejmować lepsze decyzje i tworzyć aplikację,
+            która odpowiada na potrzeby prawdziwych domów.
           </Bullet>
         </SectionCard>
 
@@ -373,8 +370,7 @@ const AboutAppScreen = () => {
               1.0.0 (beta)
             </Text>
             {"\n"}
-            Dzięki, że testujesz MissionHome 💛 – pomagasz ją dopiero
-            zbudować.
+            Dziękujemy, że testujesz MissionHome 💛 – pomagasz ją budować.
           </Text>
         </View>
       </ScrollView>

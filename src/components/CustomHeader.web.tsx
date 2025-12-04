@@ -1,3 +1,5 @@
+// src/components/CustomHeader.tsx
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -69,7 +71,7 @@ export default function CustomHeader() {
 
   const uid = user?.uid || null;
 
-  // 🔥 FIRESTORE USERNAME (users/{uid}.username)
+  // USERNAME
   const [username, setUsername] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,11 +95,12 @@ export default function CustomHeader() {
     return () => unsub();
   }, [uid]);
 
-  const fallbackName = user?.displayName || user?.email?.split("@")[0] || "Użytkownik";
+  const fallbackName =
+    user?.displayName || user?.email?.split("@")[0] || "Użytkownik";
   const shownName = username || fallbackName;
   const initials = getInitials(shownName);
 
-  // MENU PROFILU
+  // PROFILE MENU
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnim = useRef(new Animated.Value(0)).current;
 
@@ -111,13 +114,12 @@ export default function CustomHeader() {
     }).start();
   };
 
-  const closeMenu = () => {
+  const closeMenu = () =>
     Animated.timing(menuAnim, {
       toValue: 0,
       duration: 130,
       useNativeDriver: useNative,
     }).start(() => setMenuOpen(false));
-  };
 
   const toggleMenu = () => {
     if (menuOpen) closeMenu();
@@ -127,7 +129,7 @@ export default function CustomHeader() {
     }
   };
 
-  // NOTYFIKACJE
+  // NOTIFICATIONS PANEL
   const [notifsOpen, setNotifsOpen] = useState(false);
   const notifAnim = useRef(new Animated.Value(0)).current;
 
@@ -166,13 +168,12 @@ export default function CustomHeader() {
     }).start();
   };
 
-  const closeNotifs = () => {
+  const closeNotifs = () =>
     Animated.timing(notifAnim, {
       toValue: 0,
       duration: 130,
       useNativeDriver: useNative,
     }).start(() => setNotifsOpen(false));
-  };
 
   const toggleNotifs = () => {
     if (notifsOpen) closeNotifs();
@@ -314,21 +315,25 @@ export default function CustomHeader() {
       router.push(
         {
           pathname: "/family",
-          params: n.familyId ? { from: "notif", familyId: n.familyId } : { from: "notif" },
+          params: n.familyId
+            ? { from: "notif", familyId: n.familyId }
+            : { from: "notif" },
         } as any
       );
     }
   };
 
-  // NAV BUTTONS
+  // NAV BUTTON
   const NavButton = ({
     icon,
     label,
     route,
+    premium,
   }: {
     icon: keyof typeof Ionicons.glyphMap;
     label: string;
     route: string;
+    premium?: boolean;
   }) => {
     const active = pathname === route || pathname?.startsWith(route);
     const scale = useRef(new Animated.Value(1)).current;
@@ -341,6 +346,7 @@ export default function CustomHeader() {
         friction: 6,
         tension: 220,
       }).start();
+
     const onPressOut = () =>
       Animated.spring(scale, {
         toValue: 1,
@@ -363,7 +369,11 @@ export default function CustomHeader() {
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         {...hoverHandlers}
-        style={[styles.navBtn, hovered && styles.navBtnHover, active && styles.navBtnActive]}
+        style={[
+          styles.navBtn,
+          hovered && styles.navBtnHover,
+          active && styles.navBtnActive,
+        ]}
       >
         <Animated.View style={[styles.navInner, { transform: [{ scale }] }]}>
           <Ionicons
@@ -371,12 +381,29 @@ export default function CustomHeader() {
             size={18}
             color={active ? palette.navIconActive : palette.navIcon}
           />
-          <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text
+              style={[styles.navLabel, active && styles.navLabelActive]}
+            >
+              {label}
+            </Text>
+
+            {premium && (
+              <Ionicons
+                name="sparkles"
+                size={14}
+                color={ACCENT_PREMIUM}
+                style={{ marginTop: 1 }}
+              />
+            )}
+          </View>
         </Animated.View>
       </Pressable>
     );
   };
 
+  // MENU ITEM
   const MenuItem = ({
     icon,
     label,
@@ -388,9 +415,17 @@ export default function CustomHeader() {
   }) => (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+      style={({ pressed }) => [
+        styles.menuItem,
+        pressed && styles.menuItemPressed,
+      ]}
     >
-      <Ionicons name={icon} size={18} color={palette.menuText} style={{ marginRight: 8 }} />
+      <Ionicons
+        name={icon}
+        size={18}
+        color={palette.menuText}
+        style={{ marginRight: 8 }}
+      />
       <Text style={styles.menuItemText}>{label}</Text>
     </Pressable>
   );
@@ -398,13 +433,12 @@ export default function CustomHeader() {
   useEffect(() => {
     if (menuOpen) closeMenu();
     if (notifsOpen) closeNotifs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
+  // RENDER
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.main}>
-        {/* LEWO */}
         <View style={styles.left}>
           <Pressable onPress={() => router.push("/")} style={styles.logoWrap}>
             <Text style={styles.logoTop}>Mission</Text>
@@ -428,71 +462,164 @@ export default function CustomHeader() {
               pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
             ]}
           >
-            <Ionicons name="color-palette" size={18} color={palette.accent} />
+            <Ionicons
+              name="color-palette"
+              size={18}
+              color={palette.accent}
+            />
             {Platform.OS === "web" && (
-              <Text style={{ color: palette.text, fontWeight: "700" }}>{theme.toUpperCase()}</Text>
+              <Text
+                style={{ color: palette.text, fontWeight: "700" }}
+              >
+                {theme.toUpperCase()}
+              </Text>
             )}
           </Pressable>
         </View>
 
         {!user ? null : (
           <>
-            {/* ŚRODEK */}
             <View style={styles.center}>
-              <NavButton icon="calendar-outline" label="Kalendarz" route="/calendar" />
-              <NavButton icon="people-outline" label="Rodzina" route="/family" />
-              <NavButton icon="stats-chart-outline" label="Statystyki" route="/stats" />
-              <NavButton icon="trophy-outline" label="Osiągnięcia" route="/achievements" />
-              <NavButton icon="podium-outline" label="Ranking" route="/Ranking" />
+              <NavButton
+                icon="calendar-outline"
+                label="Kalendarz"
+                route="/calendar"
+              />
+
+              <NavButton
+                icon="people-outline"
+                label="Rodzina"
+                route="/family"
+                premium
+              />
+
+              <NavButton
+                icon="stats-chart-outline"
+                label="Statystyki"
+                route="/stats"
+              />
+
+              <NavButton
+                icon="trophy-outline"
+                label="Osiągnięcia"
+                route="/achievements"
+              />
+
+              <NavButton
+                icon="podium-outline"
+                label="Ranking"
+                route="/Ranking"
+              />
             </View>
 
-            {/* PRAWO */}
             <View style={styles.right}>
-              {/* ✅ Premium PRZED powiadomieniami */}
               <Pressable
                 onPress={() => router.push("/premium")}
-                style={({ pressed }) => [styles.premiumBtn, pressed && styles.premiumBtnPressed]}
+                style={({ pressed }) => [
+                  styles.premiumBtn,
+                  pressed && styles.premiumBtnPressed,
+                ]}
               >
-                <Ionicons name="sparkles" size={18} color={ACCENT_PREMIUM} />
-                {isWeb && <Text style={styles.premiumText}>Premium</Text>}
+                {isWeb && (
+                  <Text style={styles.premiumText}>Premium</Text>
+                )}
+
+                <Ionicons
+                  name="sparkles"
+                  size={18}
+                  color={ACCENT_PREMIUM}
+                />
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push("/messages")}
+                style={({ pressed }) => [
+                  styles.bellBtn,
+                  pressed && {
+                    opacity: 0.9,
+                    transform: [{ scale: 0.98 }],
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={20}
+                  color={palette.navIcon}
+                />
+
+                {isWeb && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={styles.bellLabel}>Wiadomości</Text>
+                    <Ionicons
+                      name="sparkles"
+                      size={14}
+                      color={ACCENT_PREMIUM}
+                    />
+                  </View>
+                )}
               </Pressable>
 
               <Pressable
                 onPress={toggleNotifs}
                 style={({ pressed }) => [
                   styles.bellBtn,
-                  pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                  pressed && {
+                    opacity: 0.9,
+                    transform: [{ scale: 0.98 }],
+                  },
                 ]}
               >
                 <View style={{ position: "relative" }}>
                   <Ionicons
-                    name={notifsOpen ? "notifications" : "notifications-outline"}
+                    name={
+                      notifsOpen ? "notifications" : "notifications-outline"
+                    }
                     size={20}
                     color={palette.navIcon}
                   />
                   <Badge count={unreadCount} />
                 </View>
-                {isWeb && <Text style={styles.bellLabel}>Powiadomienia</Text>}
+
+                {isWeb && (
+                  <Text style={styles.bellLabel}>Powiadomienia</Text>
+                )}
               </Pressable>
 
               <Pressable
                 onPress={toggleMenu}
-                style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}
+                style={({ pressed }) => [
+                  styles.profileBtn,
+                  pressed && styles.profileBtnPressed,
+                ]}
               >
-                {/* ✅ ramka avatara = theme border */}
                 <View style={styles.avatarOuter}>
                   <View style={styles.avatarInner}>
                     {user?.photoURL ? (
-                      <Image source={{ uri: user.photoURL }} style={styles.avatarImage} />
+                      <Image
+                        source={{ uri: user.photoURL }}
+                        style={styles.avatarImage}
+                      />
                     ) : (
                       <View style={styles.avatarFallback}>
-                        <Text style={styles.avatarFallbackText}>{initials}</Text>
+                        <Text style={styles.avatarFallbackText}>
+                          {initials}
+                        </Text>
                       </View>
                     )}
                   </View>
                 </View>
 
-                <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
+                <Text
+                  style={styles.profileName}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {shownName}
                 </Text>
 
@@ -507,9 +634,14 @@ export default function CustomHeader() {
         )}
       </View>
 
+      {/* MENU DROPDOWN */}
       {user && menuOpen && (
         <>
-          <Pressable style={styles.backdrop} onPress={closeMenu} pointerEvents="auto" />
+          <Pressable
+            style={styles.backdrop}
+            onPress={closeMenu}
+            pointerEvents="auto"
+          />
 
           <Animated.View
             pointerEvents="box-none"
@@ -535,34 +667,34 @@ export default function CustomHeader() {
             ]}
           >
             <MenuItem
-                    icon="person-outline"
-                    label="Profil"
-                    onPress={() => {
-                      closeMenu();
-                      router.push("/Profile");
-                    }}
-                  />
-        <MenuItem
-          icon="settings-outline"
-          label="Ustawienia"
-          onPress={() => {
-            closeMenu();
-            router.push("/settings");
-          }}
-        />
+              icon="person-outline"
+              label="Profil"
+              onPress={() => {
+                closeMenu();
+                router.push("/Profile");
+              }}
+            />
 
-        <MenuItem
-          icon="bug-outline"
-          label="Zgłoś błąd"
-          onPress={() => {
-            closeMenu();
-            router.push("/bug");
-          }}
-        />
+            <MenuItem
+              icon="settings-outline"
+              label="Ustawienia"
+              onPress={() => {
+                closeMenu();
+                router.push("/settings");
+              }}
+            />
 
-
+            <MenuItem
+              icon="bug-outline"
+              label="Zgłoś błąd"
+              onPress={() => {
+                closeMenu();
+                router.push("/bug");
+              }}
+            />
 
             <View style={styles.menuSeparator} />
+
             <MenuItem
               icon="log-out-outline"
               label="Wyloguj"
@@ -578,9 +710,14 @@ export default function CustomHeader() {
         </>
       )}
 
+      {/* NOTIFICATION PANEL */}
       {user && notifsOpen && (
         <>
-          <Pressable style={styles.backdrop} onPress={closeNotifs} pointerEvents="auto" />
+          <Pressable
+            style={styles.backdrop}
+            onPress={closeNotifs}
+            pointerEvents="auto"
+          />
 
           <Animated.View
             pointerEvents="box-none"
@@ -630,10 +767,15 @@ export default function CustomHeader() {
               </View>
             ) : notifRows.length === 0 ? (
               <View style={styles.notifLoading}>
-                <Text style={{ color: palette.muted }}>Brak powiadomień</Text>
+                <Text style={{ color: palette.muted }}>
+                  Brak powiadomień
+                </Text>
               </View>
             ) : (
-              <ScrollView style={styles.notifScroll} contentContainerStyle={styles.notifList}>
+              <ScrollView
+                style={styles.notifScroll}
+                contentContainerStyle={styles.notifList}
+              >
                 {notifRows.map((n) => {
                   const icon = notifIconFor(n.type);
                   const unread = !n.read;
@@ -643,7 +785,10 @@ export default function CustomHeader() {
                       key={n.id}
                       activeOpacity={0.92}
                       onPress={() => handleNotifPress(n)}
-                      style={[styles.notifRow, unread && styles.notifRowUnread]}
+                      style={[
+                        styles.notifRow,
+                        unread && styles.notifRowUnread,
+                      ]}
                     >
                       <Ionicons
                         name={icon as any}
@@ -651,6 +796,7 @@ export default function CustomHeader() {
                         color={unread ? ACCENT_NOTIF : palette.navIcon}
                         style={{ marginRight: 10 }}
                       />
+
                       <View style={{ flex: 1 }}>
                         <Text
                           numberOfLines={1}
@@ -663,7 +809,10 @@ export default function CustomHeader() {
                         </Text>
 
                         {!!n.body && (
-                          <Text numberOfLines={2} style={styles.notifRowBody}>
+                          <Text
+                            numberOfLines={2}
+                            style={styles.notifRowBody}
+                          >
                             {n.body}
                           </Text>
                         )}
@@ -676,23 +825,33 @@ export default function CustomHeader() {
               </ScrollView>
             )}
 
+            {/* FOOTER — BUTTON „Zobacz wszystkie” USUNIĘTY */}
             <View style={styles.notifFooter}>
+
+              {/* ❌ REMOVED BUTTON
               <TouchableOpacity
                 onPress={() => {
                   closeNotifs();
-                  router.push("/notifications" as any);
+                  router.push("/notifications");
                 }}
                 activeOpacity={0.9}
-                style={[styles.footerBtn, { backgroundColor: ACCENT_NOTIF }]}
+                style={[
+                  styles.footerBtn,
+                  { backgroundColor: ACCENT_NOTIF },
+                ]}
               >
                 <Ionicons name="open-outline" size={14} color="#fff" />
                 <Text style={styles.footerBtnText}>Zobacz wszystkie</Text>
               </TouchableOpacity>
+              */}
 
               <TouchableOpacity
                 onPress={clearVisible}
                 activeOpacity={0.9}
-                style={[styles.footerBtn, { backgroundColor: "#6B7280" }]}
+                style={[
+                  styles.footerBtn,
+                  { backgroundColor: "#6B7280" },
+                ]}
               >
                 <Ionicons name="trash-outline" size={14} color="#fff" />
                 <Text style={styles.footerBtnText}>Wyczyść</Text>
@@ -757,10 +916,8 @@ function makePalette({
     menuText: isDark ? "#e5e7eb" : "#0f172a",
     menuItemHover: isDark ? "rgba(15,23,42,0.92)" : "rgba(15,23,42,0.04)",
 
-    // ✅ było #dbeafe i robiło “niebieski chip” na każdym jasnym theme
     chipBg: colors.card,
 
-    // ✅ avatar ring = ten sam kolor co theme border (spójnie z resztą ramek)
     avatarRing: colors.border,
     avatarBg: colors.card,
     avatarText: colors.text,
@@ -790,13 +947,22 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       paddingVertical: 6,
     },
 
-    left: { flexDirection: "row", alignItems: "center", gap: 10 },
+    left: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
     logoWrap: {
       paddingRight: 6,
       paddingVertical: 4,
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    logoTop: { fontSize: 18, fontWeight: "900", color: palette.text, lineHeight: 18 },
+    logoTop: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: palette.text,
+      lineHeight: 18,
+    },
     logoBottom: {
       fontSize: 18,
       fontWeight: "900",
@@ -805,7 +971,13 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       marginTop: -2,
     },
 
-    center: { flex: 1, flexDirection: "row", alignItems: "center", marginLeft: 20, gap: 18 },
+    center: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      marginLeft: 20,
+      gap: 18,
+    },
 
     navBtn: {
       borderRadius: 999,
@@ -813,8 +985,12 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       paddingVertical: 2,
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    navBtnHover: { backgroundColor: "rgba(15,23,42,0.12)" },
-    navBtnActive: { backgroundColor: "rgba(15,23,42,0.18)" },
+    navBtnHover: {
+      backgroundColor: "rgba(15,23,42,0.12)",
+    },
+    navBtnActive: {
+      backgroundColor: "rgba(15,23,42,0.18)",
+    },
 
     navInner: {
       flexDirection: "row",
@@ -823,10 +999,22 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       paddingHorizontal: 6,
       paddingVertical: 4,
     },
-    navLabel: { fontSize: 14, color: palette.navText, fontWeight: "600" },
-    navLabelActive: { color: palette.navTextActive, fontWeight: "700" },
+    navLabel: {
+      fontSize: 14,
+      color: palette.navText,
+      fontWeight: "600",
+    },
+    navLabelActive: {
+      color: palette.navTextActive,
+      fontWeight: "700",
+    },
 
-    right: { flexDirection: "row", alignItems: "center", gap: 10, marginLeft: 12 },
+    right: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginLeft: 12,
+    },
 
     bellBtn: {
       position: "relative",
@@ -841,7 +1029,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       backgroundColor: "transparent",
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    bellLabel: { fontSize: 14, fontWeight: "700", color: palette.text },
+    bellLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: palette.text,
+    },
 
     badge: {
       position: "absolute",
@@ -856,7 +1048,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       alignItems: "center",
       borderWidth: 2,
     },
-    badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
+    badgeText: {
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: "900",
+    },
 
     premiumBtn: {
       flexDirection: "row",
@@ -868,8 +1064,15 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       backgroundColor: "transparent",
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    premiumBtnPressed: { opacity: 0.9, transform: [{ scale: 0.97 }] },
-    premiumText: { fontSize: 14, fontWeight: "700", color: ACCENT_PREMIUM },
+    premiumBtnPressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.97 }],
+    },
+    premiumText: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: ACCENT_PREMIUM,
+    },
 
     profileBtn: {
       flexDirection: "row",
@@ -883,9 +1086,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       borderColor: palette.border,
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    profileBtnPressed: { opacity: 0.9, transform: [{ scale: 0.97 }] },
+    profileBtnPressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.97 }],
+    },
 
-    // ✅ avatar ring
     avatarOuter: {
       width: 30,
       height: 30,
@@ -901,7 +1106,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       justifyContent: "center",
       alignItems: "center",
     },
-    avatarImage: { width: "100%", height: "100%" },
+    avatarImage: {
+      width: "100%",
+      height: "100%",
+    },
+
     avatarFallback: {
       width: "100%",
       height: "100%",
@@ -910,7 +1119,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       justifyContent: "center",
       alignItems: "center",
     },
-    avatarFallbackText: { color: palette.avatarText, fontSize: 11, fontWeight: "800" },
+    avatarFallbackText: {
+      color: palette.avatarText,
+      fontSize: 11,
+      fontWeight: "800",
+    },
 
     profileName: {
       fontSize: 14,
@@ -940,12 +1153,29 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       borderWidth: 1,
       borderColor: palette.menuBorder,
       zIndex: 1000,
-      ...(isWeb ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any) : null),
+      ...(isWeb
+        ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any)
+        : null),
     },
-    menuItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 9 },
-    menuItemPressed: { backgroundColor: palette.menuItemHover },
-    menuItemText: { fontSize: 14, fontWeight: "600", color: palette.menuText },
-    menuSeparator: { height: 1, marginVertical: 4, backgroundColor: palette.menuBorder },
+    menuItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    menuItemPressed: {
+      backgroundColor: palette.menuItemHover,
+    },
+    menuItemText: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: palette.menuText,
+    },
+    menuSeparator: {
+      height: 1,
+      marginVertical: 4,
+      backgroundColor: palette.menuBorder,
+    },
 
     notifPanel: {
       position: "absolute",
@@ -959,7 +1189,9 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       borderColor: palette.menuBorder,
       overflow: "hidden",
       zIndex: 1001,
-      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any) : null),
+      ...(isWeb
+        ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any)
+        : null),
     },
 
     notifHeader: {
@@ -970,7 +1202,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       justifyContent: "space-between",
       gap: 10,
     },
-    notifTitle: { color: palette.text, fontSize: 15, fontWeight: "900" },
+    notifTitle: {
+      color: palette.text,
+      fontSize: 15,
+      fontWeight: "900",
+    },
     notifAction: {
       flexDirection: "row",
       alignItems: "center",
@@ -980,14 +1216,29 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       paddingHorizontal: 10,
       borderRadius: 999,
     },
-    notifActionText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+    notifActionText: {
+      color: "#fff",
+      fontWeight: "900",
+      fontSize: 12,
+    },
 
-    notifSeparator: { height: 1, backgroundColor: palette.menuBorder },
+    notifSeparator: {
+      height: 1,
+      backgroundColor: palette.menuBorder,
+    },
 
-    notifLoading: { paddingVertical: 18, alignItems: "center", justifyContent: "center" },
+    notifLoading: {
+      paddingVertical: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-    notifScroll: { maxHeight: 360 },
-    notifList: { paddingVertical: 6 },
+    notifScroll: {
+      maxHeight: 360,
+    },
+    notifList: {
+      paddingVertical: 6,
+    },
 
     notifRow: {
       flexDirection: "row",
@@ -999,10 +1250,20 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       gap: 6,
     },
     notifRowUnread: {
-      backgroundColor: isWeb ? "rgba(47,107,255,0.06)" : "rgba(47,107,255,0.08)",
+      backgroundColor: isWeb
+        ? "rgba(47,107,255,0.06)"
+        : "rgba(47,107,255,0.08)",
     },
-    notifRowTitle: { color: palette.text, fontSize: 13 },
-    notifRowBody: { color: palette.muted, marginTop: 2, fontSize: 12, lineHeight: 16 },
+    notifRowTitle: {
+      color: palette.text,
+      fontSize: 13,
+    },
+    notifRowBody: {
+      color: palette.muted,
+      marginTop: 2,
+      fontSize: 12,
+      lineHeight: 16,
+    },
 
     dot: {
       width: 10,
@@ -1030,7 +1291,10 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       justifyContent: "center",
       gap: 8,
     },
-    footerBtnText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+    footerBtnText: {
+      color: "#fff",
+      fontWeight: "900",
+      fontSize: 12,
+    },
   });
 }
-//src/components/CustomHeader.tsx

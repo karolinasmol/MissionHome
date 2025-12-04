@@ -747,7 +747,7 @@ export default function ProfileScreen() {
                 }}
               >
                 {showStats
-                  ? "Twoje statystyki są widoczne dla innych domowników (np. w Rankingu)."
+                  ? "Twoje statystyki są widoczne dla innych osób (np. w Rankingu)."
                   : "Twoje statystyki są ukryte – inni zobaczą tylko Twój poziom i EXP w Rankingu."}
               </Text>
             )}

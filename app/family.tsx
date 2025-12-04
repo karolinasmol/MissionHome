@@ -86,9 +86,12 @@ const MAX_FAMILY = 6;
 const ERROR_COLOR = "#dc2626";
 
 const isProbablyEmail = (val: string) => /@/.test(val);
-const safeInitial = (name?: string) => (name?.trim()?.[0] ? name.trim()[0].toUpperCase() : "?");
+const safeInitial = (name?: string) =>
+  name?.trim()?.[0] ? name.trim()[0].toUpperCase() : "?";
 
-const displayNameOf = (u?: Partial<UserLite> | Partial<UserProfileSnap> | null) => {
+const displayNameOf = (
+  u?: Partial<UserLite> | Partial<UserProfileSnap> | null
+) => {
   const dn = (u?.displayName || "").trim();
   const un = (u?.username || "").trim();
   const em = (u?.email || "").trim();
@@ -117,7 +120,11 @@ function normalizeUserDoc(docId: string, data: any): UserLite {
     username: data?.username ?? data?.nick ?? "",
     usernameLower:
       data?.usernameLower ??
-      (data?.username ? String(data.username).toLowerCase() : data?.nick ? String(data.nick).toLowerCase() : ""),
+      (data?.username
+        ? String(data.username).toLowerCase()
+        : data?.nick
+        ? String(data.nick).toLowerCase()
+        : ""),
     email: data?.email ?? "",
     photoURL: data?.photoURL ?? null,
     city: data?.city ?? data?.locationCity ?? data?.town ?? "",
@@ -141,19 +148,29 @@ function toDateSafe(v: any): Date | null {
   }
 }
 
-async function resolveUserByEmailOrNick(identifierRaw: string): Promise<UserLite | null> {
+async function resolveUserByEmailOrNick(
+  identifierRaw: string
+): Promise<UserLite | null> {
   const identifier = (identifierRaw || "").trim();
   if (!identifier) return null;
 
   if (isProbablyEmail(identifier)) {
     const emailLower = identifier.toLowerCase();
 
-    const qEmailLower = query(collection(db, "users"), where("email", "==", emailLower), limit(1));
+    const qEmailLower = query(
+      collection(db, "users"),
+      where("email", "==", emailLower),
+      limit(1)
+    );
     const sLower = await getDocs(qEmailLower);
     if (!sLower.empty) return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
 
     // fallback: jeśli ktoś ma w bazie email nie znormalizowany
-    const qEmailRaw = query(collection(db, "users"), where("email", "==", identifier), limit(1));
+    const qEmailRaw = query(
+      collection(db, "users"),
+      where("email", "==", identifier),
+      limit(1)
+    );
     const sRaw = await getDocs(qEmailRaw);
     if (!sRaw.empty) return normalizeUserDoc(sRaw.docs[0].id, sRaw.docs[0].data());
 
@@ -161,7 +178,11 @@ async function resolveUserByEmailOrNick(identifierRaw: string): Promise<UserLite
   }
 
   const nickLower = identifier.toLowerCase();
-  const qNick = query(collection(db, "users"), where("usernameLower", "==", nickLower), limit(1));
+  const qNick = query(
+    collection(db, "users"),
+    where("usernameLower", "==", nickLower),
+    limit(1)
+  );
   const sNick = await getDocs(qNick);
   if (sNick.empty) return null;
   return normalizeUserDoc(sNick.docs[0].id, sNick.docs[0].data());
@@ -196,10 +217,14 @@ function FeedbackModal({
     state.variant === "success"
       ? "checkmark-circle"
       : state.variant === "error"
-        ? "close-circle"
-        : "information-circle";
+      ? "close-circle"
+      : "information-circle";
   const iconColor =
-    state.variant === "success" ? "#22c55e" : state.variant === "error" ? "#ef4444" : colors.accent;
+    state.variant === "success"
+      ? "#22c55e"
+      : state.variant === "error"
+      ? "#ef4444"
+      : colors.accent;
 
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
@@ -227,7 +252,14 @@ function FeedbackModal({
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Ionicons name={icon as any} size={26} color={iconColor} />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 16,
+                flex: 1,
+              }}
+            >
               {state.title}
             </Text>
             <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
@@ -236,7 +268,13 @@ function FeedbackModal({
           </View>
 
           {!!state.message && (
-            <Text style={{ color: colors.textMuted, marginTop: 10, lineHeight: 18 }}>
+            <Text
+              style={{
+                color: colors.textMuted,
+                marginTop: 10,
+                lineHeight: 18,
+              }}
+            >
               {state.message}
             </Text>
           )}
@@ -319,7 +357,14 @@ function ConfirmModal({
               size={26}
               color={destructive ? ERROR_COLOR : colors.accent}
             />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16, flex: 1 }}>
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 16,
+                flex: 1,
+              }}
+            >
               {state.title}
             </Text>
             <TouchableOpacity onPress={onCancel} style={{ padding: 6 }}>
@@ -328,12 +373,25 @@ function ConfirmModal({
           </View>
 
           {!!state.message && (
-            <Text style={{ color: colors.textMuted, marginTop: 10, lineHeight: 18 }}>
+            <Text
+              style={{
+                color: colors.textMuted,
+                marginTop: 10,
+                lineHeight: 18,
+              }}
+            >
               {state.message}
             </Text>
           )}
 
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              gap: 10,
+              marginTop: 16,
+            }}
+          >
             <TouchableOpacity
               onPress={onCancel}
               style={{
@@ -344,7 +402,9 @@ function ConfirmModal({
                 borderColor: colors.border,
               }}
             >
-              <Text style={{ color: colors.textMuted, fontWeight: "800" }}>{cancelLabel}</Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "800" }}>
+                {cancelLabel}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -356,7 +416,12 @@ function ConfirmModal({
                 backgroundColor: destructive ? ERROR_COLOR : colors.accent,
               }}
             >
-              <Text style={{ color: destructive ? "#fef2f2" : "#022c22", fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: destructive ? "#fef2f2" : "#022c22",
+                  fontWeight: "900",
+                }}
+              >
                 {confirmLabel}
               </Text>
             </TouchableOpacity>
@@ -384,7 +449,9 @@ export default function FamilyScreen() {
   ) => setModal({ visible: true, title, message, variant });
 
   // confirm modal state (usuń / opuść)
-  const [confirmState, setConfirmState] = useState<ConfirmModalState>({ visible: false });
+  const [confirmState, setConfirmState] = useState<ConfirmModalState>({
+    visible: false,
+  });
   const confirmActionRef = useRef<null | (() => void)>(null);
 
   const openConfirm = (
@@ -442,7 +509,9 @@ export default function FamilyScreen() {
       (snap) => {
         const data: any = snap.data() || {};
         // jeśli nie ma ownerId, a u Was familyId == uid ownera -> fallback na ID dokumentu
-        const owner = String(data?.ownerId || data?.ownerUid || data?.createdBy || snap.id || "");
+        const owner = String(
+          data?.ownerId || data?.ownerUid || data?.createdBy || snap.id || ""
+        );
         setFamilyOwnerId(owner || null);
       },
       () => {
@@ -517,15 +586,24 @@ export default function FamilyScreen() {
   const myProfileReady = !!myUid && !!myProfile && !!myUserDocId;
 
   // członek może wyjść; owner nie ma w UI opcji wyjścia
-  const iBelongToFamily = !!familyId && !!myUid && (memberIds.has(myUid) || String(localFamilyId || "") === String(familyId));
-  const canLeaveFamily = !!familyId && !!myUid && !!myUserDocId && iBelongToFamily;
+  const iBelongToFamily =
+    !!familyId &&
+    !!myUid &&
+    (memberIds.has(myUid) ||
+      String(localFamilyId || "") === String(familyId));
+  const canLeaveFamily =
+    !!familyId && !!myUid && !!myUserDocId && iBelongToFamily;
 
   // ==========================
   // FRIENDS state
   // ==========================
   const [friendsAccepted, setFriendsAccepted] = useState<FriendshipDoc[]>([]);
-  const [friendReqIncoming, setFriendReqIncoming] = useState<FriendshipDoc[]>([]);
-  const [friendReqOutgoing, setFriendReqOutgoing] = useState<FriendshipDoc[]>([]);
+  const [friendReqIncoming, setFriendReqIncoming] = useState<FriendshipDoc[]>(
+    []
+  );
+  const [friendReqOutgoing, setFriendReqOutgoing] = useState<FriendshipDoc[]>(
+    []
+  );
   const [friendActionId, setFriendActionId] = useState<string | null>(null);
 
   const friendUidSet = useMemo(() => {
@@ -539,11 +617,17 @@ export default function FamilyScreen() {
 
   const findBetween = (uidA: string, uidB: string) => {
     const id = friendshipId(uidA, uidB);
-    const all = [...friendsAccepted, ...friendReqIncoming, ...friendReqOutgoing];
+    const all = [
+      ...friendsAccepted,
+      ...friendReqIncoming,
+      ...friendReqOutgoing,
+    ];
     return all.find((x) => x.id === id) || null;
   };
 
-  const otherProfileFromFriendship = (f: FriendshipDoc): UserProfileSnap | null => {
+  const otherProfileFromFriendship = (
+    f: FriendshipDoc
+  ): UserProfileSnap | null => {
     if (!myUid) return null;
     if (f.aUid === myUid) return (f.bProfile as any) || null;
     if (f.bUid === myUid) return (f.aProfile as any) || null;
@@ -553,11 +637,18 @@ export default function FamilyScreen() {
   // ==========================
   // FAMILY invites (MAX)
   // ==========================
-  const [familyInvIncoming, setFamilyInvIncoming] = useState<FamilyInviteDoc[]>([]);
-  const [familyInvOutgoing, setFamilyInvOutgoing] = useState<FamilyInviteDoc[]>([]);
-  const [familyInvActionId, setFamilyInvActionId] = useState<string | null>(null);
+  const [familyInvIncoming, setFamilyInvIncoming] = useState<FamilyInviteDoc[]>(
+    []
+  );
+  const [familyInvOutgoing, setFamilyInvOutgoing] = useState<FamilyInviteDoc[]>(
+    []
+  );
+  const [familyInvActionId, setFamilyInvActionId] = useState<string | null>(
+    null
+  );
 
-  const [familyMemberActionUid, setFamilyMemberActionUid] = useState<string | null>(null);
+  const [familyMemberActionUid, setFamilyMemberActionUid] =
+    useState<string | null>(null);
   const [familySelfActionBusy, setFamilySelfActionBusy] = useState(false);
 
   const pendingFamilyTo = useMemo(() => {
@@ -610,7 +701,10 @@ export default function FamilyScreen() {
               );
               return;
             } catch (e: any) {
-              console.warn("auto-create /users/{uid} failed:", e?.message || e);
+              console.warn(
+                "auto-create /users/{uid} failed:",
+                e?.message || e
+              );
             }
           }
 
@@ -640,7 +734,8 @@ export default function FamilyScreen() {
           displayName: me.displayName || auth.currentUser?.displayName || "",
           username: me.username || "",
           email: me.email || auth.currentUser?.email || "",
-          photoURL: me.photoURL || (auth.currentUser?.photoURL as any) || null,
+          photoURL:
+            me.photoURL || (auth.currentUser?.photoURL as any) || null,
           city: me.city || "",
         });
       },
@@ -676,7 +771,9 @@ export default function FamilyScreen() {
     if (token !== acceptedRefreshTokenRef.current) return;
 
     const filtered = checked.filter(Boolean) as FriendshipDoc[];
-    filtered.sort((a: any, b: any) => (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0));
+    filtered.sort(
+      (a: any, b: any) => (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
+    );
     setFriendsAccepted(filtered);
   };
 
@@ -684,46 +781,82 @@ export default function FamilyScreen() {
     if (!myUid) return;
 
     // --- INCOMING FRIEND REQUESTS ---
-    const qIn = query(collection(db, "friendships"), where("requestedTo", "==", myUid), limit(200));
+    const qIn = query(
+      collection(db, "friendships"),
+      where("requestedTo", "==", myUid),
+      limit(200)
+    );
     const unsubIn = onSnapshot(
       qIn,
       (snap) => {
-        const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FriendshipDoc[];
+        const all = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FriendshipDoc[];
         setFriendReqIncoming(
           all
             .filter((x) => x.status === "pending")
-            .sort((a: any, b: any) => (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0))
+            .sort(
+              (a: any, b: any) =>
+                (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0)
+            )
         );
       },
       (err) => {
         console.warn("friend incoming snapshot error:", err);
-        showModal("Błąd subskrypcji", err?.message || "Nie mogę odczytać zaproszeń (rules).", "error");
+        showModal(
+          "Błąd subskrypcji",
+          err?.message || "Nie mogę odczytać zaproszeń (rules).",
+          "error"
+        );
         setFriendReqIncoming([]);
       }
     );
 
     // --- OUTGOING FRIEND REQUESTS ---
-    const qOut = query(collection(db, "friendships"), where("requestedBy", "==", myUid), limit(200));
+    const qOut = query(
+      collection(db, "friendships"),
+      where("requestedBy", "==", myUid),
+      limit(200)
+    );
     const unsubOut = onSnapshot(
       qOut,
       (snap) => {
-        const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FriendshipDoc[];
+        const all = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FriendshipDoc[];
         setFriendReqOutgoing(
           all
             .filter((x) => x.status === "pending")
-            .sort((a: any, b: any) => (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0))
+            .sort(
+              (a: any, b: any) =>
+                (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0)
+            )
         );
       },
       (err) => {
         console.warn("friend outgoing snapshot error:", err);
-        showModal("Błąd subskrypcji", err?.message || "Nie mogę odczytać wysłanych (rules).", "error");
+        showModal(
+          "Błąd subskrypcji",
+          err?.message || "Nie mogę odczytać wysłanych (rules).",
+          "error"
+        );
         setFriendReqOutgoing([]);
       }
     );
 
     // --- ACCEPTED FRIENDSHIPS ---
-    const qAccA = query(collection(db, "friendships"), where("aUid", "==", myUid), limit(400));
-    const qAccB = query(collection(db, "friendships"), where("bUid", "==", myUid), limit(400));
+    const qAccA = query(
+      collection(db, "friendships"),
+      where("aUid", "==", myUid),
+      limit(400)
+    );
+    const qAccB = query(
+      collection(db, "friendships"),
+      where("bUid", "==", myUid),
+      limit(400)
+    );
 
     const mergeAccepted = (arr: FriendshipDoc[]) => {
       arr.forEach((x) => acceptedMapRef.current.set(x.id, x));
@@ -733,12 +866,19 @@ export default function FamilyScreen() {
     const unsubA = onSnapshot(
       qAccA,
       (snap) => {
-        const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FriendshipDoc[];
+        const arr = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FriendshipDoc[];
         mergeAccepted(arr);
       },
       (err) => {
         console.warn("friend accepted A snapshot error:", err);
-        showModal("Błąd subskrypcji", err?.message || "Nie mogę odczytać znajomych (rules).", "error");
+        showModal(
+          "Błąd subskrypcji",
+          err?.message || "Nie mogę odczytać znajomych (rules).",
+          "error"
+        );
         setFriendsAccepted([]);
       }
     );
@@ -746,12 +886,19 @@ export default function FamilyScreen() {
     const unsubB = onSnapshot(
       qAccB,
       (snap) => {
-        const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FriendshipDoc[];
+        const arr = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FriendshipDoc[];
         mergeAccepted(arr);
       },
       (err) => {
         console.warn("friend accepted B snapshot error:", err);
-        showModal("Błąd subskrypcji", err?.message || "Nie mogę odczytać znajomych (rules).", "error");
+        showModal(
+          "Błąd subskrypcji",
+          err?.message || "Nie mogę odczytać znajomych (rules).",
+          "error"
+        );
         setFriendsAccepted([]);
       }
     );
@@ -776,13 +923,23 @@ export default function FamilyScreen() {
     }
 
     const unsubIn = onSnapshot(
-      query(collection(db, "family_invites"), where("toUserId", "==", myUid), limit(200)),
+      query(
+        collection(db, "family_invites"),
+        where("toUserId", "==", myUid),
+        limit(200)
+      ),
       (snap) => {
-        const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FamilyInviteDoc[];
+        const all = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FamilyInviteDoc[];
         setFamilyInvIncoming(
           all
             .filter((x) => x.status === "pending")
-            .sort((a: any, b: any) => (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0))
+            .sort(
+              (a: any, b: any) =>
+                (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0)
+            )
         );
       },
       (err) => {
@@ -793,13 +950,23 @@ export default function FamilyScreen() {
 
     // outgoing: tylko moje (czyli ownera, bo owner tylko może wysyłać)
     const unsubOut = onSnapshot(
-      query(collection(db, "family_invites"), where("fromUserId", "==", myUid), limit(200)),
+      query(
+        collection(db, "family_invites"),
+        where("fromUserId", "==", myUid),
+        limit(200)
+      ),
       (snap) => {
-        const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as FamilyInviteDoc[];
+        const all = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as FamilyInviteDoc[];
         setFamilyInvOutgoing(
           all
             .filter((x) => x.status === "pending")
-            .sort((a: any, b: any) => (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0))
+            .sort(
+              (a: any, b: any) =>
+                (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0)
+            )
         );
       },
       (err) => {
@@ -821,7 +988,9 @@ export default function FamilyScreen() {
   const [qPicked, setQPicked] = useState<UserLite | null>(null);
 
   const [typeahead, setTypeahead] = useState<UserLite[]>([]);
-  const [typeaheadStatus, setTypeaheadStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [typeaheadStatus, setTypeaheadStatus] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
   const [typeaheadErr, setTypeaheadErr] = useState("");
 
   const [inputFocused, setInputFocused] = useState(false);
@@ -950,7 +1119,12 @@ export default function FamilyScreen() {
   // ====== friend actions ======
   const sendFriendRequest = async (u: UserLite) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myProfile) return showModal("Brak profilu", "Brakuje Twojego profilu z /users.", "error");
+    if (!myProfile)
+      return showModal(
+        "Brak profilu",
+        "Brakuje Twojego profilu z /users.",
+        "error"
+      );
 
     const toUid = String(u.uid || "");
     if (!toUid) return;
@@ -963,8 +1137,10 @@ export default function FamilyScreen() {
         "info"
       );
     }
-    if (existing?.status === "accepted") return showModal("Info", "Jesteście już znajomymi.", "info");
-    if (existing?.status === "pending") return showModal("Info", "Zaproszenie już jest w toku.", "info");
+    if (existing?.status === "accepted")
+      return showModal("Info", "Jesteście już znajomymi.", "info");
+    if (existing?.status === "pending")
+      return showModal("Info", "Zaproszenie już jest w toku.", "info");
 
     const id = friendshipId(myUid, toUid);
     const [a, b] = [myUid, toUid].sort();
@@ -1000,9 +1176,17 @@ export default function FamilyScreen() {
         },
         { merge: true }
       );
-      showModal("Wysłano ✅", "Zaproszenie do znajomych zostało wysłane.", "success");
+      showModal(
+        "Wysłano ✅",
+        "Zaproszenie do znajomych zostało wysłane.",
+        "success"
+      );
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się wysłać zaproszenia.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się wysłać zaproszenia.",
+        "error"
+      );
     } finally {
       setFriendActionId(null);
     }
@@ -1017,7 +1201,11 @@ export default function FamilyScreen() {
       });
       showModal("Dodano ✅", "Jesteście znajomymi.", "success");
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się zaakceptować.",
+        "error"
+      );
     } finally {
       setFriendActionId(null);
     }
@@ -1031,7 +1219,11 @@ export default function FamilyScreen() {
         updatedAt: serverTimestamp(),
       });
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się odrzucić.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się odrzucić.",
+        "error"
+      );
     } finally {
       setFriendActionId(null);
     }
@@ -1046,7 +1238,11 @@ export default function FamilyScreen() {
       });
       showModal("OK", "Cofnięto zaproszenie.", "success");
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się cofnąć.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się cofnąć.",
+        "error"
+      );
     } finally {
       setFriendActionId(null);
     }
@@ -1061,7 +1257,11 @@ export default function FamilyScreen() {
       });
       showModal("Usunięto ✅", "Usunięto znajomego.", "success");
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się usunąć znajomego.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się usunąć znajomego.",
+        "error"
+      );
     } finally {
       setFriendActionId(null);
     }
@@ -1072,7 +1272,9 @@ export default function FamilyScreen() {
     openConfirm(
       {
         title: "Usunąć znajomego?",
-        message: `Na pewno chcesz usunąć ${displayNameOf(other)} ze znajomych?`,
+        message: `Na pewno chcesz usunąć ${displayNameOf(
+          other
+        )} ze znajomych?`,
         confirmLabel: "Tak, usuń",
         cancelLabel: "Nie",
         destructive: true,
@@ -1084,7 +1286,12 @@ export default function FamilyScreen() {
   // ====== Family MAX actions ======
   const createFamilyMax = async () => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy dokumentu w /users.", "error");
+    if (!myUserDocId)
+      return showModal(
+        "Brak profilu",
+        "Nie znaleźliśmy dokumentu w /users.",
+        "error"
+      );
     if (!isPremium) return router.push("/premium");
 
     try {
@@ -1111,7 +1318,12 @@ export default function FamilyScreen() {
       // ✅ owner zawsze "owner"
       batch.set(
         doc(db, "families", fid, "members", myUid),
-        { userId: myUid, role: "owner", joinedAt: serverTimestamp(), updatedAt: serverTimestamp() },
+        {
+          userId: myUid,
+          role: "owner",
+          joinedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
         { merge: true }
       );
 
@@ -1123,9 +1335,17 @@ export default function FamilyScreen() {
 
       await batch.commit();
       setLocalFamilyId(fid);
-      showModal("Gotowe ✅", "Utworzono rodzinę MAX. Możesz zapraszać znajomych.", "success");
+      showModal(
+        "Gotowe ✅",
+        "Utworzono rodzinę MAX. Możesz zapraszać znajomych.",
+        "success"
+      );
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się utworzyć rodziny.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się utworzyć rodziny.",
+        "error"
+      );
     }
   };
 
@@ -1136,17 +1356,34 @@ export default function FamilyScreen() {
     if (!familyId) return "Najpierw utwórz rodzinę MAX.";
     if (!iAmOwner) return "Tylko właściciel rodziny może zapraszać.";
     if (!canAddFamilyMore) return `Limit ${MAX_FAMILY} osób w rodzinie.`;
-    if (!friendUidSet.has(toUid)) return "Możesz zapraszać do rodziny tylko znajomych.";
+    if (!friendUidSet.has(toUid))
+      return "Możesz zapraszać do rodziny tylko znajomych.";
     if (memberIds.has(toUid)) return "Ta osoba już jest w Twojej rodzinie.";
-    if (pendingFamilyTo.has(toUid)) return "Zaproszenie do rodziny już wysłane.";
+    if (pendingFamilyTo.has(toUid))
+      return "Zaproszenie do rodziny już wysłane.";
     return null;
   };
 
   const sendFamilyInvite = async (f: FriendshipDoc) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myProfile) return showModal("Brak profilu", "Brakuje Twojego profilu z /users.", "error");
-    if (!familyId) return showModal("Brak rodziny", "Najpierw utwórz rodzinę MAX.", "info");
-    if (!iAmOwner) return showModal("Brak uprawnień", "Tylko właściciel rodziny może zapraszać.", "info");
+    if (!myProfile)
+      return showModal(
+        "Brak profilu",
+        "Brakuje Twojego profilu z /users.",
+        "error"
+      );
+    if (!familyId)
+      return showModal(
+        "Brak rodziny",
+        "Najpierw utwórz rodzinę MAX.",
+        "info"
+      );
+    if (!iAmOwner)
+      return showModal(
+        "Brak uprawnień",
+        "Tylko właściciel rodziny może zapraszać.",
+        "info"
+      );
 
     const other = otherProfileFromFriendship(f);
     const toUid = String(other?.uid || "");
@@ -1161,7 +1398,10 @@ export default function FamilyScreen() {
     setFamilyInvActionId(toUid);
     try {
       const memSnap = await getDocs(
-        query(collection(db, "families", String(familyId), "members"), limit(MAX_FAMILY + 1))
+        query(
+          collection(db, "families", String(familyId), "members"),
+          limit(MAX_FAMILY + 1)
+        )
       );
       if (memSnap.size >= MAX_FAMILY) {
         showModal("Limit", `Rodzina ma już ${MAX_FAMILY} osób.`, "info");
@@ -1187,9 +1427,17 @@ export default function FamilyScreen() {
         { merge: true }
       );
 
-      showModal("Wysłano ✅", "Zaproszenie do rodziny MAX zostało wysłane.", "success");
+      showModal(
+        "Wysłano ✅",
+        "Zaproszenie do rodziny MAX zostało wysłane.",
+        "success"
+      );
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się wysłać zaproszenia do rodziny.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się wysłać zaproszenia do rodziny.",
+        "error"
+      );
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1197,8 +1445,18 @@ export default function FamilyScreen() {
 
   const leaveFamily = async () => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy dokumentu w /users.", "error");
-    if (!familyId) return showModal("Brak rodziny", "Nie należysz do rodziny MAX.", "info");
+    if (!myUserDocId)
+      return showModal(
+        "Brak profilu",
+        "Nie znaleźliśmy dokumentu w /users.",
+        "error"
+      );
+    if (!familyId)
+      return showModal(
+        "Brak rodziny",
+        "Nie należysz do rodziny MAX.",
+        "info"
+      );
 
     if (iAmOwner) {
       return showModal(
@@ -1223,7 +1481,11 @@ export default function FamilyScreen() {
       setLocalFamilyId(null);
       showModal("Gotowe ✅", "Opuściłeś rodzinę MAX.", "success");
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się opuścić rodziny.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się opuścić rodziny.",
+        "error"
+      );
     } finally {
       setFamilySelfActionBusy(false);
     }
@@ -1231,15 +1493,28 @@ export default function FamilyScreen() {
 
   const removeFamilyMember = async (targetUid: string) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!familyId) return showModal("Brak rodziny", "Brak aktywnej rodziny MAX.", "error");
+    if (!familyId)
+      return showModal(
+        "Brak rodziny",
+        "Brak aktywnej rodziny MAX.",
+        "error"
+      );
     if (!iAmOwner) {
-      return showModal("Brak uprawnień", "Tylko właściciel rodziny może usuwać członków.", "error");
+      return showModal(
+        "Brak uprawnień",
+        "Tylko właściciel rodziny może usuwać członków.",
+        "error"
+      );
     }
 
     const ownerUid = String(effectiveOwnerId || "");
     if (!targetUid || targetUid === myUid) return;
     if (ownerUid && targetUid === ownerUid) {
-      return showModal("Nie można", "Nie można usunąć właściciela rodziny.", "info");
+      return showModal(
+        "Nie można",
+        "Nie można usunąć właściciela rodziny.",
+        "info"
+      );
     }
 
     setFamilyMemberActionUid(targetUid);
@@ -1247,15 +1522,29 @@ export default function FamilyScreen() {
       const batch = writeBatch(db);
 
       // usuń z members
-      batch.delete(doc(db, "families", String(familyId), "members", targetUid));
+      batch.delete(
+        doc(db, "families", String(familyId), "members", targetUid)
+      );
 
       // wyczyść familyId u usera (zakładamy /users/{uid})
-      batch.set(doc(db, "users", targetUid), { familyId: null, updatedAt: serverTimestamp() }, { merge: true });
+      batch.set(
+        doc(db, "users", targetUid),
+        { familyId: null, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
 
       await batch.commit();
-      showModal("Usunięto ✅", "Członek został usunięty z rodziny.", "success");
+      showModal(
+        "Usunięto ✅",
+        "Członek został usunięty z rodziny.",
+        "success"
+      );
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się usunąć członka rodziny.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się usunąć członka rodziny.",
+        "error"
+      );
     } finally {
       setFamilyMemberActionUid(null);
     }
@@ -1265,7 +1554,8 @@ export default function FamilyScreen() {
     openConfirm(
       {
         title: "Opuścić rodzinę?",
-        message: "Na pewno chcesz opuścić tę rodzinę MAX? Utracisz powiązanie z członkami rodziny.",
+        message:
+          "Na pewno chcesz opuścić tę rodzinę MAX? Utracisz powiązanie z członkami rodziny.",
         confirmLabel: "Tak, opuść",
         cancelLabel: "Nie",
         destructive: true,
@@ -1290,7 +1580,8 @@ export default function FamilyScreen() {
   // ✅ Akceptacja: dołączający zawsze dostaje role=member (tylko owner zaprasza i tylko owner usuwa)
   const acceptFamilyInvite = async (inv: FamilyInviteDoc) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy /users.", "error");
+    if (!myUserDocId)
+      return showModal("Brak profilu", "Nie znaleźliśmy /users.", "error");
 
     const fid = String(inv.familyId || "");
     if (!fid) return showModal("Błąd", "Zaproszenie bez familyId.", "error");
@@ -1302,7 +1593,11 @@ export default function FamilyScreen() {
         query(collection(db, "families", fid, "members"), limit(MAX_FAMILY + 1))
       );
       if (memTargetSnap.size >= MAX_FAMILY) {
-        showModal("Limit", `Ta rodzina ma już limit ${MAX_FAMILY} osób.`, "info");
+        showModal(
+          "Limit",
+          `Ta rodzina ma już limit ${MAX_FAMILY} osób.`,
+          "info"
+        );
         return;
       }
 
@@ -1311,7 +1606,10 @@ export default function FamilyScreen() {
 
       // already in this family -> just accept invite
       if (myFam && myFam === fid) {
-        await updateDoc(doc(db, "family_invites", inv.id), { status: "accepted", updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, "family_invites", inv.id), {
+          status: "accepted",
+          updatedAt: serverTimestamp(),
+        });
         setLocalFamilyId(fid);
         showModal("OK ✅", "Już jesteś w tej rodzinie.", "success");
         return;
@@ -1319,7 +1617,9 @@ export default function FamilyScreen() {
 
       // if has other family: allow switch only when old family is SOLO (<=1 member)
       if (myFam && myFam !== fid) {
-        const memOldSnap = await getDocs(query(collection(db, "families", myFam, "members"), limit(2)));
+        const memOldSnap = await getDocs(
+          query(collection(db, "families", myFam, "members"), limit(2))
+        );
         if (memOldSnap.size > 1) {
           showModal(
             "Masz już rodzinę",
@@ -1330,36 +1630,68 @@ export default function FamilyScreen() {
         }
 
         const batch = writeBatch(db);
-        batch.update(doc(db, "family_invites", inv.id), { status: "accepted", updatedAt: serverTimestamp() });
+        batch.update(doc(db, "family_invites", inv.id), {
+          status: "accepted",
+          updatedAt: serverTimestamp(),
+        });
         batch.delete(doc(db, "families", myFam, "members", myUid));
         batch.set(
           doc(db, "families", fid, "members", myUid),
-          { userId: myUid, role: "member", joinedAt: serverTimestamp(), updatedAt: serverTimestamp() },
+          {
+            userId: myUid,
+            role: "member",
+            joinedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
           { merge: true }
         );
-        batch.set(meRef, { familyId: fid, updatedAt: serverTimestamp() }, { merge: true });
+        batch.set(
+          meRef,
+          { familyId: fid, updatedAt: serverTimestamp() },
+          { merge: true }
+        );
 
         await batch.commit();
         setLocalFamilyId(fid);
-        showModal("Dołączono ✅", "Przeniesiono Cię do nowej rodziny MAX.", "success");
+        showModal(
+          "Dołączono ✅",
+          "Przeniesiono Cię do nowej rodziny MAX.",
+          "success"
+        );
         return;
       }
 
       // no family -> normal join
       const batch = writeBatch(db);
-      batch.update(doc(db, "family_invites", inv.id), { status: "accepted", updatedAt: serverTimestamp() });
+      batch.update(doc(db, "family_invites", inv.id), {
+        status: "accepted",
+        updatedAt: serverTimestamp(),
+      });
       batch.set(
         doc(db, "families", fid, "members", myUid),
-        { userId: myUid, role: "member", joinedAt: serverTimestamp(), updatedAt: serverTimestamp() },
+        {
+          userId: myUid,
+          role: "member",
+          joinedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
         { merge: true }
       );
-      batch.set(meRef, { familyId: fid, updatedAt: serverTimestamp() }, { merge: true });
+      batch.set(
+        meRef,
+        { familyId: fid, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
 
       await batch.commit();
       setLocalFamilyId(fid);
       showModal("Dołączono ✅", "Jesteś w rodzinie MAX.", "success");
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się zaakceptować.",
+        "error"
+      );
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1373,7 +1705,11 @@ export default function FamilyScreen() {
         updatedAt: serverTimestamp(),
       });
     } catch (e: any) {
-      showModal("Błąd", e?.message || "Nie udało się odrzucić.", "error");
+      showModal(
+        "Błąd",
+        e?.message || "Nie udało się odrzucić.",
+        "error"
+      );
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1387,9 +1723,17 @@ export default function FamilyScreen() {
           status: "cancelled",
           updatedAt: serverTimestamp(),
         });
-        showModal("OK", "Cofnięto zaproszenie do rodziny.", "success");
+        showModal(
+          "OK",
+          "Cofnięto zaproszenie do rodziny.",
+          "success"
+        );
       } catch (e: any) {
-        showModal("Błąd", e?.message || "Nie udało się cofnąć.", "error");
+        showModal(
+          "Błąd",
+          e?.message || "Nie udało się cofnąć.",
+          "error"
+        );
       } finally {
         setFamilyInvActionId(null);
       }
@@ -1447,8 +1791,17 @@ export default function FamilyScreen() {
   ) => {
     const photo = u.photoURL ? String(u.photoURL) : null;
 
+    const goToProfile = () => {
+      if (!u.uid) return;
+      router.push(`/Profile?uid=${u.uid}`);
+    };
+
+    const Wrapper: any = u.uid ? TouchableOpacity : View;
+
     return (
-      <View
+      <Wrapper
+        onPress={u.uid ? goToProfile : undefined}
+        activeOpacity={0.8}
         style={{
           marginTop: 10,
           borderWidth: 1,
@@ -1462,7 +1815,10 @@ export default function FamilyScreen() {
         }}
       >
         {photo ? (
-          <Image source={{ uri: photo }} style={{ width: 42, height: 42, borderRadius: 999 }} />
+          <Image
+            source={{ uri: photo }}
+            style={{ width: 42, height: 42, borderRadius: 999 }}
+          />
         ) : (
           <View
             style={{
@@ -1474,22 +1830,38 @@ export default function FamilyScreen() {
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: "#022c22", fontWeight: "900" }}>{safeInitial(displayNameOf(u))}</Text>
+            <Text style={{ color: "#022c22", fontWeight: "900" }}>
+              {safeInitial(displayNameOf(u))}
+            </Text>
           </View>
         )}
 
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }} numberOfLines={1}>
+          <Text
+            style={{
+              color: colors.text,
+              fontWeight: "900",
+              fontSize: 15,
+            }}
+            numberOfLines={1}
+          >
             {displayNameOf(u)}
           </Text>
-          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 12,
+              marginTop: 2,
+            }}
+            numberOfLines={1}
+          >
             {subtitle || u.email || "—"}
             {u.city ? ` • ${u.city}` : ""}
           </Text>
         </View>
 
         {right}
-      </View>
+      </Wrapper>
     );
   };
 
@@ -1497,14 +1869,23 @@ export default function FamilyScreen() {
   const pickedBetween = qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
   const pickedIsFriend = !!qPicked && friendUidSet.has(qPicked.uid);
   const pickedIncoming =
-    !!pickedBetween && pickedBetween.status === "pending" && pickedBetween.requestedTo === myUid;
+    !!pickedBetween &&
+    pickedBetween.status === "pending" &&
+    pickedBetween.requestedTo === myUid;
   const pickedOutgoing =
-    !!pickedBetween && pickedBetween.status === "pending" && pickedBetween.requestedBy === myUid;
+    !!pickedBetween &&
+    pickedBetween.status === "pending" &&
+    pickedBetween.requestedBy === myUid;
 
-  const familyInvIncomingForMy = useMemo(() => familyInvIncoming, [familyInvIncoming]);
+  const familyInvIncomingForMy = useMemo(
+    () => familyInvIncoming,
+    [familyInvIncoming]
+  );
   const familyInvOutgoingForMyFamily = useMemo(() => {
     if (!familyId) return [];
-    return familyInvOutgoing.filter((x) => String(x.familyId) === String(familyId));
+    return familyInvOutgoing.filter(
+      (x) => String(x.familyId) === String(familyId)
+    );
   }, [familyInvOutgoing, familyId]);
 
   if (familyLoading) {
@@ -1519,8 +1900,17 @@ export default function FamilyScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <FeedbackModal state={modal} onClose={() => setModal({ visible: false })} colors={colors} />
-      <ConfirmModal state={confirmState} onCancel={handleConfirmCancel} onConfirm={handleConfirmOk} colors={colors} />
+      <FeedbackModal
+        state={modal}
+        onClose={() => setModal({ visible: false })}
+        colors={colors}
+      />
+      <ConfirmModal
+        state={confirmState}
+        onCancel={handleConfirmCancel}
+        onConfirm={handleConfirmOk}
+        colors={colors}
+      />
 
       <ScrollView
         contentContainerStyle={{
@@ -1533,96 +1923,202 @@ export default function FamilyScreen() {
         }}
       >
         {/* HEADER */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-          <TouchableOpacity onPress={() => router.back()} style={{ paddingRight: 8, paddingVertical: 4 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 4,
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{ paddingRight: 8, paddingVertical: 4 }}
+          >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>Znajomi & Rodzina</Text>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: 18,
+              fontWeight: "800",
+            }}
+          >
+            Znajomi & Rodzina
+          </Text>
         </View>
 
         {/* ============ RODZINA MAX (TOP) ============ */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <Text style={labelStyle}>Rodzina MAX</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "900" }}>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 12,
+                fontWeight: "900",
+              }}
+            >
               {familyId ? `${familyCount}/${MAX_FAMILY}` : `0/${MAX_FAMILY}`}
             </Text>
           </View>
 
           <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Premium: {isPremium ? "aktywny ✅" : "brak"} • {familyId ? "rodzina: aktywna" : "brak rodziny"} •{" "}
-            {familyId ? (iAmOwner ? "rola: właściciel" : "rola: członek") : "rola: —"}
+            Premium: {isPremium ? "aktywny ✅" : "brak"} •{" "}
+            {familyId ? "rodzina: aktywna" : "brak rodziny"} •{" "}
+            {familyId
+              ? iAmOwner
+                ? "rola: właściciel"
+                : "rola: członek"
+              : "rola: —"}
           </Text>
 
           {/* CREATE FAMILY MAX (Premium) */}
           {!familyId ? (
             <View style={{ marginTop: 14 }}>
-              <TouchableOpacity onPress={createFamilyMax} style={buttonStyle(false)} activeOpacity={0.9}>
-                <Text style={{ fontWeight: "900", color: "#022c22" }}>Utwórz rodzinę MAX</Text>
+              <TouchableOpacity
+                onPress={createFamilyMax}
+                style={buttonStyle(false)}
+                activeOpacity={0.9}
+              >
+                <Text style={{ fontWeight: "900", color: "#022c22" }}>
+                  Utwórz rodzinę MAX
+                </Text>
               </TouchableOpacity>
               {!isPremium ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>Rodzina MAX jest dostępna w Premium.</Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>
+                  Rodzina MAX jest dostępna w Premium.
+                </Text>
               ) : null}
             </View>
           ) : null}
 
           {/* ============ LISTA CZŁONKÓW RODZINY ============ */}
-          <Text style={{ marginTop: 14, color: colors.text, fontWeight: "900" }}>Członkowie rodziny</Text>
+          <Text
+            style={{
+              marginTop: 14,
+              color: colors.text,
+              fontWeight: "900",
+            }}
+          >
+            Członkowie rodziny
+          </Text>
 
           {!familyId || members.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>Brak członków rodziny.</Text>
+            <Text style={[mutedStyle, { marginTop: 8 }]}>
+              Brak członków rodziny.
+            </Text>
           ) : (
             members
               .slice()
               .sort((a: any, b: any) => {
                 const auid = String(a?.uid || a?.userId || a?.id || "");
                 const buid = String(b?.uid || b?.userId || b?.id || "");
-                const aIsOwner = effectiveOwnerId && auid === String(effectiveOwnerId);
-                const bIsOwner = effectiveOwnerId && buid === String(effectiveOwnerId);
+                const aIsOwner =
+                  effectiveOwnerId && auid === String(effectiveOwnerId);
+                const bIsOwner =
+                  effectiveOwnerId && buid === String(effectiveOwnerId);
                 if (aIsOwner) return -1;
                 if (bIsOwner) return 1;
-                return String(a?.displayName || "").localeCompare(String(b?.displayName || ""));
+                return String(a?.displayName || "").localeCompare(
+                  String(b?.displayName || "")
+                );
               })
               .map((m: any) => {
                 const memUid = String(m.uid || m.userId || "");
                 const isMe = myUid && memUid === myUid;
 
-                const isOwnerRow = !!effectiveOwnerId && memUid === String(effectiveOwnerId);
-                const roleLabel = isOwnerRow ? "owner" : String(m?.role || "member");
+                const isOwnerRow =
+                  !!effectiveOwnerId &&
+                  memUid === String(effectiveOwnerId);
+                const roleLabel = isOwnerRow
+                  ? "owner"
+                  : String(m?.role || "member");
 
                 let rightNode: React.ReactNode;
-                let subtitle = roleLabel === "owner" ? "Założyciel rodziny MAX" : "Członek rodziny";
+                let subtitle =
+                  roleLabel === "owner"
+                    ? "Założyciel rodziny MAX"
+                    : "Członek rodziny";
 
                 if (roleLabel === "owner") {
                   rightNode = (
-                    <Text style={{ color: colors.textMuted, fontWeight: "900" }}>
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontWeight: "900",
+                      }}
+                    >
                       {isMe ? "Właściciel (Ty)" : "Właściciel"}
                     </Text>
                   );
                   if (isMe) subtitle = "Założyciel rodziny MAX (Ty)";
                 } else if (iAmOwner) {
                   const busy = familyMemberActionUid === memUid;
-                  const label = m.displayName || m.email || (isMe ? "Ciebie" : "tego członka rodziny");
+                  const label =
+                    m.displayName ||
+                    m.email ||
+                    (isMe ? "Ciebie" : "tego członka rodziny");
 
                   rightNode = (
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Członek</Text>
+                      <Text
+                        style={{
+                          color: colors.textMuted,
+                          fontWeight: "900",
+                        }}
+                      >
+                        Członek
+                      </Text>
                       <TouchableOpacity
-                        onPress={() => handleRemoveFamilyMember(memUid, label)}
+                        onPress={() =>
+                          handleRemoveFamilyMember(memUid, label)
+                        }
                         disabled={busy}
-                        style={[ghostButtonStyle(busy), { marginTop: 6, paddingVertical: 6, paddingHorizontal: 10 }]}
+                        style={[
+                          ghostButtonStyle(busy),
+                          {
+                            marginTop: 6,
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                          },
+                        ]}
                         activeOpacity={0.9}
                       >
                         {busy ? (
                           <ActivityIndicator color={colors.textMuted} />
                         ) : (
-                          <Text style={{ fontWeight: "900", color: ERROR_COLOR, fontSize: 12 }}>Usuń z rodziny</Text>
+                          <Text
+                            style={{
+                              fontWeight: "900",
+                              color: ERROR_COLOR,
+                              fontSize: 12,
+                            }}
+                          >
+                            Usuń z rodziny
+                          </Text>
                         )}
                       </TouchableOpacity>
                     </View>
                   );
                 } else {
-                  rightNode = <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Członek</Text>;
+                  rightNode = (
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontWeight: "900",
+                      }}
+                    >
+                      Członek
+                    </Text>
+                  );
                 }
 
                 return renderUserRow(
@@ -1645,28 +2141,53 @@ export default function FamilyScreen() {
               <TouchableOpacity
                 onPress={handleLeaveFamily}
                 disabled={familySelfActionBusy}
-                style={[ghostButtonStyle(familySelfActionBusy), { borderColor: ERROR_COLOR, paddingVertical: 9 }]}
+                style={[
+                  ghostButtonStyle(familySelfActionBusy),
+                  { borderColor: ERROR_COLOR, paddingVertical: 9 },
+                ]}
                 activeOpacity={0.9}
               >
                 {familySelfActionBusy ? (
                   <ActivityIndicator color={ERROR_COLOR} />
                 ) : (
-                  <Text style={{ color: ERROR_COLOR, fontWeight: "900", textAlign: "center" }}>Opuść rodzinę</Text>
+                  <Text
+                    style={{
+                      color: ERROR_COLOR,
+                      fontWeight: "900",
+                      textAlign: "center",
+                    }}
+                  >
+                    Opuść rodzinę
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
           ) : null}
 
           {/* ⭐⭐⭐ ALWAYS VISIBLE INCOMING INVITES ⭐⭐⭐ */}
-          <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900" }}>Zaproszenia do rodziny</Text>
+          <Text
+            style={{
+              marginTop: 18,
+              color: colors.text,
+              fontWeight: "900",
+            }}
+          >
+            Zaproszenia do rodziny
+          </Text>
 
           {familyInvIncomingForMy.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>Brak zaproszeń.</Text>
+            <Text style={[mutedStyle, { marginTop: 8 }]}>
+              Brak zaproszeń.
+            </Text>
           ) : (
             familyInvIncomingForMy.map((inv) => {
               const busy = familyInvActionId === inv.id;
               return renderUserRow(
-                { uid: inv.fromUserId, displayName: inv.fromDisplayName, email: inv.fromEmail },
+                {
+                  uid: inv.fromUserId,
+                  displayName: inv.fromDisplayName,
+                  email: inv.fromEmail,
+                },
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <TouchableOpacity
                     onPress={() => acceptFamilyInvite(inv)}
@@ -1677,7 +2198,14 @@ export default function FamilyScreen() {
                     {busy ? (
                       <ActivityIndicator color="#022c22" />
                     ) : (
-                      <Text style={{ fontWeight: "900", color: "#022c22" }}>Akceptuj</Text>
+                      <Text
+                        style={{
+                          fontWeight: "900",
+                          color: "#022c22",
+                        }}
+                      >
+                        Akceptuj
+                      </Text>
                     )}
                   </TouchableOpacity>
 
@@ -1687,7 +2215,14 @@ export default function FamilyScreen() {
                     style={ghostButtonStyle(busy)}
                     activeOpacity={0.9}
                   >
-                    <Text style={{ fontWeight: "900", color: colors.textMuted }}>Odrzuć</Text>
+                    <Text
+                      style={{
+                        fontWeight: "900",
+                        color: colors.textMuted,
+                      }}
+                    >
+                      Odrzuć
+                    </Text>
                   </TouchableOpacity>
                 </View>,
                 "Zaproszenie do rodziny MAX"
@@ -1698,15 +2233,29 @@ export default function FamilyScreen() {
           {/* ================= ONLY OWNER+PREMIUM CAN SEE THIS BLOCK ================= */}
           {canInviteByPremium ? (
             <>
-              <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900" }}>Wysłane zaproszenia</Text>
+              <Text
+                style={{
+                  marginTop: 18,
+                  color: colors.text,
+                  fontWeight: "900",
+                }}
+              >
+                Wysłane zaproszenia
+              </Text>
 
               {familyInvOutgoingForMyFamily.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>Brak wysłanych.</Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>
+                  Brak wysłanych.
+                </Text>
               ) : (
                 familyInvOutgoingForMyFamily.map((inv) => {
                   const busy = familyInvActionId === inv.id;
                   return renderUserRow(
-                    { uid: inv.toUserId, displayName: inv.toDisplayName, email: inv.toEmail },
+                    {
+                      uid: inv.toUserId,
+                      displayName: inv.toDisplayName,
+                      email: inv.toEmail,
+                    },
                     <TouchableOpacity
                       onPress={() => cancelFamilyInvite(inv)}
                       disabled={busy}
@@ -1716,7 +2265,14 @@ export default function FamilyScreen() {
                       {busy ? (
                         <ActivityIndicator color={colors.textMuted} />
                       ) : (
-                        <Text style={{ fontWeight: "900", color: colors.textMuted }}>Cofnij</Text>
+                        <Text
+                          style={{
+                            fontWeight: "900",
+                            color: colors.textMuted,
+                          }}
+                        >
+                          Cofnij
+                        </Text>
                       )}
                     </TouchableOpacity>,
                     "Oczekuje"
@@ -1724,16 +2280,30 @@ export default function FamilyScreen() {
                 })
               )}
 
-              <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900" }}>Zaproś znajomego do rodziny</Text>
-              <Text style={[mutedStyle, { marginTop: 4 }]}>Dostępne w Premium. Limit {MAX_FAMILY} osób.</Text>
+              <Text
+                style={{
+                  marginTop: 18,
+                  color: colors.text,
+                  fontWeight: "900",
+                }}
+              >
+                Zaproś znajomego do rodziny
+              </Text>
+              <Text style={[mutedStyle, { marginTop: 4 }]}>
+                Dostępne w Premium. Limit {MAX_FAMILY} osób.
+              </Text>
 
               {friendsAccepted.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>Najpierw dodaj znajomych.</Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>
+                  Najpierw dodaj znajomych.
+                </Text>
               ) : (
                 friendsAccepted.slice(0, 30).map((fr) => {
                   const other = otherProfileFromFriendship(fr);
                   const toUid = String(other?.uid || "");
-                  const reason = toUid ? familyInviteDisabledReason(toUid) : "Brak uid.";
+                  const reason = toUid
+                    ? familyInviteDisabledReason(toUid)
+                    : "Brak uid.";
                   const disabled = !!reason;
                   const busy = familyInvActionId === toUid;
 
@@ -1755,7 +2325,14 @@ export default function FamilyScreen() {
                       {busy ? (
                         <ActivityIndicator color="#022c22" />
                       ) : (
-                        <Text style={{ fontWeight: "900", color: "#022c22" }}>{disabled ? "Zablok." : "Zaproś"}</Text>
+                        <Text
+                          style={{
+                            fontWeight: "900",
+                            color: "#022c22",
+                          }}
+                        >
+                          {disabled ? "Już w rodzinie" : "Zaproś"}
+                        </Text>
                       )}
                     </TouchableOpacity>,
                     disabled ? reason || "—" : "Znajomy"
@@ -1764,7 +2341,12 @@ export default function FamilyScreen() {
               )}
 
               {!canAddFamilyMore ? (
-                <Text style={[mutedStyle, { marginTop: 10, fontWeight: "900" }]}>
+                <Text
+                  style={[
+                    mutedStyle,
+                    { marginTop: 10, fontWeight: "900" },
+                  ]}
+                >
                   Osiągnięto limit {MAX_FAMILY} osób w rodzinie.
                 </Text>
               ) : null}
@@ -1773,9 +2355,13 @@ export default function FamilyScreen() {
         </View>
 
         {/* ===================== FRIENDS: ADD / REQUESTS / LIST ===================== */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Dodaj znajomego</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>Nick lub e-mail (jak w Duolingo).</Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>
+            Nick lub e-mail.
+          </Text>
 
           <View
             style={{
@@ -1799,7 +2385,12 @@ export default function FamilyScreen() {
                 setQText(v);
                 if (qError) setQError("");
               }}
-              style={{ flex: 1, color: colors.text, fontSize: 14, fontWeight: "700" }}
+              style={{
+                flex: 1,
+                color: colors.text,
+                fontSize: 14,
+                fontWeight: "700",
+              }}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -1809,7 +2400,10 @@ export default function FamilyScreen() {
                 setInputFocused(true);
               }}
               onBlur={() => {
-                blurHideTimer.current = setTimeout(() => setInputFocused(false), 160);
+                blurHideTimer.current = setTimeout(
+                  () => setInputFocused(false),
+                  160
+                );
               }}
             />
 
@@ -1819,12 +2413,32 @@ export default function FamilyScreen() {
               disabled={qLoading}
               activeOpacity={0.9}
             >
-              {qLoading ? <ActivityIndicator color="#022c22" /> : <Text style={{ fontWeight: "900", color: "#022c22" }}>Szukaj</Text>}
+              {qLoading ? (
+                <ActivityIndicator color="#022c22" />
+              ) : (
+                <Text
+                  style={{
+                    fontWeight: "900",
+                    color: "#022c22",
+                  }}
+                >
+                  Szukaj
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
 
           {qError ? (
-            <Text style={{ color: ERROR_COLOR, fontSize: 12, fontWeight: "800", marginTop: 8 }}>{qError}</Text>
+            <Text
+              style={{
+                color: ERROR_COLOR,
+                fontSize: 12,
+                fontWeight: "800",
+                marginTop: 8,
+              }}
+            >
+              {qError}
+            </Text>
           ) : null}
 
           {/* TYPEAHEAD */}
@@ -1845,13 +2459,25 @@ export default function FamilyScreen() {
                 </View>
               ) : typeaheadStatus === "error" ? (
                 <View style={{ padding: 12 }}>
-                  <Text style={{ color: ERROR_COLOR, fontWeight: "900", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: ERROR_COLOR,
+                      fontWeight: "900",
+                      fontSize: 12,
+                    }}
+                  >
                     {typeaheadErr || "Błąd podpowiedzi."}
                   </Text>
                 </View>
               ) : typeahead.length === 0 ? (
                 <View style={{ padding: 12 }}>
-                  <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
                     Brak wyników dla “{qText.trim()}”.
                   </Text>
                 </View>
@@ -1884,21 +2510,48 @@ export default function FamilyScreen() {
                           justifyContent: "center",
                         }}
                       >
-                        <Text style={{ color: "#022c22", fontWeight: "900" }}>{safeInitial(displayNameOf(u))}</Text>
+                        <Text
+                          style={{
+                            color: "#022c22",
+                            fontWeight: "900",
+                          }}
+                        >
+                          {safeInitial(displayNameOf(u))}
+                        </Text>
                       </View>
 
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                        <Text
+                          style={{ color: colors.text, fontWeight: "900" }}
+                          numberOfLines={1}
+                        >
                           {displayNameOf(u)}
                         </Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: 12,
+                            marginTop: 2,
+                          }}
+                          numberOfLines={1}
+                        >
                           {u.email || "—"}
                           {u.city ? ` • ${u.city}` : ""}
                         </Text>
                       </View>
 
-                      <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 11 }}>
-                        {isFriend ? "ZNAJOMY" : between?.status === "pending" ? "PENDING" : ""}
+                      <Text
+                        style={{
+                          color: colors.textMuted,
+                          fontWeight: "900",
+                          fontSize: 11,
+                        }}
+                      >
+                        {isFriend
+                          ? "ZNAJOMY"
+                          : between?.status === "pending"
+                          ? "PENDING"
+                          : ""}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1913,11 +2566,32 @@ export default function FamilyScreen() {
               {renderUserRow(
                 qPicked,
                 pickedIncoming ? (
-                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>→ „Przychodzące”</Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontWeight: "900",
+                    }}
+                  >
+                    → „Przychodzące”
+                  </Text>
                 ) : pickedOutgoing ? (
-                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Wysłane</Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Wysłane
+                  </Text>
                 ) : pickedIsFriend ? (
-                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Znajomy</Text>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Znajomy
+                  </Text>
                 ) : (
                   <TouchableOpacity
                     onPress={() => sendFriendRequest(qPicked)}
@@ -1925,30 +2599,43 @@ export default function FamilyScreen() {
                     style={buttonStyle(!myProfileReady)}
                     activeOpacity={0.9}
                   >
-                    <Text style={{ fontWeight: "900", color: "#022c22" }}>{!myProfileReady ? "Ładuję..." : "Dodaj"}</Text>
+                    <Text
+                      style={{
+                        fontWeight: "900",
+                        color: "#022c22",
+                      }}
+                    >
+                      {!myProfileReady ? "Ładuję..." : "Dodaj"}
+                    </Text>
                   </TouchableOpacity>
                 ),
                 pickedIsFriend
                   ? "Znajomy"
                   : pickedOutgoing
-                    ? "Zaproszenie wysłane"
-                    : pickedIncoming
-                      ? "Masz od niego zaproszenie"
-                      : !myProfileReady
-                        ? "Ładowanie profilu…"
-                        : "Użytkownik"
+                  ? "Zaproszenie wysłane"
+                  : pickedIncoming
+                  ? "Masz od niego zaproszenie"
+                  : !myProfileReady
+                  ? "Ładowanie profilu…"
+                  : "Użytkownik"
               )}
             </View>
           ) : null}
         </View>
 
         {/* Incoming friend requests */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Przychodzące zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>Kto chce Cię dodać do znajomych.</Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>
+            Kto chce Cię dodać do znajomych.
+          </Text>
 
           {friendReqIncoming.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>Brak zaproszeń.</Text>
+            <Text style={[mutedStyle, { marginTop: 10 }]}>
+              Brak zaproszeń.
+            </Text>
           ) : (
             friendReqIncoming.map((f) => {
               const other = otherProfileFromFriendship(f);
@@ -1964,12 +2651,40 @@ export default function FamilyScreen() {
                   city: other?.city,
                 },
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TouchableOpacity onPress={() => acceptFriendRequest(f)} disabled={busy} style={buttonStyle(busy)} activeOpacity={0.9}>
-                    {busy ? <ActivityIndicator color="#022c22" /> : <Text style={{ fontWeight: "900", color: "#022c22" }}>Akceptuj</Text>}
+                  <TouchableOpacity
+                    onPress={() => acceptFriendRequest(f)}
+                    disabled={busy}
+                    style={buttonStyle(busy)}
+                    activeOpacity={0.9}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color="#022c22" />
+                    ) : (
+                      <Text
+                        style={{
+                          fontWeight: "900",
+                          color: "#022c22",
+                        }}
+                      >
+                        Akceptuj
+                      </Text>
+                    )}
                   </TouchableOpacity>
 
-                  <TouchableOpacity onPress={() => declineFriendRequest(f)} disabled={busy} style={ghostButtonStyle(busy)} activeOpacity={0.9}>
-                    <Text style={{ fontWeight: "900", color: colors.textMuted }}>Odrzuć</Text>
+                  <TouchableOpacity
+                    onPress={() => declineFriendRequest(f)}
+                    disabled={busy}
+                    style={ghostButtonStyle(busy)}
+                    activeOpacity={0.9}
+                  >
+                    <Text
+                      style={{
+                        fontWeight: "900",
+                        color: colors.textMuted,
+                      }}
+                    >
+                      Odrzuć
+                    </Text>
                   </TouchableOpacity>
                 </View>,
                 "Prośba o dodanie"
@@ -1979,9 +2694,13 @@ export default function FamilyScreen() {
         </View>
 
         {/* Outgoing friend requests */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Wysłane zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>Oczekują na akceptację.</Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>
+            Oczekują na akceptację.
+          </Text>
 
           {friendReqOutgoing.length === 0 ? (
             <Text style={[mutedStyle, { marginTop: 10 }]}>Brak.</Text>
@@ -1999,8 +2718,24 @@ export default function FamilyScreen() {
                   photoURL: other?.photoURL || null,
                   city: other?.city,
                 },
-                <TouchableOpacity onPress={() => cancelFriendRequest(f)} disabled={busy} style={ghostButtonStyle(busy)} activeOpacity={0.9}>
-                  {busy ? <ActivityIndicator color={colors.textMuted} /> : <Text style={{ fontWeight: "900", color: colors.textMuted }}>Cofnij</Text>}
+                <TouchableOpacity
+                  onPress={() => cancelFriendRequest(f)}
+                  disabled={busy}
+                  style={ghostButtonStyle(busy)}
+                  activeOpacity={0.9}
+                >
+                  {busy ? (
+                    <ActivityIndicator color={colors.textMuted} />
+                  ) : (
+                    <Text
+                      style={{
+                        fontWeight: "900",
+                        color: colors.textMuted,
+                      }}
+                    >
+                      Cofnij
+                    </Text>
+                  )}
                 </TouchableOpacity>,
                 "Oczekuje"
               );
@@ -2009,12 +2744,18 @@ export default function FamilyScreen() {
         </View>
 
         {/* Friends list */}
-        <View style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Znajomi</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>Twoja lista znajomych.</Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>
+            Twoja lista znajomych.
+          </Text>
 
           {friendsAccepted.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>Nie masz jeszcze znajomych.</Text>
+            <Text style={[mutedStyle, { marginTop: 10 }]}>
+              Nie masz jeszcze znajomych.
+            </Text>
           ) : (
             friendsAccepted.map((f) => {
               const other = otherProfileFromFriendship(f);
@@ -2032,13 +2773,24 @@ export default function FamilyScreen() {
                 <TouchableOpacity
                   onPress={() => handleRemoveFriend(f)}
                   disabled={busy}
-                  style={[ghostButtonStyle(busy), { paddingVertical: 8, paddingHorizontal: 10 }]}
+                  style={[
+                    ghostButtonStyle(busy),
+                    { paddingVertical: 8, paddingHorizontal: 10 },
+                  ]}
                   activeOpacity={0.9}
                 >
                   {busy ? (
                     <ActivityIndicator color={ERROR_COLOR} />
                   ) : (
-                    <Text style={{ color: ERROR_COLOR, fontWeight: "900", fontSize: 12 }}>Usuń znajomego</Text>
+                    <Text
+                      style={{
+                        color: ERROR_COLOR,
+                        fontWeight: "900",
+                        fontSize: 12,
+                      }}
+                    >
+                      Usuń znajomego
+                    </Text>
                   )}
                 </TouchableOpacity>,
                 "Znajomy"
@@ -2051,4 +2803,4 @@ export default function FamilyScreen() {
   );
 }
 
-//src/screens/FamilyScreen.tsx
+// src/screens/FamilyScreen.tsx

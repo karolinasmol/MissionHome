@@ -229,13 +229,29 @@ function isMissionDoneOnDate(m: any, date: Date) {
 }
 
 /* --------------------------------------------------------- */
-/* ---------------- CONFETTI MANAGER (GLOBAL) --------------- */
+/* --------- FIREWORK MANAGER – GLOBALNY OVERLAY ------------ */
 /* --------------------------------------------------------- */
 
-function useConfettiManager() {
-  const [particles, setParticles] = useState<any[]>([]);
+type FireworkParticle = {
+  id: string;
+  missionId: string;
+  originX: number;
+  originY: number;
+  translateX: Animated.Value;
+  translateY: Animated.Value;
+  scale: Animated.Value;
+  opacity: Animated.Value;
+  color: string;
+  angle: number;
+  distance: number;
+  duration: number;
+  delay: number;
+};
 
-  const shoot = (missionId: string) => {
+function useFireworkManager() {
+  const [particles, setParticles] = useState<FireworkParticle[]>([]);
+
+  const shoot = (missionId: string, originX: number, originY: number) => {
     const COLORS = [
       "#22c55e",
       "#0ea5e9",
@@ -246,43 +262,70 @@ function useConfettiManager() {
       "#2dd4bf",
     ];
 
-    const count = 45 + Math.floor(Math.random() * 15); // 45–60 cząsteczek
-    const newParticles: any[] = [];
+    const count = 32 + Math.floor(Math.random() * 12); // 32–44 cząstek
+    const coreCount = Math.floor(count * 0.35); // ~1/3 – szybki flash
+    const newParticles: FireworkParticle[] = [];
 
     for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2; // pełne 360°
-      const speed = 60 + Math.random() * 80; // mocniejszy wybuch
+      const angle = Math.random() * Math.PI * 2;
+      const isCore = i < coreCount;
+
+      const distance = isCore
+        ? 10 + Math.random() * 18 // krótki wybuch przy guziku
+        : 40 + Math.random() * 80; // dalszy rozprysk
+
+      const duration = isCore
+        ? 350 + Math.random() * 200
+        : 800 + Math.random() * 400;
+
+      const delay = isCore ? 0 : 120 + Math.random() * 120; // druga faza lekko opóźniona
 
       newParticles.push({
         id: `${missionId}_${Date.now()}_${i}`,
         missionId,
-        x: new Animated.Value(0),
-        y: new Animated.Value(0),
+        originX,
+        originY,
+        translateX: new Animated.Value(0),
+        translateY: new Animated.Value(0),
+        scale: new Animated.Value(0.4),
         opacity: new Animated.Value(1),
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        dx: Math.cos(angle) * speed,
-        dy: Math.sin(angle) * speed,
+        angle,
+        distance,
+        duration,
+        delay,
       });
     }
 
     setParticles((prev) => [...prev, ...newParticles]);
 
     newParticles.forEach((p) => {
-      // 🔥 3-sekundowa animacja z grawitacją
+      const targetX = Math.cos(p.angle) * p.distance;
+      const targetY = Math.sin(p.angle) * p.distance;
+
       Animated.parallel([
-        Animated.timing(p.x, {
-          toValue: p.dx,
-          duration: 2600,
+        Animated.timing(p.translateX, {
+          toValue: targetX,
+          duration: p.duration,
+          delay: p.delay,
           useNativeDriver: true,
         }),
-        Animated.timing(p.y, {
-          toValue: p.dy + 120, // grawitacja
-          duration: 2600,
+        Animated.timing(p.translateY, {
+          toValue: targetY,
+          duration: p.duration,
+          delay: p.delay,
+          useNativeDriver: true,
+        }),
+        Animated.timing(p.scale, {
+          toValue: 1.3,
+          duration: p.duration * 0.6,
+          delay: p.delay,
           useNativeDriver: true,
         }),
         Animated.timing(p.opacity, {
           toValue: 0,
-          duration: 2600,
+          duration: p.duration,
+          delay: p.delay + p.duration * 0.4,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -293,7 +336,6 @@ function useConfettiManager() {
 
   return { particles, shoot };
 }
-
 
 /* --------------------------------------------------------- */
 /* --------------------- MAIN COMPONENT --------------------- */
@@ -306,7 +348,11 @@ export default function HomeScreen() {
   const { members } = useFamily();
   const isWeb = Platform.OS === "web";
 
-  const { particles: confetti, shoot: triggerConfetti } = useConfettiManager();
+  const { particles: fireworkParticles, shoot: triggerFirework } =
+    useFireworkManager();
+
+  // refy do checkboxów (bez dodatkowych hooków w mapie)
+  const checkboxRefs = useRef<Record<string, any>>({});
 
   console.log("🟦 RENDER HOME – missions count:", missions?.length);
 
@@ -683,9 +729,6 @@ export default function HomeScreen() {
         const byUserId = myUid ?? null;
         const byName = myDisplayName || "Ty";
 
-        // 💥 lokalne fajerwerki dla tej misji
-        triggerConfetti(mission.id);
-
         if (repeat !== "none") {
           await updateDoc(doc(db, "missions", mission.id), {
             completed: false,
@@ -908,7 +951,9 @@ export default function HomeScreen() {
       <TouchableOpacity
         activeOpacity={0.86}
         onPress={() => (to ? safePush(to) : undefined)}
-        style={Platform.OS === "web" ? ({ cursor: "pointer" } as any) : undefined}
+        style={
+          Platform.OS === "web" ? ({ cursor: "pointer" } as any) : undefined
+        }
       >
         <Text
           style={{
@@ -1002,7 +1047,9 @@ export default function HomeScreen() {
             </View>
 
             <View>
-              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}>
+              <Text
+                style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
+              >
                 MissionHome
               </Text>
               <Text
@@ -1058,7 +1105,9 @@ export default function HomeScreen() {
               marginBottom: isWeb ? 0 : 12,
             }}
           >
-            <FooterTitle icon="information-circle-outline">Informacje</FooterTitle>
+            <FooterTitle icon="information-circle-outline">
+              Informacje
+            </FooterTitle>
             <FooterLink label="O aplikacji" to={"/about-app"} />
             <FooterLink label="Kontakt" to={"/contact"} />
             <FooterLink label="Polityka prywatności" to={"/privacy"} />
@@ -1072,7 +1121,9 @@ export default function HomeScreen() {
               marginBottom: isWeb ? 0 : 12,
             }}
           >
-            <FooterTitle icon="help-circle-outline">Centrum pomocy</FooterTitle>
+            <FooterTitle icon="help-circle-outline">
+              Centrum pomocy
+            </FooterTitle>
             <FooterLink label="FAQ – najczęstsze pytania" to={"/faq"} />
             <FooterLink label="Regulamin" to={"/rules"} />
           </View>
@@ -1208,7 +1259,7 @@ export default function HomeScreen() {
                     flexDirection: "row",
                     alignItems: "center",
                     marginTop: 4,
-                    justifyContent: "space_between",
+                    justifyContent: "space-between",
                   }}
                 >
                   <Text style={{ color: colors.textMuted, fontSize: 12 }}>
@@ -1676,8 +1727,13 @@ export default function HomeScreen() {
                   >
                     {/* Top row: checkbox + tytuł + akcje */}
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      {/* Wrapper na guzik + confetti */}
+                      {/* Wrapper na guzik */}
                       <View
+                        ref={(el) => {
+                          if (m.id) {
+                            checkboxRefs.current[m.id] = el;
+                          }
+                        }}
                         style={{
                           width: 34,
                           height: 34,
@@ -1685,11 +1741,27 @@ export default function HomeScreen() {
                           marginRight: 10,
                           justifyContent: "center",
                           alignItems: "center",
-                          position: "relative",
                         }}
                       >
                         <TouchableOpacity
-                          onPress={() => handleComplete({ ...m }, rowAnim)}
+                          onPress={() => {
+                            const node = checkboxRefs.current[m.id];
+                            if (node && node.measureInWindow) {
+                              node.measureInWindow(
+                                (x: number, y: number, width: number, height: number) => {
+                                  const cx = x + width / 2;
+                                  const cy = y + height / 2;
+                                  // 💥 globalny wybuch przy tym checkboxie
+                                  triggerFirework(m.id, cx, cy);
+                                  handleComplete({ ...m }, rowAnim);
+                                }
+                              );
+                            } else {
+                              // fallback – środek ekranu, gdyby measure nie zadziałał
+                              triggerFirework(m.id, 200, 200);
+                              handleComplete({ ...m }, rowAnim);
+                            }
+                          }}
                           style={{
                             width: "100%",
                             height: "100%",
@@ -1713,31 +1785,6 @@ export default function HomeScreen() {
                             color={isDone ? "#22c55e" : colors.textMuted}
                           />
                         </TouchableOpacity>
-
-                        {/* Confetti TYLKO dla tej misji */}
-                  {confetti
-                    .filter((p) => p.missionId === m.id)
-                    .map((p) => (
-                      <Animated.View
-                        key={p.id}
-                        style={{
-                          position: "absolute",
-                          top: 14,
-                          left: 14,
-                          width: 8,
-                          height: 8,
-                          borderRadius: 999,
-                          backgroundColor: p.color,
-                          transform: [
-                            { translateX: p.x },
-                            { translateY: p.y },
-                          ],
-                          opacity: p.opacity,
-                          zIndex: 999,
-                        }}
-                      />
-                    ))}
-
                       </View>
 
                       <View style={{ flex: 1 }}>
@@ -2233,7 +2280,9 @@ export default function HomeScreen() {
               }}
               onPress={() => setRepeatDeleteDialog(null)}
             >
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>Anuluj</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Anuluj
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2267,7 +2316,11 @@ export default function HomeScreen() {
             }}
           >
             <View
-              style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
             >
               <View
                 style={{
@@ -2304,8 +2357,8 @@ export default function HomeScreen() {
                 lineHeight: 18,
               }}
             >
-              Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz. Cofanie
-              się w czasie zostawmy filmom science-fiction. ✨
+              Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz.
+              Cofanie się w czasie zostawmy filmom science-fiction. ✨
             </Text>
 
             <TouchableOpacity
@@ -2332,6 +2385,42 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+        </View>
+      )}
+
+      {/* 🔥 GLOBALNY OVERLAY Z FAJERWERKAMI – NAD WSZYSTKIM */}
+      {fireworkParticles.length > 0 && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+          }}
+        >
+          {fireworkParticles.map((p) => (
+            <Animated.View
+              key={p.id}
+              style={{
+                position: "absolute",
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                backgroundColor: p.color,
+                left: p.originX - 4,
+                top: p.originY - 4,
+                transform: [
+                  { translateX: p.translateX },
+                  { translateY: p.translateY },
+                  { scale: p.scale },
+                ],
+                opacity: p.opacity,
+              }}
+            />
+          ))}
         </View>
       )}
     </SafeAreaView>

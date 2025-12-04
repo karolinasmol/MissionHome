@@ -126,7 +126,9 @@ type StatKey =
   | "totalExp"
   | "streakDays"
   | "missionsCreatedTotal"
-  | "hardCompletedTotal";
+  | "hardCompletedTotal"
+  | "missionsCompletedForOthers"
+  | "missionsCompletedOnTime";
 
 type MHStats = Partial<Record<StatKey, number>>;
 
@@ -147,7 +149,7 @@ const ACHIEVEMENTS: Achievement[] = [
     description: "Wykonuj zadania i utrzymuj tempo.",
     icon: "checkmark-circle-outline",
     statKey: "missionsCompletedTotal",
-    thresholds: [1, 10, 50, 150, 350, 750],
+    thresholds: [50, 150, 400, 900, 1800, 3000],
     tierNames: [
       "Pierwsze kroki",
       "Wkręcony",
@@ -163,16 +165,16 @@ const ACHIEVEMENTS: Achievement[] = [
     description: "Zbieraj EXP za wykonane misje.",
     icon: "sparkles-outline",
     statKey: "totalExp",
-    thresholds: [100, 250, 450, 700, 1200, 2000],
+    thresholds: [500, 1500, 3000, 6000, 10000, 20000],
     tierNames: ["Iskra", "Rozbłysk", "Napęd", "Turbo", "Weteran", "Potęga"],
   },
   {
     id: "streak",
     label: "Streak",
-    description: "Rób cokolwiek codziennie — choć jedno wykonane zadanie.",
+    description: "Rób cokolwiek codziennie - choć jedno wykonane zadanie.",
     icon: "flame-outline",
     statKey: "streakDays",
-    thresholds: [1, 3, 7, 14, 30, 60],
+    thresholds: [7, 21, 45, 90, 180, 365],
     tierNames: [
       "Start",
       "Trzymasz się",
@@ -188,7 +190,7 @@ const ACHIEVEMENTS: Achievement[] = [
     description: "Twórz i rozdzielaj zadania w domu.",
     icon: "create-outline",
     statKey: "missionsCreatedTotal",
-    thresholds: [1, 10, 50, 150, 350],
+    thresholds: [20, 80, 200, 500, 1200],
     tierNames: ["Planer", "Koordynator", "Szef kuchni", "Dyrygent", "Architekt"],
   },
   {
@@ -197,8 +199,26 @@ const ACHIEVEMENTS: Achievement[] = [
     description: "Wykonuj trudne misje (hard / ≥100 EXP).",
     icon: "skull-outline",
     statKey: "hardCompletedTotal",
-    thresholds: [1, 5, 15, 35, 75],
+    thresholds: [10, 30, 80, 180, 350],
     tierNames: ["Odważny", "Twardziel", "Niezły zawodnik", "Czołg", "Boss"],
+  },
+  {
+    id: "help",
+    label: "Pomocna dłoń",
+    description: "Wykonuj misje dla innych członków rodziny.",
+    icon: "hand-left-outline",
+    statKey: "missionsCompletedForOthers",
+    thresholds: [5, 20, 60, 150, 400],
+    tierNames: ["Miły", "Wsparcie", "Dobrodziej", "Ostoja", "Filantrop"],
+  },
+  {
+    id: "ontime",
+    label: "Perfekcjonista",
+    description: "Wykonuj misje na czas (tego samego dnia).",
+    icon: "time-outline",
+    statKey: "missionsCompletedOnTime",
+    thresholds: [10, 40, 120, 300, 800],
+    tierNames: ["Punktualny", "Solidny", "Terminowy", "Perfekcyjny", "Absolut"],
   },
 ];
 
@@ -225,11 +245,6 @@ function percent(val: number, max?: number | null) {
   if (!max || max <= 0) return 100;
   return clampPct((val / max) * 100);
 }
-
-/* =========================
-   Screen Component
-========================= */
-
 export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -238,7 +253,9 @@ export default function StatsScreen() {
   const { members } = useFamily();
 
   const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
-  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(null);
+  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(
+    null
+  );
   const [userLoading, setUserLoading] = useState(true);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
@@ -291,6 +308,16 @@ export default function StatsScreen() {
         assignedToId: m?.assignedToUserId ? String(m.assignedToUserId) : null,
         createdById: m?.createdByUserId ? String(m.createdByUserId) : null,
         assignedById: m?.assignedByUserId ? String(m.assignedByUserId) : null,
+        completedById: m?.completedByUserId ? String(m.completedByUserId) : null,
+        assignedAtJs: toJsDate(
+          (m as any)?.assignedAt ??
+            (m as any)?.assignedAtTs ??
+            (m as any)?.assignedDate ??
+            null
+        ),
+        createdAtJs: toJsDate(
+          (m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate
+        ),
       }));
   }, [missions]);
 
@@ -338,9 +365,19 @@ export default function StatsScreen() {
     return visibleMissions.filter((m: any) => m.assignedToId === myId);
   }, [visibleMissions, uid]);
 
+  // misje, które JA faktycznie ukończyłem
   const myCompleted = useMemo(() => {
-    return myMissions.filter((m: any) => m.completed);
-  }, [myMissions]);
+    const myId = uid ? String(uid) : null;
+    if (!myId) return [];
+    return visibleMissions.filter((m: any) => {
+      if (!m.completed) return false;
+      const completedBy = m.completedById ? String(m.completedById) : null;
+      const assignedTo = m.assignedToId ? String(m.assignedToId) : null;
+
+      if (completedBy) return completedBy === myId;
+      return assignedTo === myId;
+    });
+  }, [visibleMissions, uid]);
 
   const myWeekCompleted = useMemo(() => {
     return myCompleted.filter((m: any) => {
@@ -389,6 +426,35 @@ export default function StatsScreen() {
   }, [visibleMissions, uid]);
 
   /* =========================
+     Dodatkowe statystyki
+  ========================== */
+
+  // Pomocna dłoń – misje ukończone przeze mnie, które były zadaniami innych
+  const missionsCompletedForOthers = useMemo(() => {
+    const myId = uid ? String(uid) : null;
+    if (!myId) return 0;
+    return myCompleted.filter((m: any) => {
+      const assignedTo = m.assignedToId ? String(m.assignedToId) : null;
+      return !!assignedTo && assignedTo !== myId;
+    }).length;
+  }, [myCompleted, uid]);
+
+  // Perfekcjonista – misje ukończone w dniu przydzielenia / stworzenia
+  const missionsCompletedOnTime = useMemo(() => {
+    return myCompleted.filter((m: any) => {
+      const baseDate: Date | null = m.assignedAtJs || m.createdAtJs || null;
+      const completedAt: Date | null = m.completedAtJs;
+      if (!baseDate || !completedAt) return false;
+
+      const start = new Date(baseDate);
+      start.setHours(0, 0, 0, 0);
+      const end = endOfDay(baseDate);
+
+      return completedAt >= start && completedAt <= end;
+    }).length;
+  }, [myCompleted]);
+
+  /* =========================
      Streak calculation
   ========================== */
 
@@ -412,7 +478,7 @@ export default function StatsScreen() {
     let count = 0;
     let cursor = new Date(today);
 
-    for (let i = 0; i < 365; i++) {
+    for (let i = 0; i < 365 * 2; i++) {
       const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
         2,
         "0"
@@ -440,6 +506,8 @@ export default function StatsScreen() {
       streakDays,
       missionsCreatedTotal: createdTotal,
       hardCompletedTotal,
+      missionsCompletedForOthers,
+      missionsCompletedOnTime,
     };
   }, [
     totalCompleted,
@@ -449,6 +517,8 @@ export default function StatsScreen() {
     streakDays,
     createdTotal,
     hardCompletedTotal,
+    missionsCompletedForOthers,
+    missionsCompletedOnTime,
   ]);
 
   /* =========================
@@ -458,12 +528,9 @@ export default function StatsScreen() {
   const myPhotoURL = auth.currentUser?.photoURL || null;
   const myDisplayName = auth.currentUser?.displayName || null;
 
-  // 🔥 UPDATED myInitial
   const myInitial = useMemo(() => {
     const base =
-      myDisplayName ||
-      auth.currentUser?.email?.split("@")[0] ||
-      "U";
+      myDisplayName || auth.currentUser?.email?.split("@")[0] || "U";
     return base.trim()?.[0]?.toUpperCase() || "U";
   }, [myDisplayName, auth.currentUser?.email]);
 
@@ -472,12 +539,13 @@ export default function StatsScreen() {
   }, [userDoc?.totalExp, userDoc?.level]);
 
   const busy = missionsLoading || userLoading;
+
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Header
           title="Osiągnięcia"
-          subtitle="EXP, poziom i osiągnięcia — wszystko w jednym miejscu."
+          subtitle="EXP, poziom i osiągnięcia - wszystko w jednym miejscu."
           colors={colors}
           onBack={() => router.back()}
         />
@@ -538,7 +606,6 @@ export default function StatsScreen() {
               )}
 
               <View style={{ marginLeft: 10 }}>
-                {/* 🔥 UPDATED NAME RESOLUTION */}
                 <Text style={[styles.rankName, { color: colors.text }]}>
                   {myDisplayName
                     ? myDisplayName
@@ -642,7 +709,7 @@ export default function StatsScreen() {
             const p = progressFor(mhStats, a);
             const tierName =
               p.tierIndex <= 0
-                ? "—"
+                ? "-"
                 : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
 
             const nextLabel =
@@ -743,9 +810,7 @@ export default function StatsScreen() {
                       }}
                     >
                       Następny próg:{" "}
-                      <Text style={{ color: colors.text }}>
-                        {p.nextThreshold}
-                      </Text>
+                      <Text style={{ color: colors.text }}>{p.nextThreshold}</Text>
                     </Text>
                   ) : (
                     <Text
@@ -779,7 +844,6 @@ export default function StatsScreen() {
     </View>
   );
 }
-
 /* =========================
    HELPER COMPONENTS
 ========================= */
@@ -999,7 +1063,6 @@ const styles = StyleSheet.create({
   pointsEarned: { fontSize: 16, fontWeight: "900" },
   pointsHint: { fontSize: 11, fontWeight: "800", opacity: 0.9 },
 });
-
 /* HEADER */
 const headerStyles = StyleSheet.create({
   wrap: {

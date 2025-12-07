@@ -44,14 +44,6 @@ const STRIPE_RETURN_HTTPS = (process.env.EXPO_PUBLIC_STRIPE_RETURN_HTTPS || "").
 
 let RESOLVED_BASE: string | null = null;
 
-function uiAlert(title: string, message: string) {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.alert(`${title}\n\n${message}`);
-    return;
-  }
-  Alert.alert(title, message);
-}
-
 function buildUrl(base: string, path: string, qs?: Record<string, any>) {
   const u = `${base.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
   if (!qs) return u;
@@ -244,6 +236,25 @@ export default function PremiumScreen() {
     planId: null,
   });
 
+  // ładny modal alertu zamiast window.alert
+  const [alertState, setAlertState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  }>({ open: false, title: "", message: "" });
+
+  const showNiceAlert = useCallback((title: string, message: string) => {
+    if (Platform.OS === "web") {
+      setAlertState({ open: true, title, message });
+      return;
+    }
+    Alert.alert(title, message);
+  }, []);
+
+  const closeNiceAlert = () => {
+    setAlertState((prev) => ({ ...prev, open: false }));
+  };
+
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(() => setAuthReady(true));
     return () => unsub();
@@ -293,10 +304,7 @@ export default function PremiumScreen() {
         const status = String(stat?.status || "");
 
         if (status === "processing") {
-          uiAlert(
-            "Płatność w trakcie ⏳",
-            "Stripe jeszcze potwierdza płatność."
-          );
+          showNiceAlert("Płatność w trakcie ⏳", "Stripe jeszcze potwierdza płatność.");
           return;
         }
 
@@ -312,11 +320,13 @@ export default function PremiumScreen() {
               const d = new Date(fin.premiumUntil);
               if (!Number.isNaN(d.getTime())) untilLabel = d.toLocaleDateString("pl-PL");
             }
-            uiAlert("Premium aktywne ✅", untilLabel || "Płatność przyjęta.");
+            showNiceAlert("Premium aktywne ✅", untilLabel || "Płatność przyjęta.");
             return;
           }
 
-          setErr(fin?.status ? `Status płatności: ${fin.status}` : "Nie udało się sfinalizować płatności.");
+          setErr(
+            fin?.status ? `Status płatności: ${fin.status}` : "Nie udało się sfinalizować płatności."
+          );
           return;
         }
 
@@ -332,7 +342,7 @@ export default function PremiumScreen() {
         setBusy(false);
       }
     },
-    []
+    [showNiceAlert]
   );
 
   useEffect(() => {
@@ -362,15 +372,15 @@ export default function PremiumScreen() {
         } catch {}
       }
     })();
-  }, [params?.session_id, params?.payment_intent, params?.cancelled]);
+  }, [params?.session_id, params?.payment_intent, params?.cancelled, handleReturn, router]);
 
   const openPlan = (planId: PlanId) => {
     if (!authReady) {
-      uiAlert("Chwila", "Ładowanie sesji…");
+      showNiceAlert("Chwila", "Ładowanie sesji…");
       return;
     }
     if (!auth.currentUser) {
-      uiAlert("Zaloguj się", "Musisz być zalogowany.");
+      showNiceAlert("Zaloguj się", "Musisz być zalogowany.");
       return;
     }
 
@@ -436,22 +446,24 @@ export default function PremiumScreen() {
     } catch (e: any) {
       const msg = e?.message || "Błąd inicjalizacji płatności.";
       setErr(msg);
-      uiAlert("Płatność", msg);
+      showNiceAlert("Płatność", msg);
     } finally {
       setBusy(false);
     }
   };
 
   const refreshPremiumNow = async () => {
-    if (!uid) return uiAlert("Brak sesji", "Zaloguj się ponownie.");
+    if (!uid) return showNiceAlert("Brak sesji", "Zaloguj się ponownie.");
     try {
       setBusy(true);
       setErr("");
       const r = await getUserPremium(uid);
       const until = r?.premiumUntil ? new Date(r.premiumUntil) : null;
-      uiAlert(
+      showNiceAlert(
         "Status Premium",
-        r?.isPremium && until ? `Aktywne do: ${until.toLocaleDateString("pl-PL")}` : "Premium nieaktywne."
+        r?.isPremium && until
+          ? `Aktywne do: ${until.toLocaleDateString("pl-PL")}`
+          : "Premium nieaktywne."
       );
     } catch (e: any) {
       setErr(e?.message || "Nie udało się odświeżyć statusu Premium.");
@@ -603,7 +615,13 @@ export default function PremiumScreen() {
         <View style={{ ...cardStyle }}>
           <LinearGradient
             colors={[colors.card, "rgba(251,191,36,0.12)"]}
-            style={{ padding: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 10 }}
+            style={{
+              padding: 10,
+              borderRadius: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
           >
             <Ionicons
               name={isPremium ? "sparkles" : "sparkles-outline"}
@@ -625,9 +643,7 @@ export default function PremiumScreen() {
                   borderRadius: 999,
                 }}
               >
-                <Text style={{ color: PremiumGold, fontWeight: "900", fontSize: 12 }}>
-                  AKTYWNE
-                </Text>
+                <Text style={{ color: PremiumGold, fontWeight: "900", fontSize: 12 }}>AKTYWNE</Text>
               </View>
             ) : null}
           </LinearGradient>
@@ -647,7 +663,13 @@ export default function PremiumScreen() {
         <View style={{ ...cardStyle }}>
           <LinearGradient
             colors={[colors.card, "rgba(251,191,36,0.12)"]}
-            style={{ padding: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 10 }}
+            style={{
+              padding: 10,
+              borderRadius: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
           >
             <Ionicons name="sparkles" size={22} color={PremiumGold} />
             <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
@@ -715,7 +737,9 @@ export default function PremiumScreen() {
                       <Text style={{ color: colors.text, fontWeight: "900", fontSize: 17 }}>
                         {plan.title}
                       </Text>
-                      <Text style={{ color: colors.textMuted, marginTop: 4, fontWeight: "700" }}>
+                      <Text
+                        style={{ color: colors.textMuted, marginTop: 4, fontWeight: "700" }}
+                      >
                         {plan.priceLabel}
                       </Text>
                     </View>
@@ -801,6 +825,70 @@ export default function PremiumScreen() {
         </Modal>
       )}
 
+      {/* NICE ALERT MODAL (web) */}
+      {alertState.open && Platform.OS === "web" && (
+        <View
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+            zIndex: 10000,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <View
+            style={{
+              ...cardStyle,
+              maxWidth: 420,
+              width: "100%",
+              padding: 20,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons name="sparkles" size={24} color={PremiumGold} />
+              <Text
+                style={{
+                  marginLeft: 10,
+                  fontSize: 18,
+                  fontWeight: "900",
+                  color: colors.text,
+                  flexShrink: 1,
+                }}
+              >
+                {alertState.title}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Pressable onPress={closeNiceAlert} hitSlop={8}>
+                <Ionicons name="close" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <Text style={{ marginTop: 12, color: colors.text, lineHeight: 20 }}>
+              {alertState.message}
+            </Text>
+
+            <Pressable onPress={closeNiceAlert} style={{ marginTop: 20 }}>
+              <LinearGradient
+                colors={["#3B82F6", "#2563EB"]}
+                style={{
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>OK</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       {/* Busy overlay */}
       {busy && (
         <View
@@ -840,3 +928,5 @@ export default function PremiumScreen() {
     </SafeAreaView>
   );
 }
+
+//src/app/premium.tsx

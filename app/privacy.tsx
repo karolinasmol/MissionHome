@@ -132,12 +132,7 @@ const PrivacyScreen = () => {
   );
 
   return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: colors.bg,
-      }}
-    >
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: 20,
@@ -187,229 +182,275 @@ const PrivacyScreen = () => {
                 marginTop: 2,
               }}
             >
-              Jak MissionHome dba o Twoje dane i bezpieczeństwo korzystania z
-              aplikacji.
+              Jak MissionHome dba o Twoje dane i bezpieczeństwo korzystania.
             </Text>
           </View>
         </View>
 
-        {/* OGÓLNE INFO */}
+        {/* 1. OGÓLNE INFORMACJE */}
         <SectionCard>
           <SectionTitle
             icon="shield-checkmark-outline"
             title="1. Informacje ogólne"
-            subtitle="Krótko o tym, kto odpowiada za Twoje dane w MissionHome."
+            subtitle="Kto odpowiada za Twoje dane i dlaczego są one przetwarzane."
           />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 8,
-            }}
-          >
-            Ta polityka opisuje, w jaki sposób przetwarzamy dane użytkowników
-            aplikacji MissionHome. Dbamy o to, żeby ilość zbieranych danych
-            była minimalna, a sposób ich wykorzystania – przejrzysty.
-          </Text>
-
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              lineHeight: 18,
-            }}
-          >
-            Ten ekran ma charakter informacyjny i nie stanowi jeszcze pełnego,
-            prawniczego dokumentu. Docelowa treść polityki może zostać
-            uzupełniona i zaktualizowana.
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Niniejsza Polityka Prywatności opisuje zasady przetwarzania danych
+            osobowych użytkowników aplikacji MissionHome („Aplikacja”).
+            Przetwarzamy wyłącznie taką ilość danych, jaka jest niezbędna do
+            świadczenia usług, rozwoju funkcjonalności oraz zapewniania
+            bezpieczeństwa.
+            {"\n\n"}
+            Korzystanie z Aplikacji jest równoznaczne z akceptacją zasad
+            opisanych w niniejszym dokumencie. Polityka ma charakter pełny i
+            stanowi opis praktyk zgodnych z wymaganiami RODO oraz zasadami
+            Apple App Store i Google Play.
           </Text>
         </SectionCard>
 
-        {/* JAKIE DANE */}
+        {/* 2. JAKIE DANE PRZETWARZAMY */}
         <SectionCard>
-          <SectionTitle
-            icon="person-circle-outline"
-            title="2. Jakie dane przetwarzamy?"
-          />
+          <SectionTitle icon="person-circle-outline" title="2. Jakie dane przetwarzamy?" />
 
           <Bullet>
-            Dane konta potrzebne do logowania – np. adres e-mail, hasło (w
-            formie zaszyfrowanej) oraz identyfikator użytkownika w systemie
-            logowania.
+            <Text style={{ fontWeight: "700" }}>Dane konta użytkownika:</Text>{" "}
+            adres e-mail, zaszyfrowane hasło, identyfikator konta, data
+            utworzenia konta, data ostatniego logowania.
           </Bullet>
+
           <Bullet>
-            Dane profilowe dobrowolnie podane przez Ciebie – np. nazwa profilu,
-            avatar, nazwa rodziny/domowników.
+            <Text style={{ fontWeight: "700" }}>Dane profilowe:</Text> nazwa
+            profilu, avatar, konfiguracja rodziny/domowników, role i uprawnienia
+            w ramach rodziny.
           </Bullet>
+
           <Bullet>
-            Dane związane z korzystaniem z aplikacji – zapisane zadania,
-            konfiguracja rodziny, ustawienia powiadomień, poziom i zdobyty EXP.
+            <Text style={{ fontWeight: "700" }}>Treści zapisane w Aplikacji:</Text>{" "}
+            stworzone zadania, ustawienia, kategorie, punkty EXP, poziomy,
+            statystyki aktywności, historia wykonanych czynności.
           </Bullet>
+
           <Bullet>
-            Podstawowe dane techniczne – np. typ urządzenia, wersja aplikacji;
-            wykorzystujemy je głównie do diagnozowania błędów i poprawy
-            działania MissionHome.
+            <Text style={{ fontWeight: "700" }}>Dane techniczne:</Text> typ
+            urządzenia, system operacyjny, wersja aplikacji, identyfikator
+            instalacji, strefa czasowa, język urządzenia, informacje o błędach
+            oraz dane diagnostyczne.
+          </Bullet>
+
+          <Bullet>
+            <Text style={{ fontWeight: "700" }}>Dane logowania i bezpieczeństwa:</Text>{" "}
+            adres IP (w logach bezpieczeństwa), informacje o próbach logowania,
+            tokeny autoryzacyjne.
+          </Bullet>
+
+          <Bullet>
+            <Text style={{ fontWeight: "700" }}>Dane płatności Premium:</Text>{" "}
+            identyfikator transakcji, status subskrypcji, historia odnowień,
+            daty ważności, typ planu, informacje przekazane przez Google Play
+            lub Apple App Store.
+          </Bullet>
+
+          <Bullet>
+            <Text style={{ fontWeight: "700" }}>Dane komunikacji:</Text> treść
+            zgłoszeń wysłanych do obsługi i odpowiedzi udzielonych użytkownikowi.
           </Bullet>
         </SectionCard>
 
-        {/* W JAKIM CELU */}
+        {/* 3. CELE */}
         <SectionCard>
-          <SectionTitle
-            icon="sparkles-outline"
-            title="3. W jakim celu wykorzystujemy Twoje dane?"
-          />
+          <SectionTitle icon="sparkles-outline" title="3. W jakich celach przetwarzamy dane?" />
 
-          <Bullet>Umożliwienie działania aplikacji i logowania do konta.</Bullet>
+          <Bullet>Umożliwienie założenia konta i logowania do Aplikacji.</Bullet>
           <Bullet>
-            Zapisywanie Twoich zadań, postępów i ustawień w różnych
-            urządzeniach (synchronizacja przez chmurę).
+            Zapewnienie pełnej funkcjonalności Aplikacji, w tym synchronizacji
+            danych pomiędzy urządzeniami.
           </Bullet>
           <Bullet>
-            Utrzymanie bezpieczeństwa – zapobieganie nadużyciom, próbom
-            włamania oraz przywracanie danych w razie awarii.
+            Obsługa i weryfikacja subskrypcji Premium oraz wykrywanie
+            nieautoryzowanych prób korzystania.
           </Bullet>
           <Bullet>
-            Rozwój MissionHome – anonimowe statystyki pomagają lepiej zrozumieć,
-            które funkcje są używane i co warto ulepszyć.
+            Analiza błędów, ulepszanie wydajności i stabilności Aplikacji.
+          </Bullet>
+          <Bullet>
+            Zapewnianie bezpieczeństwa, identyfikacja nadużyć, ochrona kont
+            użytkowników przed nieautoryzowanym dostępem.
+          </Bullet>
+          <Bullet>
+            W celach podatkowych i rozliczeniowych związanych z Premium.
+          </Bullet>
+          <Bullet>
+            Kontakt z użytkownikiem, w tym odpowiadanie na zgłoszenia.
+          </Bullet>
+          <Bullet>
+            Jeśli użytkownik wyrazi zgodę – przesyłanie informacji o nowych
+            funkcjach lub materiałach edukacyjnych.
           </Bullet>
         </SectionCard>
 
-        {/* PODSTAWA PRAWNA / OKRES */}
+        {/* 4. PODSTAWA */}
         <SectionCard>
           <SectionTitle
             icon="scale-outline"
-            title="4. Podstawa przetwarzania i czas przechowywania"
+            title="4. Podstawy prawne przetwarzania"
           />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            Dane przetwarzamy przede wszystkim w celu realizacji usługi, czyli
-            umożliwienia Ci korzystania z aplikacji MissionHome.
-          </Text>
-
           <Bullet>
-            Dane konta przechowujemy tak długo, jak korzystasz z aplikacji.
+            Art. 6 ust. 1 lit. b RODO – wykonanie umowy polegającej na
+            umożliwieniu korzystania z Aplikacji.
           </Bullet>
           <Bullet>
-            Po usunięciu konta część danych może być przechowywana jeszcze
-            przez ograniczony czas – np. w kopiach zapasowych lub w celach
-            rozliczeniowych / bezpieczeństwa.
+            Art. 6 ust. 1 lit. f RODO – prawnie uzasadniony interes, w
+            szczególności zapewnienie bezpieczeństwa, rozwój Aplikacji, obsługa
+            błędów.
+          </Bullet>
+          <Bullet>
+            Art. 6 ust. 1 lit. c RODO – obowiązki prawne (np. podatkowe dotyczące
+            subskrypcji Premium).
+          </Bullet>
+          <Bullet>
+            Art. 6 ust. 1 lit. a RODO – zgoda (np. na powiadomienia o nowościach,
+            jeśli zostaną wprowadzone).
           </Bullet>
         </SectionCard>
 
-        {/* TWOJE PRAWA */}
+        {/* 5. PREMIUM */}
         <SectionCard>
           <SectionTitle
-            icon="key-outline"
-            title="5. Twoje prawa"
-            subtitle="Niezależnie od prawniczych szczegółów – to są praktyczne rzeczy, które możesz zrobić."
+            icon="star-outline"
+            title="5. Subskrypcje Premium"
+            subtitle="Jak przetwarzamy dane związane z płatnościami?"
           />
 
           <Bullet>
-            Masz prawo wglądu w dane, które są z Tobą powiązane w aplikacji.
+            Płatności są realizowane wyłącznie przez Apple App Store i Google
+            Play Store – zgodnie z ich regulaminami.
           </Bullet>
           <Bullet>
-            Możesz poprosić o poprawienie danych, jeśli są nieaktualne lub
-            błędne (np. adres e-mail).
+            MissionHome otrzymuje wyłącznie informacje niezbędne do
+            potwierdzenia zakupu: identyfikator transakcji, status subskrypcji,
+            daty obowiązywania.
           </Bullet>
           <Bullet>
-            Możesz poprosić o usunięcie konta i powiązanych z nim danych –
-            część z nich może zostać zanonimizowana lub zachowana tylko w
-            niezbędnym zakresie.
+            Nigdy nie przetwarzamy numerów kart, danych bankowych ani danych
+            płatniczych użytkowników.
           </Bullet>
           <Bullet>
-            Możesz sprzeciwić się wykorzystaniu danych do określonych celów –
-            np. do komunikacji marketingowej, jeśli kiedyś taka się pojawi.
+            W przypadku problemów z płatnością obowiązują procedury Apple/Google.
           </Bullet>
+          <Bullet>
+            Dane dotyczące Premium mogą być przechowywane dla celów
+            rozliczeniowych przez okres wymagany prawem.
+          </Bullet>
+        </SectionCard>
 
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              marginTop: 10,
-            }}
-          >
-            Jeśli chcesz skorzystać ze swoich praw, najlepiej napisz do nas
-            poprzez zakładkę{" "}
+        {/* 6. KOMU */}
+        <SectionCard>
+          <SectionTitle
+            icon="cloud-outline"
+            title="6. Komu udostępniamy dane?"
+          />
+
+          <Bullet>
+            Dostawcom usług chmurowych (np. Firebase/Google Cloud), którzy
+            świadczą usługi przetwarzania danych na podstawie umowy powierzenia.
+          </Bullet>
+          <Bullet>
+            Apple i Google – w zakresie niezbędnym do obsługi płatności oraz
+            zgodnie z zasadami App Store / Google Play.
+          </Bullet>
+          <Bullet>
+            Narzędziom analitycznym – wyłącznie w formie anonimowej lub
+            zanonimizowanej.
+          </Bullet>
+          <Bullet>
+            Organom publicznym – wyłącznie jeśli wynika to z obowiązku prawnego.
+          </Bullet>
+        </SectionCard>
+
+        {/* 7. MIEJSCE */}
+        <SectionCard>
+          <SectionTitle icon="earth-outline" title="7. Gdzie przetwarzane są dane?" />
+
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Dane mogą być przetwarzane na terenie Europejskiego Obszaru
+            Gospodarczego oraz poza nim. Jeśli dane trafiają poza EOG,
+            zapewniane są odpowiednie zabezpieczenia zgodne z RODO, np.
+            standardowe klauzule umowne.
+          </Text>
+        </SectionCard>
+
+        {/* 8. CZAS */}
+        <SectionCard>
+          <SectionTitle icon="time-outline" title="8. Jak długo przechowujemy dane?" />
+
+          <Bullet>
+            Dane konta – przez cały okres korzystania z Aplikacji.
+          </Bullet>
+          <Bullet>
+            Po usunięciu konta dane są usuwane lub anonimizowane, a kopie
+            zapasowe mogą istnieć do 30 dni.
+          </Bullet>
+          <Bullet>
+            Dane rozliczeniowe – zgodnie z obowiązkami podatkowymi (np. 5 lat).
+          </Bullet>
+          <Bullet>
+            Dane techniczne – zgodnie z potrzebą monitorowania bezpieczeństwa.
+          </Bullet>
+        </SectionCard>
+
+        {/* 9. PRAWA */}
+        <SectionCard>
+          <SectionTitle icon="key-outline" title="9. Twoje prawa" />
+
+          <Bullet>Dostęp do danych i ich kopii.</Bullet>
+          <Bullet>Poprawianie danych nieprawidłowych.</Bullet>
+          <Bullet>Usunięcie danych (prawo do bycia zapomnianym).</Bullet>
+          <Bullet>Ograniczenie przetwarzania.</Bullet>
+          <Bullet>Przenoszenie danych.</Bullet>
+          <Bullet>Sprzeciw wobec przetwarzania.</Bullet>
+
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10 }}>
+            Aby skorzystać ze swoich praw, odwiedź zakładkę{" "}
             <LinkLike label="Kontakt" onPress={() => router.push("/contact")} />.
           </Text>
         </SectionCard>
 
-        {/* PRZEKAZYWANIE DANYCH / PODMIOTY */}
+        {/* 10. BEZPIECZEŃSTWO */}
         <SectionCard>
-          <SectionTitle
-            icon="cloud-outline"
-            title="6. Gdzie przechowujemy Twoje dane?"
-          />
+          <SectionTitle icon="lock-closed-outline" title="10. Jak chronimy Twoje dane?" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 6,
-            }}
-          >
-            MissionHome korzysta z zewnętrznych usług chmurowych (np. rozwiązań
-            typu Firebase) do przechowywania danych i obsługi logowania.
-          </Text>
-
-          <Bullet>
-            Dostawcy infrastruktury mają własne, wysokie standardy bezpieczeństwa
-            oraz certyfikacje.
-          </Bullet>
-          <Bullet>
-            Dane mogą być przechowywane na serwerach znajdujących się w różnych
-            krajach, przy zachowaniu standardów ochrony danych wymaganych
-            przez prawo.
-          </Bullet>
+          <Bullet>Szyfrowanie danych przesyłanych między urządzeniem a serwerem.</Bullet>
+          <Bullet>Regularne kopie zapasowe danych.</Bullet>
+          <Bullet>Ograniczenie dostępu do danych tylko do uprawnionych osób.</Bullet>
+          <Bullet>Zabezpieczenia anty-botowe i system wykrywania nadużyć.</Bullet>
+          <Bullet>Monitorowanie logowań i prób nieautoryzowanego dostępu.</Bullet>
         </SectionCard>
 
-        {/* ZMIANY */}
+        {/* 11. DZIECI */}
         <SectionCard>
-          <SectionTitle
-            icon="refresh-outline"
-            title="7. Zmiany tej polityki"
-          />
+          <SectionTitle icon="happy-outline" title="11. Korzystanie przez dzieci" />
 
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 13,
-              lineHeight: 19,
-              marginBottom: 4,
-            }}
-          >
-            MissionHome rozwija się razem z Tobą – dlatego polityka prywatności
-            może się zmieniać wraz z nowymi funkcjami aplikacji.
-          </Text>
-
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-            }}
-          >
-            Gdy wprowadzimy istotne zmiany, poinformujemy Cię o tym wewnątrz
-            aplikacji lub w inny wyraźny sposób.
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            MissionHome nie jest przeznaczone dla dzieci poniżej 13 roku życia.
+            Nie zbieramy świadomie danych dzieci w tym wieku. Jeśli poweźmiemy
+            informację, że takie dane zostały zebrane – usuwamy je.
           </Text>
         </SectionCard>
 
-        {/* STOPKA INFO */}
-        <View
-          style={{
-            marginTop: 4,
-            alignItems: "center",
-          }}
-        >
+        {/* 12. ZMIANY */}
+        <SectionCard>
+          <SectionTitle icon="refresh-outline" title="12. Zmiany w polityce prywatności" />
+
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Polityka może ulec zmianie wraz z rozwojem Aplikacji oraz zmianami
+            prawa. O istotnych aktualizacjach poinformujemy w Aplikacji.
+          </Text>
+        </SectionCard>
+
+        {/* FOOTER */}
+        <View style={{ marginTop: 4, alignItems: "center" }}>
           <Text
             style={{
               color: colors.textMuted,
@@ -419,11 +460,11 @@ const PrivacyScreen = () => {
           >
             Ostatnia aktualizacja:{" "}
             <Text style={{ fontWeight: "700", color: colors.text }}>
-              2025-11-29
+              2025-12-05
             </Text>
-            .{"\n"}
-            Ten tekst może być punktem wyjścia do pełnej, prawniczej wersji
-            polityki prywatności.
+            .
+            {"\n"}
+            Pełna, rozszerzona wersja polityki prywatności przekazana do weryfikacji prawnej.
           </Text>
         </View>
       </ScrollView>

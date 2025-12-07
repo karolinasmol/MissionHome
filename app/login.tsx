@@ -1,6 +1,3 @@
-// --- LOGIN.TSX POPRAWIONY ---
-// działa z daily challenges
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,

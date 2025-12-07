@@ -28,7 +28,6 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   updatePassword,
-  updateEmail,
   updateProfile,
   deleteUser,
 } from "firebase/auth";
@@ -50,12 +49,9 @@ import {
   auth,
 } from "../src/firebase/firebase.web";
 
-// Twój bucket
 const BUCKET = "domowe-443e7.firebasestorage.app";
 
-/* --------------------------------------------------
-   MOTYWY
--------------------------------------------------- */
+/* MOTYWY -------------------------------------------------- */
 
 const THEME_LABEL: Record<Theme, string> = {
   dark: "Ciemny",
@@ -133,16 +129,16 @@ function ThemeRow({ t, active, onSelect, colors }) {
             },
           ]}
         >
-          {active ? <Ionicons size={14} color="#fff" name="checkmark" /> : null}
+          {active ? (
+            <Ionicons size={14} color="#fff" name="checkmark" />
+          ) : null}
         </View>
       </View>
     </TouchableOpacity>
   );
 }
 
-/* --------------------------------------------------
-   KOMPONENT SETTINGS
--------------------------------------------------- */
+/* KOMPONENT SETTINGS -------------------------------------------------- */
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -162,27 +158,18 @@ export default function SettingsScreen() {
   const [savingNick, setSavingNick] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  /* Unikalność nicku → modal */
   const [showNickTakenModal, setShowNickTakenModal] = useState(false);
 
-  /* Reauth */
+  /* Reauth + hasło */
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-
-  /* Email */
-  const [newEmail, setNewEmail] = useState("");
-  const [newEmailConfirm, setNewEmailConfirm] = useState("");
-  const [busyEmail, setBusyEmail] = useState(false);
   const [busyPassword, setBusyPassword] = useState(false);
 
-  /* Konta */
+  /* Konto */
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
   const [busyDelete, setBusyDelete] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-
-  /* Zadania */
-  const [autoCarryIncomplete, setAutoCarryIncomplete] = useState(false);
 
   /* STYLE */
   const cardStyle = useMemo(
@@ -196,9 +183,7 @@ export default function SettingsScreen() {
   const labelStyle = { color: colors.text, fontSize: 15, fontWeight: "700" };
   const mutedStyle = { color: colors.textMuted, fontSize: 13 };
 
-  /* --------------------------------------------------
-     ŁADOWANIE PROFILU
-  -------------------------------------------------- */
+  /* ŁADOWANIE PROFILU -------------------------------------------------- */
 
   useEffect(() => {
     const u = auth.currentUser;
@@ -221,9 +206,6 @@ export default function SettingsScreen() {
           setDisplayNameState(name);
           if (d.email) setAuthEmail(d.email);
 
-          if (typeof d.autoCarryIncomplete === "boolean") {
-            setAutoCarryIncomplete(d.autoCarryIncomplete);
-          }
         } else {
           await setDoc(ref, {
             email: u.email,
@@ -231,13 +213,11 @@ export default function SettingsScreen() {
             nick: u.displayName || "",
             photoURL: u.photoURL || "",
             usernameLower: (u.displayName || "").toLowerCase(),
-            autoCarryIncomplete: false,
             createdAt: new Date(),
           });
 
           setNick(u.displayName || "");
           setAvatar(u.photoURL || "");
-          setAutoCarryIncomplete(false);
         }
       } catch {
         console.log("profile load error");
@@ -249,9 +229,7 @@ export default function SettingsScreen() {
     load();
   }, []);
 
-  /* --------------------------------------------------
-     AVATAR
-  -------------------------------------------------- */
+  /* AVATAR -------------------------------------------------- */
 
   const pickAvatar = async () => {
     const user = auth.currentUser;
@@ -297,9 +275,7 @@ export default function SettingsScreen() {
           uploadType: FileSystem.FileSystemUploadType.MULTIPART,
           fieldName: "file",
         });
-        if (res.status !== 200 && res.status !== 201) {
-          throw new Error();
-        }
+        if (res.status !== 200 && res.status !== 201) throw new Error();
       }
 
       const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(
@@ -319,9 +295,7 @@ export default function SettingsScreen() {
     }
   };
 
-  /* --------------------------------------------------
-     ZMIANA NICKU  + MODAL
-  -------------------------------------------------- */
+  /* ZMIANA NICKU -------------------------------------------------- */
 
   const saveNick = async () => {
     const user = auth.currentUser;
@@ -376,9 +350,7 @@ export default function SettingsScreen() {
     }
   };
 
-  /* --------------------------------------------------
-     ZMIANA HASŁA
-  -------------------------------------------------- */
+  /* ZMIANA HASŁA -------------------------------------------------- */
 
   const reauth = async () => {
     const user = auth.currentUser;
@@ -416,46 +388,7 @@ export default function SettingsScreen() {
     setBusyPassword(false);
   };
 
-  /* --------------------------------------------------
-     ZMIANA E-MAILA
-  -------------------------------------------------- */
-
-  const changeEmail = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const e1 = newEmail.trim();
-    const e2 = newEmailConfirm.trim();
-
-    if (!e1 || !e2 || e1 !== e2) return;
-
-    setBusyEmail(true);
-    try {
-      const ok = await reauth();
-      if (!ok) {
-        setBusyEmail(false);
-        return;
-      }
-
-      await updateEmail(user, e1);
-      await user.reload();
-
-      await setDoc(
-        doc("users", user.uid),
-        { email: e1 },
-        { merge: true }
-      );
-
-      setAuthEmail(e1);
-      setNewEmail("");
-      setNewEmailConfirm("");
-    } catch {}
-    setBusyEmail(false);
-  };
-
-  /* --------------------------------------------------
-     USUWANIE KONTA
-  -------------------------------------------------- */
+  /* USUWANIE KONTA -------------------------------------------------- */
 
   const openDeleteConfirm = () => {
     setDeleteError("");
@@ -482,25 +415,7 @@ export default function SettingsScreen() {
     setBusyDelete(false);
   };
 
-  /* --------------------------------------------------
-     AUTO CARRY
-  -------------------------------------------------- */
-
-  const handleToggleAutoCarryIncomplete = async (v: boolean) => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    setAutoCarryIncomplete(v);
-    try {
-      await setDoc(doc("users", user.uid), { autoCarryIncomplete: v }, { merge: true });
-    } catch {
-      setAutoCarryIncomplete(!v);
-    }
-  };
-
-  /* --------------------------------------------------
-     RENDER
-  -------------------------------------------------- */
+  /* RENDER -------------------------------------------------- */
 
   const inputStyle = {
     borderWidth: 1,
@@ -544,7 +459,9 @@ export default function SettingsScreen() {
         }}
       >
         {/* HEADER */}
-        <View style={{ flexDirection: "row", marginBottom: 18, alignItems: "center" }}>
+        <View
+          style={{ flexDirection: "row", marginBottom: 18, alignItems: "center" }}
+        >
           <TouchableOpacity onPress={() => router.back()} style={{ paddingRight: 8 }}>
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
@@ -623,7 +540,6 @@ export default function SettingsScreen() {
               borderTopColor: colors.border,
             }}
           >
-            <Text style={{ color: colors.textMuted, fontSize: 12 }}>Nazwa</Text>
             <Text
               style={{
                 color: colors.text,
@@ -667,7 +583,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* KARTA: WYGLĄD */}
+        {/* KARTA WYGLĄD */}
         <View
           style={{
             ...cardStyle,
@@ -678,7 +594,9 @@ export default function SettingsScreen() {
           }}
         >
           <Text style={labelStyle}>Wygląd</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>Zmieniaj motyw aplikacji.</Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>
+            Zmieniaj motyw aplikacji.
+          </Text>
 
           <View style={{ marginTop: 12 }}>
             <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
@@ -702,66 +620,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* KARTA ZADAŃ */}
-        <View
-          style={{
-            ...cardStyle,
-            borderWidth: 1,
-            borderRadius: 16,
-            padding: 14,
-            marginBottom: 14,
-          }}
-        >
-          <Text style={labelStyle}>Zadania</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Zachowanie zadań niewykonanych.
-          </Text>
-
-          <TouchableOpacity
-            onPress={() => handleToggleAutoCarryIncomplete(!autoCarryIncomplete)}
-            style={styles.taskRow}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
-                Przenoś niewykonane zadania
-              </Text>
-              <Text style={[mutedStyle, { marginTop: 2 }]}>
-                Automatyczne przenoszenie zadań na kolejny dzień.
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.radioPill,
-                {
-                  borderColor: autoCarryIncomplete
-                    ? colors.accent
-                    : colors.border,
-                  backgroundColor: autoCarryIncomplete
-                    ? colors.accent
-                    : "transparent",
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.radioKnob,
-                  {
-                    backgroundColor: autoCarryIncomplete ? "#0f172a" : colors.card,
-                    transform: [{ translateX: autoCarryIncomplete ? 14 : 0 }],
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                {autoCarryIncomplete && (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* KARTA BEZPIECZEŃSTWA */}
+        {/* KARTA BEZPIECZEŃSTWO */}
         <View
           style={{
             ...cardStyle,
@@ -811,50 +670,6 @@ export default function SettingsScreen() {
             >
               <Text style={{ fontWeight: "800", color: "#022c22" }}>
                 {busyPassword ? "Aktualizuję..." : "Zaktualizuj hasło"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* email */}
-          <View style={{ marginTop: 20 }}>
-            <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
-              Zmień e-mail
-            </Text>
-
-            <Text style={[mutedStyle, { marginTop: 4 }]}>
-              Aktualny:{" "}
-              <Text style={{ color: colors.text, fontWeight: "700" }}>
-                {authEmail}
-              </Text>
-            </Text>
-
-            <TextInput
-              placeholder="nowy@email.com"
-              placeholderTextColor={colors.textMuted}
-              style={inputStyle}
-              value={newEmail}
-              onChangeText={setNewEmail}
-            />
-
-            <TextInput
-              placeholder="Powtórz e-mail"
-              placeholderTextColor={colors.textMuted}
-              style={inputStyle}
-              value={newEmailConfirm}
-              onChangeText={setNewEmailConfirm}
-            />
-
-            <TouchableOpacity
-              onPress={changeEmail}
-              disabled={busyEmail}
-              style={{
-                ...smallBtnBase,
-                marginTop: 12,
-                backgroundColor: colors.accent,
-              }}
-            >
-              <Text style={{ fontWeight: "800", color: "#022c22" }}>
-                {busyEmail ? "Zmieniam..." : "Zmień e-mail"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1124,9 +939,7 @@ export default function SettingsScreen() {
   );
 }
 
-/* --------------------------------------------------
-   STYLES
--------------------------------------------------- */
+/* STYLES -------------------------------------------------- */
 
 const styles = StyleSheet.create({
   themeRow: {
@@ -1161,14 +974,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  taskRow: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
 });
+

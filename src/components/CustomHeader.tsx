@@ -38,6 +38,13 @@ import {
 const ACCENT_PREMIUM = "#22d3ee";
 const ACCENT_NOTIF = "#2F6BFF";
 
+type NavItem = {
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  route: string;
+};
+
 type NotifRow = {
   id: string;
   type?: string;
@@ -45,18 +52,8 @@ type NotifRow = {
   body?: string | null;
   read?: boolean;
   createdAt?: any;
-  listingId?: string | null;
-
   inviteId?: string | null;
   familyId?: string | null;
-  status?: string | null;
-};
-
-type NavItem = {
-  key: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  route: string;
 };
 
 export default function CustomHeader() {
@@ -71,7 +68,7 @@ export default function CustomHeader() {
 
   const useNativeDriver = Platform.OS !== "web";
 
-  // ---- AUTH ----
+  /* ========== AUTH ========== */
   const [user, setUser] = useState(() => auth.currentUser);
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
@@ -80,85 +77,62 @@ export default function CustomHeader() {
 
   const uid = user?.uid || null;
 
-  // ---- NICK z Firestore ----
+  /* ========== NICKNAME ========== */
   const [nick, setNick] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!uid) {
-      setNick(null);
-      return;
-    }
+    if (!uid) return setNick(null);
 
     const loadNick = async () => {
       try {
-        const userRef = doc(db as any, "users", uid);
-        const snap = await getDoc(userRef);
+        const ref = doc(db as any, "users", uid);
+        const snap = await getDoc(ref);
         if (snap.exists()) {
           const data = snap.data() as any;
-          const rawNick = (data?.nick ?? "").trim();
-          setNick(rawNick || null);
-        } else {
-          setNick(null);
-        }
-      } catch (e) {
-        console.log("CustomHeader: error loading nick", e);
+          const raw = (data?.nick ?? "").trim();
+          setNick(raw || null);
+        } else setNick(null);
+      } catch {
         setNick(null);
       }
     };
-
     loadNick();
   }, [uid]);
 
-  const authDisplayName = (user?.displayName || "").trim() || null;
+  const authName = (user?.displayName || "").trim() || null;
   const emailPart = user?.email ? user.email.split("@")[0] : null;
 
-  // 👉 TO jest finalny tekst, który ma się pokazać obok avatara:
-  const displayNameForHeader =
-    nick || authDisplayName || emailPart || "Profil";
+  const displayName = nick || authName || emailPart || "Profil";
+  const initials = getInitials(displayName);
 
-  // Tytuł w menu profilu (żeby był taki sam)
-  const displayNameForMenu = displayNameForHeader;
+  /* ========== NAV STRUCTURE ========== */
+  const NAV: NavItem[] = [
+    { key: "cal", icon: "calendar-outline", label: "Kalendarz", route: "/calendar" },
+    { key: "fam", icon: "people-outline", label: "Rodzina", route: "/family" },
+    { key: "stats", icon: "stats-chart-outline", label: "Statystyki", route: "/stats" },
+    { key: "ach", icon: "trophy-outline", label: "Osiągnięcia", route: "/achievements" },
+    { key: "rank", icon: "podium-outline", label: "Ranking", route: "/Ranking" },
+  ];
 
-  const initials = getInitials(displayNameForMenu);
-
-  console.log("HEADER DEBUG -> uid:", uid, "nick:", nick, "authName:", authDisplayName, "emailPart:", emailPart);
-
-  // ---- NAV ----
-  const NAV: NavItem[] = useMemo(
-    () => [
-      { key: "cal", icon: "calendar-outline", label: "Kalendarz", route: "/calendar" },
-      { key: "fam", icon: "people-outline", label: "Rodzina", route: "/family" },
-      { key: "stats", icon: "stats-chart-outline", label: "Statystyki", route: "/stats" },
-      { key: "ach", icon: "trophy-outline", label: "Osiągnięcia", route: "/achievements" },
-    ],
-    []
-  );
-
-  const isTight = width < 380;
-  const primaryNav = isTight ? NAV.slice(0, 2) : NAV;
-  const overflowNav = isTight ? NAV.slice(2) : [];
-
-  // ---- DROPDOWNS ----
+  /* ========== MODALS ========== */
   const [profileOpen, setProfileOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
 
   const closeAll = () => {
     setProfileOpen(false);
-    setMoreOpen(false);
+    setNavOpen(false);
     setNotifsOpen(false);
   };
 
-  // ---- POWIADOMIENIA ----
+  /* ========== NOTIFICATIONS ========== */
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifRows, setNotifRows] = useState<NotifRow[] | null>(null);
   const [notifLoading, setNotifLoading] = useState(false);
 
   useEffect(() => {
-    if (!uid) {
-      setUnreadCount(0);
-      return;
-    }
+    if (!uid) return setUnreadCount(0);
+
     const qUnread = query(
       collection(db as any, `users/${uid}/notifications`),
       where("read", "==", false)
@@ -172,26 +146,19 @@ export default function CustomHeader() {
   }, [uid]);
 
   useEffect(() => {
-    if (!notifsOpen || !uid) {
-      setNotifRows(notifsOpen ? [] : null);
-      return;
-    }
+    if (!notifsOpen || !uid) return setNotifRows(notifsOpen ? [] : null);
 
     setNotifLoading(true);
-    const qy = query(
+    const q = query(
       collection(db as any, `users/${uid}/notifications`),
       orderBy("createdAt", "desc"),
       fsLimit(20)
     );
 
     const off = onSnapshot(
-      qy,
+      q,
       (snap) => {
-        const arr: NotifRow[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        }));
-        setNotifRows(arr);
+        setNotifRows(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
         setNotifLoading(false);
       },
       () => {
@@ -199,224 +166,140 @@ export default function CustomHeader() {
         setNotifLoading(false);
       }
     );
-
     return () => off();
   }, [notifsOpen, uid]);
 
   const markVisibleRead = async () => {
     if (!uid || !notifRows?.length) return;
-    try {
-      const batch = writeBatch(db as any);
-      let touched = 0;
-      notifRows.forEach((n) => {
-        if (n.read) return;
-        touched++;
+
+    const batch = writeBatch(db as any);
+    notifRows.forEach((n) => {
+      if (!n.read) {
         batch.set(
           doc(db as any, `users/${uid}/notifications/${n.id}`),
           { read: true, readAt: serverTimestamp() },
-          { merge: true } as any
+          { merge: true }
         );
-      });
-      if (!touched) return;
-      await batch.commit();
-    } catch {}
+      }
+    });
+    await batch.commit();
   };
 
   const clearVisible = async () => {
     if (!uid || !notifRows?.length) return;
-    try {
-      const batch = writeBatch(db as any);
-      notifRows.forEach((n) => batch.delete(doc(db as any, `users/${uid}/notifications/${n.id}`)));
-      await batch.commit();
-      setNotifRows([]);
-    } catch {}
+
+    const batch = writeBatch(db as any);
+    notifRows.forEach((n) =>
+      batch.delete(doc(db as any, `users/${uid}/notifications/${n.id}`))
+    );
+    await batch.commit();
+    setNotifRows([]);
   };
 
   const toggleNotifRead = async (n: NotifRow) => {
     if (!uid) return;
-    const nextRead = !n.read;
+    const next = !n.read;
 
     setNotifRows((prev) =>
-      prev ? prev.map((row) => (row.id === n.id ? { ...row, read: nextRead } : row)) : prev
+      prev ? prev.map((x) => (x.id === n.id ? { ...x, read: next } : x)) : prev
     );
 
-    try {
-      await updateDoc(doc(db as any, `users/${uid}/notifications/${n.id}`), {
-        read: nextRead,
-        readAt: nextRead ? serverTimestamp() : null,
-      });
-    } catch {}
+    await updateDoc(doc(db as any, `users/${uid}/notifications/${n.id}`), {
+      read: next,
+      readAt: next ? serverTimestamp() : null,
+    });
   };
 
-  const notifIconFor = (type?: string) => {
-    switch (type) {
+  const notifIconFor = (t?: string) => {
+    switch (t) {
       case "FAMILY_INVITE":
         return "people";
-      case "FAMILY_INVITE_ACCEPTED":
-        return "checkmark-circle";
-      case "FAMILY_INVITE_DECLINED":
-        return "close-circle";
       case "FRIEND_INVITE":
         return "person-add";
-      case "FRIEND_INVITE_ACCEPTED":
-        return "happy";
       case "LEVEL_UP":
         return "sparkles";
-      case "EXP_GAIN":
-        return "flash";
       case "WIN":
         return "trophy";
-      case "SOLD":
-        return "cash";
-      case "OUTBID":
-        return "trending-up";
       default:
         return "notifications";
     }
   };
 
-  const Badge = ({ count }: { count: number }) => {
-    if (!count) return null;
-    return (
+  const Badge = ({ count }: { count: number }) =>
+    !count ? null : (
       <View style={[styles.badge, { borderColor: palette.card }]}>
-        <Text style={styles.badgeText}>{count > 99 ? "99+" : String(count)}</Text>
+        <Text style={styles.badgeText}>{count > 99 ? "99+" : count}</Text>
       </View>
     );
-  };
 
-  const isFamilyOrFriendsNotif = (n: NotifRow) => {
-    const t = n.type || "";
-    return (
-      t === "FAMILY_INVITE" ||
-      t === "FAMILY_INVITE_ACCEPTED" ||
-      t === "FAMILY_INVITE_DECLINED" ||
-      t === "FRIEND_INVITE" ||
-      t === "FRIEND_INVITE_ACCEPTED"
-    );
-  };
+  /* ========== UI HELPERS ========== */
+  const tapScale = () => useRef(new Animated.Value(1)).current;
 
-  const handleNotifPress = (n: NotifRow) => {
-    if (!n.read) toggleNotifRead(n);
-
-    if (isFamilyOrFriendsNotif(n)) {
-      setNotifsOpen(false);
-      router.push(
-        {
-          pathname: "/family",
-          params: n.familyId ? { from: "notif", familyId: n.familyId } : { from: "notif" },
-        } as any
-      );
-      return;
-    }
-  };
-
-  const makeTapScale = () => useRef(new Animated.Value(1)).current;
-
-  const NavButton = ({ item }: { item: NavItem }) => {
+  const NavRow = ({ item }: { item: NavItem }) => {
     const active = pathname === item.route || pathname?.startsWith(item.route);
-    const scale = makeTapScale();
-
-    const onPressIn = () =>
-      Animated.spring(scale, {
-        toValue: 0.96,
-        useNativeDriver,
-        friction: 7,
-        tension: 220,
-      }).start();
-    const onPressOut = () =>
-      Animated.spring(scale, {
-        toValue: 1,
-        useNativeDriver,
-        friction: 7,
-        tension: 220,
-      }).start();
-
     return (
       <Pressable
-        onPress={() => router.push(item.route as any)}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
+        onPress={() => {
+          setNavOpen(false);
+          router.push(item.route as any);
+        }}
         style={({ pressed }) => [
-          styles.navBtn,
-          active && styles.navBtnActive,
-          pressed && { opacity: 0.95 },
+          styles.navRowItem,
+          active && styles.navRowItemActive,
+          pressed && { opacity: 0.9 },
         ]}
-        hitSlop={10}
       >
-        <Animated.View style={[styles.navInner, { transform: [{ scale }] }]}>
-          <Ionicons
-            name={item.icon}
-            size={16}
-            color={active ? palette.navIconActive : palette.navIcon}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>
-            {item.label}
-          </Text>
-        </Animated.View>
+        <Ionicons
+          name={item.icon}
+          size={18}
+          color={active ? palette.navIconActive : palette.navIcon}
+        />
+        <Text
+          style={[styles.navRowText, active && { color: palette.navIconActive }]}
+        >
+          {item.label}
+        </Text>
       </Pressable>
     );
   };
 
-  const MenuRow = ({
-    icon,
-    label,
-    onPress,
-    danger,
-  }: {
-    icon: keyof typeof Ionicons.glyphMap;
-    label: string;
-    onPress: () => void;
-    danger?: boolean;
-  }) => (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
-    >
-      <Ionicons
-        name={icon}
-        size={18}
-        color={danger ? "#ef4444" : palette.menuText}
-        style={{ marginRight: 10 }}
-      />
-      <Text style={[styles.menuRowText, danger && { color: "#ef4444" }]}>{label}</Text>
-    </Pressable>
-  );
+  const panelTop = Math.max(insets.top + 50, 80);
 
-  const panelTop = Math.max(insets.top + 60, 90);
-
+  /* ========== RENDER ========== */
   return (
     <SafeAreaView edges={["top"]} style={[styles.safeWrap, { backgroundColor: palette.bg }]}>
-      {/* BAR */}
-      <View style={[styles.bar, { marginTop: 8 }]}>
-        {/* LEFT: logo */}
+      <View style={styles.bar}>
+        {/* LOGO */}
         <Pressable
           onPress={() => router.push("/" as any)}
           style={({ pressed }) => [styles.logoWrap, pressed && { opacity: 0.9 }]}
-          hitSlop={10}
         >
           <Text style={styles.logoTop}>Mission</Text>
           <Text style={styles.logoBottom}>Home</Text>
         </Pressable>
 
-        {/* RIGHT: actions */}
         <View style={styles.actions}>
-          {/* NOTIFS */}
+          {/* MENU (···) */}
           <Pressable
             onPress={() => {
-              setProfileOpen(false);
-              setMoreOpen(false);
+              closeAll();
+              setNavOpen(true);
+            }}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.9 }]}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color={palette.navIcon} />
+          </Pressable>
+
+          {/* NOTIFICATIONS */}
+          <Pressable
+            onPress={() => {
+              closeAll();
               setNotifsOpen(true);
             }}
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.9 }]}
-            hitSlop={10}
           >
             <View style={{ position: "relative" }}>
-              <Ionicons
-                name={notifsOpen ? "notifications" : "notifications-outline"}
-                size={20}
-                color={palette.navIcon}
-              />
+              <Ionicons name="notifications-outline" size={20} color={palette.navIcon} />
               <Badge count={unreadCount} />
             </View>
           </Pressable>
@@ -425,21 +308,17 @@ export default function CustomHeader() {
           <Pressable
             onPress={() => router.push("/premium" as any)}
             style={({ pressed }) => [styles.premiumChip, pressed && { opacity: 0.9 }]}
-            hitSlop={10}
           >
-            <Ionicons name="sparkles" size={16} color={ACCENT_PREMIUM} style={{ marginRight: 6 }} />
-            <Text style={styles.premiumText}>Premium</Text>
+            <Ionicons name="sparkles" size={16} color={ACCENT_PREMIUM} />
           </Pressable>
 
           {/* PROFILE */}
           <Pressable
             onPress={() => {
-              setNotifsOpen(false);
-              setMoreOpen(false);
+              closeAll();
               setProfileOpen(true);
             }}
             style={({ pressed }) => [styles.profileBtn, pressed && { opacity: 0.92 }]}
-            hitSlop={10}
           >
             <View style={styles.avatarOuter}>
               {user?.photoURL ? (
@@ -450,109 +329,66 @@ export default function CustomHeader() {
                 </View>
               )}
             </View>
-            <Text style={styles.profileName} numberOfLines={1}>
-              {displayNameForHeader}
-            </Text>
-            <Ionicons name="chevron-down" size={16} color={palette.profileChevron} />
           </Pressable>
         </View>
       </View>
 
-      {/* NAV */}
-      <View style={styles.navRowWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.navRow}
-          keyboardShouldPersistTaps="handled"
+      {/* --- NAV MENU --- */}
+      <Modal transparent visible={navOpen} animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setNavOpen(false)} />
+        <View
+          style={[
+            styles.modalCard,
+            { top: panelTop, left: 12, right: 12, maxWidth: 420, alignSelf: "center" },
+          ]}
         >
-          {primaryNav.map((it) => (
-            <NavButton key={it.key} item={it} />
-          ))}
-
-          {overflowNav.length > 0 && (
-            <Pressable
-              onPress={() => {
-                setProfileOpen(false);
-                setNotifsOpen(false);
-                setMoreOpen(true);
-              }}
-              style={({ pressed }) => [styles.navBtn, pressed && { opacity: 0.95 }]}
-              hitSlop={10}
-            >
-              <View style={styles.navInner}>
-                <Ionicons
-                  name="ellipsis-horizontal"
-                  size={18}
-                  color={palette.navIcon}
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.navLabel}>Więcej</Text>
-              </View>
-            </Pressable>
-          )}
-        </ScrollView>
-      </View>
-
-      {/* ===== MORE MENU (Modal) ===== */}
-      <Modal
-        transparent
-        visible={moreOpen}
-        animationType="fade"
-        onRequestClose={() => setMoreOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setMoreOpen(false)} />
-        <View style={[styles.modalCard, { top: panelTop, right: 12 }]}>
           <Text style={styles.modalTitle}>Menu</Text>
           <View style={styles.modalSep} />
-          {overflowNav.map((it) => (
-            <MenuRow
-              key={it.key}
-              icon={it.icon}
-              label={it.label}
-              onPress={() => {
-                setMoreOpen(false);
-                router.push(it.route as any);
-              }}
-            />
+
+          {NAV.map((it) => (
+            <NavRow key={it.key} item={it} />
           ))}
         </View>
       </Modal>
 
-      {/* ===== PROFILE MENU (Modal) ===== */}
-      <Modal
-        transparent
-        visible={profileOpen}
-        animationType="fade"
-        onRequestClose={() => setProfileOpen(false)}
-      >
+      {/* --- PROFILE MENU --- */}
+      <Modal transparent visible={profileOpen} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setProfileOpen(false)} />
-        <View style={[styles.modalCard, { top: panelTop, right: 12, width: 240 }]}>
-          <Text style={styles.modalTitle}>{displayNameForMenu}</Text>
-          <Text style={styles.modalSub}>{user?.email ? user.email : "—"}</Text>
+        <View
+          style={[
+            styles.modalCard,
+            { top: panelTop, right: 12, width: 250 },
+          ]}
+        >
+          <Text style={styles.modalTitle}>{displayName}</Text>
+          <Text style={styles.modalSub}>{user?.email}</Text>
           <View style={styles.modalSep} />
 
-          <MenuRow
-            icon="settings-outline"
-            label="Ustawienia"
+          <Pressable
             onPress={() => {
               setProfileOpen(false);
               router.push("/settings" as any);
             }}
-          />
-          <MenuRow
-            icon="bug-outline"
-            label="Zgłoś błąd"
+            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+          >
+            <Ionicons name="settings-outline" size={18} color={palette.menuText} />
+            <Text style={styles.menuRowText}>Ustawienia</Text>
+          </Pressable>
+
+          <Pressable
             onPress={() => {
               setProfileOpen(false);
               router.push("/bug" as any);
             }}
-          />
+            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+          >
+            <Ionicons name="bug-outline" size={18} color={palette.menuText} />
+            <Text style={styles.menuRowText}>Zgłoś błąd</Text>
+          </Pressable>
+
           <View style={styles.modalSep} />
-          <MenuRow
-            icon="log-out-outline"
-            label="Wyloguj"
-            danger
+
+          <Pressable
             onPress={async () => {
               try {
                 await auth.signOut();
@@ -560,27 +396,29 @@ export default function CustomHeader() {
               setProfileOpen(false);
               router.replace("/login" as any);
             }}
-          />
+            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+          >
+            <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+            <Text style={[styles.menuRowText, { color: "#ef4444" }]}>Wyloguj</Text>
+          </Pressable>
         </View>
       </Modal>
 
-      {/* ===== NOTIFS (Modal) ===== */}
-      <Modal
-        transparent
-        visible={notifsOpen}
-        animationType="fade"
-        onRequestClose={() => setNotifsOpen(false)}
-      >
+      {/* --- NOTIFICATIONS PANEL --- */}
+      <Modal transparent visible={notifsOpen} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setNotifsOpen(false)} />
-        <View style={[styles.notifCard, { top: panelTop, right: 12, left: 12 }]}>
+        <View
+          style={[
+            styles.notifCard,
+            { top: panelTop, left: 12, right: 12, maxWidth: 460, alignSelf: "center" },
+          ]}
+        >
           <View style={styles.notifHeader}>
             <Text style={styles.notifTitle}>Powiadomienia</Text>
-
             <View style={{ flexDirection: "row" }}>
               <TouchableOpacity
                 onPress={markVisibleRead}
-                activeOpacity={0.9}
-                style={[styles.notifAction, { backgroundColor: ACCENT_NOTIF, marginRight: 8 }]}
+                style={[styles.notifAction, { backgroundColor: ACCENT_NOTIF }]}
               >
                 <Ionicons name="checkmark-done" size={14} color="#fff" />
                 <Text style={styles.notifActionText}>Przeczytane</Text>
@@ -588,7 +426,6 @@ export default function CustomHeader() {
 
               <TouchableOpacity
                 onPress={clearVisible}
-                activeOpacity={0.9}
                 style={[styles.notifAction, { backgroundColor: "#6B7280" }]}
               >
                 <Ionicons name="trash-outline" size={14} color="#fff" />
@@ -601,7 +438,7 @@ export default function CustomHeader() {
 
           {notifLoading ? (
             <View style={styles.notifLoading}>
-              <ActivityIndicator color={isDark ? "#fff" : "#111"} />
+              <ActivityIndicator color={palette.text} />
             </View>
           ) : notifRows == null ? (
             <View style={styles.notifLoading}>
@@ -612,93 +449,58 @@ export default function CustomHeader() {
               <Text style={{ color: palette.muted }}>Brak powiadomień</Text>
             </View>
           ) : (
-            <ScrollView style={styles.notifScroll} contentContainerStyle={{ paddingBottom: 8 }}>
+            <ScrollView style={styles.notifScroll}>
               {notifRows.map((n) => {
-                const icon = notifIconFor(n.type);
                 const unread = !n.read;
-
                 return (
                   <TouchableOpacity
                     key={n.id}
-                    activeOpacity={0.92}
-                    onPress={() => handleNotifPress(n)}
-                    onLongPress={() => toggleNotifRead(n)}
-                    delayLongPress={280}
+                    onPress={() => toggleNotifRead(n)}
                     style={[styles.notifRow, unread && styles.notifRowUnread]}
                   >
                     <Ionicons
-                      name={icon as any}
+                      name={notifIconFor(n.type) as any}
                       size={18}
                       color={unread ? ACCENT_NOTIF : palette.navIcon}
-                      style={{ marginRight: 10, marginTop: 2 }}
+                      style={{ marginRight: 10 }}
                     />
                     <View style={{ flex: 1 }}>
                       <Text
+                        style={[
+                          styles.notifRowTitle,
+                          { fontWeight: unread ? "900" : "700" },
+                        ]}
                         numberOfLines={1}
-                        style={[styles.notifRowTitle, { fontWeight: unread ? "900" : "700" }]}
                       >
                         {n.title || "Powiadomienie"}
                       </Text>
-                      {!!n.body && (
-                        <Text numberOfLines={2} style={styles.notifRowBody}>
+                      {n.body && (
+                        <Text style={styles.notifRowBody} numberOfLines={2}>
                           {n.body}
                         </Text>
                       )}
-                      <Text style={styles.notifHint}>
-                        Tap: otwórz • Long-press: read/unread
-                      </Text>
                     </View>
-                    {unread ? <View style={styles.dot} /> : null}
+                    {unread && <View style={styles.dot} />}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
           )}
-
-          <TouchableOpacity
-            onPress={() => {
-              setNotifsOpen(false);
-              router.push("/notifications" as any);
-            }}
-            activeOpacity={0.92}
-            style={[styles.bigCta, { backgroundColor: ACCENT_NOTIF }]}
-          >
-            <Ionicons name="open-outline" size={16} color="#fff" />
-            <Text style={styles.bigCtaText}>Zobacz wszystkie</Text>
-          </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
-/* ------------------ HELPERS ------------------ */
-function getInitials(name: string) {
-  if (!name) return "MH";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) {
-    const p = parts[0];
-    if (!p) return "MH";
-    if (p.includes("@")) return p[0]?.toUpperCase() || "M";
-    return p.slice(0, 2).toUpperCase();
-  }
-  return (parts[0][0] + parts[1][0]).toUpperCase();
+/* ========================== HELPERS ========================== */
+function getInitials(n: string) {
+  if (!n) return "MH";
+  const p = n.trim().split(/\s+/);
+  if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+  return (p[0][0] + p[1][0]).toUpperCase();
 }
 
-function makePalette({
-  isDark,
-  colors,
-}: {
-  isDark: boolean;
-  colors: {
-    bg: string;
-    card: string;
-    text: string;
-    textMuted: string;
-    accent: string;
-    border: string;
-  };
-}) {
+function makePalette({ isDark, colors }: any) {
   return {
     bg: colors.bg,
     card: colors.card,
@@ -707,95 +509,79 @@ function makePalette({
     muted: colors.textMuted,
     navIcon: isDark ? "#cbd5f5" : "#0f172a",
     navIconActive: colors.accent,
-    navText: colors.text,
-    navTextActive: colors.accent,
     profileChevron: isDark ? "#94a3b8" : "#475569",
-    menuBg: isDark ? "#0b1220" : "#ffffff",
+    menuBg: isDark ? "#0b1220" : "#fff",
     menuBorder: isDark ? "rgba(148,163,184,0.32)" : "rgba(15,23,42,0.12)",
     menuText: isDark ? "#e5e7eb" : "#0f172a",
     chipBg: isDark ? "rgba(2,6,23,0.6)" : "rgba(219,234,254,0.9)",
   };
 }
 
-function makeStyles(palette: ReturnType<typeof makePalette>) {
+/* ========================== STYLES ========================== */
+function makeStyles(p: ReturnType<typeof makePalette>) {
   return StyleSheet.create({
     safeWrap: {
       width: "100%",
       borderBottomWidth: 1,
-      borderBottomColor: palette.border,
+      borderBottomColor: p.border,
       paddingHorizontal: 12,
-      paddingBottom: 8,
+      paddingBottom: 6,
       zIndex: 10,
     },
 
+    /* ===== HEADER BAR ===== */
     bar: {
       width: "100%",
-      borderRadius: 18,
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: palette.border,
-      backgroundColor: palette.card,
+      borderColor: p.border,
+      backgroundColor: p.card,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      elevation: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
     },
-
-    logoWrap: { paddingVertical: 2, paddingRight: 8 },
-    logoTop: { fontSize: 18, fontWeight: "900", color: palette.text, lineHeight: 18 },
-    logoBottom: {
-      fontSize: 18,
-      fontWeight: "900",
-      color: "#1dd4c7",
-      lineHeight: 18,
-      marginTop: 1,
-    },
+    logoWrap: {},
+    logoTop: { fontSize: 18, fontWeight: "900", color: p.text },
+    logoBottom: { fontSize: 18, fontWeight: "900", color: "#1dd4c7", marginTop: -1 },
 
     actions: { flexDirection: "row", alignItems: "center" },
+
     iconBtn: {
-      width: 40,
-      height: 38,
-      borderRadius: 12,
+      width: 34,
+      height: 34,
+      borderRadius: 10,
       justifyContent: "center",
       alignItems: "center",
-      marginRight: 8,
       borderWidth: 1,
-      borderColor: palette.border,
+      borderColor: p.border,
       backgroundColor: "transparent",
+      marginLeft: 6,
     },
 
     premiumChip: {
-      flexDirection: "row",
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      justifyContent: "center",
       alignItems: "center",
       borderWidth: 1,
-      borderColor: palette.border,
-      backgroundColor: palette.chipBg,
-      paddingHorizontal: 10,
-      height: 38,
-      borderRadius: 12,
-      marginRight: 8,
+      borderColor: p.border,
+      backgroundColor: p.chipBg,
+      marginLeft: 6,
     },
-    premiumText: { color: ACCENT_PREMIUM, fontWeight: "900", fontSize: 12 },
 
     profileBtn: {
-      flexDirection: "row",
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      justifyContent: "center",
       alignItems: "center",
+      marginLeft: 6,
+      backgroundColor: p.chipBg,
       borderWidth: 1,
-      borderColor: palette.border,
-      backgroundColor: palette.chipBg,
-      paddingHorizontal: 10,
-      height: 38,
-      borderRadius: 12,
-      maxWidth: 190,
-    },
-
-    profileName: {
-      color: palette.menuText,
-      fontWeight: "800",
-      fontSize: 13,
-      marginRight: 6,
-      maxWidth: 90,
+      borderColor: p.border,
     },
 
     avatarOuter: {
@@ -803,146 +589,132 @@ function makeStyles(palette: ReturnType<typeof makePalette>) {
       height: 26,
       borderRadius: 13,
       overflow: "hidden",
-      justifyContent: "center",
-      alignItems: "center",
       borderWidth: 1,
-      borderColor: "rgba(148,163,184,0.7)",
-      marginRight: 8,
+      borderColor: "rgba(148,163,184,0.6)",
     },
-    avatarImage: { width: "100%", height: "100%", borderRadius: 13 },
+    avatarImage: { width: "100%", height: "100%" },
     avatarFallback: {
-      width: "100%",
-      height: "100%",
-      borderRadius: 13,
-      backgroundColor: "rgba(15,23,42,0.8)",
+      flex: 1,
       justifyContent: "center",
       alignItems: "center",
+      backgroundColor: "rgba(15,23,42,0.7)",
     },
     avatarFallbackText: { color: "#e5e7eb", fontSize: 11, fontWeight: "900" },
 
     badge: {
       position: "absolute",
-      top: -8,
-      right: -10,
-      minWidth: 18,
-      height: 18,
+      top: -6,
+      right: -6,
+      minWidth: 16,
+      height: 16,
       borderRadius: 999,
-      paddingHorizontal: 5,
+      paddingHorizontal: 4,
       backgroundColor: "#ef4444",
       justifyContent: "center",
       alignItems: "center",
       borderWidth: 2,
     },
-    badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
+    badgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
 
-    navRowWrap: { marginTop: 10 },
-    navRow: { paddingHorizontal: 2, paddingBottom: 2, alignItems: "center" },
-
-    navBtn: {
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: palette.border,
-      backgroundColor: palette.card,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      marginRight: 10,
-    },
-    navBtnActive: {
-      backgroundColor: "rgba(47,107,255,0.10)",
-      borderColor: "rgba(47,107,255,0.35)",
-    },
-
-    navInner: { flexDirection: "row", alignItems: "center" },
-    navLabel: { fontSize: 13, color: palette.navText, fontWeight: "800" },
-    navLabelActive: { color: palette.navTextActive },
-
+    /* ===== MODALS ===== */
     modalOverlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(2,6,23,0.35)",
+      backgroundColor: "rgba(0,0,0,0.35)",
     },
     modalCard: {
       position: "absolute",
-      backgroundColor: palette.menuBg,
+      backgroundColor: p.menuBg,
       borderWidth: 1,
-      borderColor: palette.menuBorder,
-      borderRadius: 14,
-      paddingVertical: 8,
-      paddingHorizontal: 10,
-      width: 260,
-      elevation: 8,
+      borderColor: p.menuBorder,
+      borderRadius: 16,
+      padding: 12,
+      elevation: 10,
     },
-    modalTitle: { color: palette.text, fontSize: 14, fontWeight: "900" },
-    modalSub: { color: palette.muted, fontSize: 12, marginTop: 2, marginBottom: 4 },
-    modalSep: { height: 1, backgroundColor: palette.menuBorder, marginVertical: 8 },
+    modalTitle: { fontSize: 15, fontWeight: "900", color: p.text },
+    modalSub: { fontSize: 12, color: p.muted, marginBottom: 4 },
+    modalSep: {
+      height: 1,
+      backgroundColor: p.menuBorder,
+      marginVertical: 8,
+    },
 
     menuRow: {
       flexDirection: "row",
       alignItems: "center",
       paddingVertical: 10,
-      paddingHorizontal: 6,
       borderRadius: 10,
+      gap: 10,
     },
     menuRowPressed: { backgroundColor: "rgba(148,163,184,0.12)" },
-    menuRowText: { fontSize: 14, fontWeight: "800", color: palette.menuText },
+    menuRowText: { fontSize: 14, fontWeight: "800", color: p.menuText },
 
+    /* ===== NAV MENU ROW ===== */
+    navRowItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 10,
+      borderRadius: 10,
+      gap: 10,
+    },
+    navRowItemActive: { backgroundColor: "rgba(47,107,255,0.08)" },
+    navRowText: { color: p.text, fontSize: 14, fontWeight: "800" },
+
+    /* ===== NOTIFICATIONS ===== */
     notifCard: {
       position: "absolute",
-      backgroundColor: palette.menuBg,
+      backgroundColor: p.menuBg,
       borderWidth: 1,
-      borderColor: palette.menuBorder,
-      borderRadius: 14,
-      paddingVertical: 10,
-      paddingHorizontal: 10,
-      elevation: 10,
-      maxWidth: 520,
-      alignSelf: "center",
+      borderColor: p.menuBorder,
+      borderRadius: 16,
+      padding: 12,
+      elevation: 12,
     },
-    notifHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    notifTitle: { color: palette.text, fontSize: 15, fontWeight: "900" },
+    notifHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    notifTitle: { fontSize: 15, fontWeight: "900", color: p.text },
+
     notifAction: {
       flexDirection: "row",
       alignItems: "center",
-      paddingVertical: 8,
+      paddingVertical: 6,
       paddingHorizontal: 10,
       borderRadius: 999,
+      marginLeft: 6,
     },
-    notifActionText: { color: "#fff", fontWeight: "900", fontSize: 12, marginLeft: 6 },
+    notifActionText: {
+      color: "#fff",
+      fontWeight: "900",
+      fontSize: 12,
+      marginLeft: 6,
+    },
 
-    notifLoading: { paddingVertical: 20, alignItems: "center", justifyContent: "center" },
-    notifScroll: { maxHeight: 360, marginTop: 4 },
+    notifLoading: { paddingVertical: 20, alignItems: "center" },
+    notifScroll: { maxHeight: 380 },
 
     notifRow: {
       flexDirection: "row",
       alignItems: "flex-start",
       paddingVertical: 10,
-      paddingHorizontal: 10,
+      paddingHorizontal: 6,
       borderTopWidth: 1,
-      borderTopColor: palette.menuBorder,
+      borderTopColor: p.menuBorder,
       borderRadius: 10,
+      gap: 10,
     },
     notifRowUnread: { backgroundColor: "rgba(47,107,255,0.08)" },
-    notifRowTitle: { color: palette.text, fontSize: 13 },
-    notifRowBody: { color: palette.muted, marginTop: 2, fontSize: 12, lineHeight: 16 },
-    notifHint: { color: palette.muted, marginTop: 6, fontSize: 10 },
+
+    notifRowTitle: { color: p.text, fontSize: 13 },
+    notifRowBody: { color: p.muted, fontSize: 12, marginTop: 2 },
 
     dot: {
-      width: 10,
-      height: 10,
-      borderRadius: 10,
+      width: 8,
+      height: 8,
+      borderRadius: 6,
       backgroundColor: ACCENT_NOTIF,
-      marginLeft: 8,
-      marginTop: 4,
+      marginTop: 6,
     },
-
-    bigCta: {
-      marginTop: 10,
-      borderRadius: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    bigCtaText: { color: "#fff", fontWeight: "900", fontSize: 13, marginLeft: 8 },
   });
 }

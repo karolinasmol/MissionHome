@@ -137,11 +137,13 @@ export default function CustomHeader() {
       collection(db as any, `users/${uid}/notifications`),
       where("read", "==", false)
     );
+
     const unsub = onSnapshot(
       qUnread,
       (snap) => setUnreadCount(snap.size || 0),
       () => setUnreadCount(0)
     );
+
     return () => unsub();
   }, [uid]);
 
@@ -166,6 +168,7 @@ export default function CustomHeader() {
         setNotifLoading(false);
       }
     );
+
     return () => off();
   }, [notifsOpen, uid]);
 
@@ -232,40 +235,9 @@ export default function CustomHeader() {
       </View>
     );
 
-  /* ========== UI HELPERS ========== */
-  const tapScale = () => useRef(new Animated.Value(1)).current;
-
-  const NavRow = ({ item }: { item: NavItem }) => {
-    const active = pathname === item.route || pathname?.startsWith(item.route);
-    return (
-      <Pressable
-        onPress={() => {
-          setNavOpen(false);
-          router.push(item.route as any);
-        }}
-        style={({ pressed }) => [
-          styles.navRowItem,
-          active && styles.navRowItemActive,
-          pressed && { opacity: 0.9 },
-        ]}
-      >
-        <Ionicons
-          name={item.icon}
-          size={18}
-          color={active ? palette.navIconActive : palette.navIcon}
-        />
-        <Text
-          style={[styles.navRowText, active && { color: palette.navIconActive }]}
-        >
-          {item.label}
-        </Text>
-      </Pressable>
-    );
-  };
-
+  /* ========== RENDER GŁÓWNEGO HEADERA (działa na mobile!) ========== */
   const panelTop = Math.max(insets.top + 50, 80);
 
-  /* ========== RENDER ========== */
   return (
     <SafeAreaView edges={["top"]} style={[styles.safeWrap, { backgroundColor: palette.bg }]}>
       <View style={styles.bar}>
@@ -279,7 +251,7 @@ export default function CustomHeader() {
         </Pressable>
 
         <View style={styles.actions}>
-          {/* MENU (···) */}
+          {/* MENU (… ) */}
           <Pressable
             onPress={() => {
               closeAll();
@@ -332,38 +304,80 @@ export default function CustomHeader() {
           </Pressable>
         </View>
       </View>
-
-      {/* --- NAV MENU --- */}
+      {/* ================= NAV MENU ( … ) ================= */}
       <Modal transparent visible={navOpen} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setNavOpen(false)} />
+
         <View
           style={[
             styles.modalCard,
-            { top: panelTop, left: 12, right: 12, maxWidth: 420, alignSelf: "center" },
+            {
+              top: panelTop,
+              left: 12,
+              right: 12,
+              maxWidth: 420,
+              alignSelf: "center",
+            },
           ]}
         >
-          <Text style={styles.modalTitle}>Menu</Text>
+          <Text style={styles.modalTitle}>Nawigacja</Text>
           <View style={styles.modalSep} />
 
-          {NAV.map((it) => (
-            <NavRow key={it.key} item={it} />
+          {NAV.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() => {
+                setNavOpen(false);
+                router.push(item.route as any);
+              }}
+              style={({ pressed }) => [
+                styles.navRowItem,
+                pressed && { opacity: 0.8 },
+                pathname.startsWith(item.route) && styles.navRowItemActive,
+              ]}
+            >
+              <Ionicons
+                name={item.icon}
+                size={18}
+                color={
+                  pathname.startsWith(item.route)
+                    ? palette.navIconActive
+                    : palette.navIcon
+                }
+              />
+              <Text
+                style={[
+                  styles.navRowText,
+                  pathname.startsWith(item.route) && { color: palette.navIconActive },
+                ]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
           ))}
         </View>
       </Modal>
 
-      {/* --- PROFILE MENU --- */}
+      {/* ================= PROFILE MENU ================= */}
       <Modal transparent visible={profileOpen} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setProfileOpen(false)} />
+
         <View
           style={[
             styles.modalCard,
-            { top: panelTop, right: 12, width: 250 },
+            {
+              top: panelTop,
+              right: 12,
+              width: 260,
+            },
           ]}
         >
           <Text style={styles.modalTitle}>{displayName}</Text>
           <Text style={styles.modalSub}>{user?.email}</Text>
+
           <View style={styles.modalSep} />
 
+          {/* SETTINGS */}
           <Pressable
             onPress={() => {
               setProfileOpen(false);
@@ -375,6 +389,7 @@ export default function CustomHeader() {
             <Text style={styles.menuRowText}>Ustawienia</Text>
           </Pressable>
 
+          {/* BUG REPORT */}
           <Pressable
             onPress={() => {
               setProfileOpen(false);
@@ -388,6 +403,7 @@ export default function CustomHeader() {
 
           <View style={styles.modalSep} />
 
+          {/* LOGOUT */}
           <Pressable
             onPress={async () => {
               try {
@@ -404,21 +420,34 @@ export default function CustomHeader() {
         </View>
       </Modal>
 
-      {/* --- NOTIFICATIONS PANEL --- */}
+      {/* ================= NOTIFICATIONS ================= */}
       <Modal transparent visible={notifsOpen} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setNotifsOpen(false)} />
+
         <View
           style={[
             styles.notifCard,
-            { top: panelTop, left: 12, right: 12, maxWidth: 460, alignSelf: "center" },
+            {
+              top: panelTop,
+              left: 12,
+              right: 12,
+              maxWidth: 460,
+              alignSelf: "center",
+            },
           ]}
         >
+          {/* HEADER */}
           <View style={styles.notifHeader}>
             <Text style={styles.notifTitle}>Powiadomienia</Text>
+
             <View style={{ flexDirection: "row" }}>
               <TouchableOpacity
                 onPress={markVisibleRead}
-                style={[styles.notifAction, { backgroundColor: ACCENT_NOTIF }]}
+                activeOpacity={0.85}
+                style={[
+                  styles.notifAction,
+                  { backgroundColor: ACCENT_NOTIF, marginRight: 8 },
+                ]}
               >
                 <Ionicons name="checkmark-done" size={14} color="#fff" />
                 <Text style={styles.notifActionText}>Przeczytane</Text>
@@ -426,6 +455,7 @@ export default function CustomHeader() {
 
               <TouchableOpacity
                 onPress={clearVisible}
+                activeOpacity={0.85}
                 style={[styles.notifAction, { backgroundColor: "#6B7280" }]}
               >
                 <Ionicons name="trash-outline" size={14} color="#fff" />
@@ -436,6 +466,7 @@ export default function CustomHeader() {
 
           <View style={styles.modalSep} />
 
+          {/* BODY */}
           {notifLoading ? (
             <View style={styles.notifLoading}>
               <ActivityIndicator color={palette.text} />
@@ -455,8 +486,12 @@ export default function CustomHeader() {
                 return (
                   <TouchableOpacity
                     key={n.id}
+                    activeOpacity={0.85}
                     onPress={() => toggleNotifRead(n)}
-                    style={[styles.notifRow, unread && styles.notifRowUnread]}
+                    style={[
+                      styles.notifRow,
+                      unread && styles.notifRowUnread,
+                    ]}
                   >
                     <Ionicons
                       name={notifIconFor(n.type) as any}
@@ -464,22 +499,25 @@ export default function CustomHeader() {
                       color={unread ? ACCENT_NOTIF : palette.navIcon}
                       style={{ marginRight: 10 }}
                     />
+
                     <View style={{ flex: 1 }}>
                       <Text
+                        numberOfLines={1}
                         style={[
                           styles.notifRowTitle,
                           { fontWeight: unread ? "900" : "700" },
                         ]}
-                        numberOfLines={1}
                       >
                         {n.title || "Powiadomienie"}
                       </Text>
+
                       {n.body && (
-                        <Text style={styles.notifRowBody} numberOfLines={2}>
+                        <Text numberOfLines={2} style={styles.notifRowBody}>
                           {n.body}
                         </Text>
                       )}
                     </View>
+
                     {unread && <View style={styles.dot} />}
                   </TouchableOpacity>
                 );
@@ -488,8 +526,6 @@ export default function CustomHeader() {
           )}
         </View>
       </Modal>
-    </SafeAreaView>
-  );
 }
 
 /* ========================== HELPERS ========================== */
@@ -507,12 +543,16 @@ function makePalette({ isDark, colors }: any) {
     border: colors.border,
     text: colors.text,
     muted: colors.textMuted,
+
     navIcon: isDark ? "#cbd5f5" : "#0f172a",
     navIconActive: colors.accent,
+
     profileChevron: isDark ? "#94a3b8" : "#475569",
-    menuBg: isDark ? "#0b1220" : "#fff",
+
+    menuBg: isDark ? "#0b1220" : "#ffffff",
     menuBorder: isDark ? "rgba(148,163,184,0.32)" : "rgba(15,23,42,0.12)",
     menuText: isDark ? "#e5e7eb" : "#0f172a",
+
     chipBg: isDark ? "rgba(2,6,23,0.6)" : "rgba(219,234,254,0.9)",
   };
 }
@@ -542,9 +582,10 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
-    logoWrap: {},
-    logoTop: { fontSize: 18, fontWeight: "900", color: p.text },
-    logoBottom: { fontSize: 18, fontWeight: "900", color: "#1dd4c7", marginTop: -1 },
+
+    logoWrap: { flexDirection: "column" },
+    logoTop: { fontSize: 18, fontWeight: "900", color: p.text, lineHeight: 18 },
+    logoBottom: { fontSize: 18, fontWeight: "900", color: "#1dd4c7", lineHeight: 18 },
 
     actions: { flexDirection: "row", alignItems: "center" },
 
@@ -558,6 +599,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       borderColor: p.border,
       backgroundColor: "transparent",
       marginLeft: 6,
+      flexShrink: 0,
     },
 
     premiumChip: {
@@ -570,6 +612,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       borderColor: p.border,
       backgroundColor: p.chipBg,
       marginLeft: 6,
+      flexShrink: 0,
     },
 
     profileBtn: {
@@ -582,6 +625,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       backgroundColor: p.chipBg,
       borderWidth: 1,
       borderColor: p.border,
+      flexShrink: 0,
     },
 
     avatarOuter: {
@@ -631,7 +675,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       elevation: 10,
     },
     modalTitle: { fontSize: 15, fontWeight: "900", color: p.text },
-    modalSub: { fontSize: 12, color: p.muted, marginBottom: 4 },
+    modalSub: { fontSize: 12, color: p.muted, marginTop: 2, marginBottom: 4 },
     modalSep: {
       height: 1,
       backgroundColor: p.menuBorder,

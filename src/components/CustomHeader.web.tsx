@@ -1,5 +1,4 @@
 // src/components/CustomHeader.tsx
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -12,6 +11,7 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -48,6 +48,13 @@ type NotifRow = {
   status?: string | null;
 };
 
+type NavItem = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  route: string;
+  premium?: boolean;
+};
+
 export default function CustomHeader() {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,11 +62,30 @@ export default function CustomHeader() {
   const { theme, toggleTheme } = useTheme();
   const { colors, isDark } = useThemeColors();
 
-  const palette = useMemo(() => makePalette({ isDark, colors }), [isDark, colors]);
+  const palette = useMemo(
+    () => makePalette({ isDark, colors }),
+    [isDark, colors]
+  );
+
+  const { width } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
   const useNative = Platform.OS !== "web";
+  const isMobileWeb = isWeb && width < 720;
 
-  const styles = useMemo(() => makeStyles(palette, isWeb), [palette, isWeb]);
+  const styles = useMemo(
+    () => makeStyles(palette, isWeb, isMobileWeb),
+    [palette, isWeb, isMobileWeb]
+  );
+
+  // NAV STRUCTURE (do użycia w panelu mobilnym)
+  const NAV_ITEMS: NavItem[] = [
+    { icon: "calendar-outline", label: "Kalendarz", route: "/calendar" },
+    { icon: "people-outline", label: "Rodzina", route: "/family", premium: true },
+    { icon: "stats-chart-outline", label: "Statystyki", route: "/stats" },
+    { icon: "trophy-outline", label: "Osiągnięcia", route: "/achievements" },
+    { icon: "podium-outline", label: "Ranking", route: "/Ranking" },
+    { icon: "chatbubbles-outline", label: "Wiadomości", route: "/messages" },
+  ];
 
   // AUTH
   const [user, setUser] = useState(() => auth.currentUser);
@@ -105,6 +131,8 @@ export default function CustomHeader() {
   const menuAnim = useRef(new Animated.Value(0)).current;
 
   const openMenu = () => {
+    closeNav();
+    closeNotifs();
     setMenuOpen(true);
     menuAnim.setValue(0);
     Animated.timing(menuAnim, {
@@ -123,10 +151,40 @@ export default function CustomHeader() {
 
   const toggleMenu = () => {
     if (menuOpen) closeMenu();
-    else {
-      closeNotifs();
-      openMenu();
-    }
+    else openMenu();
+  };
+
+  // NAV PANEL (MOBILE WEB)
+  const [navOpen, setNavOpen] = useState(false);
+
+  const openNav = () => {
+    if (!isMobileWeb) return;
+    closeMenuInstant();
+    closeNotifsInstant();
+    setNavOpen(true);
+  };
+
+  const closeNav = () => {
+    setNavOpen(false);
+  };
+
+  const toggleNav = () => {
+    if (!isMobileWeb) return;
+    if (navOpen) closeNav();
+    else openNav();
+  };
+
+  const closeMenuInstant = () => {
+    // pomocniczo, bez animacji, gdy otwieramy inny panel
+    setMenuOpen(false);
+    menuAnim.stopAnimation();
+    menuAnim.setValue(0);
+  };
+
+  const closeNotifsInstant = () => {
+    setNotifsOpen(false);
+    notifAnim.stopAnimation();
+    notifAnim.setValue(0);
   };
 
   // NOTIFICATIONS PANEL
@@ -158,7 +216,8 @@ export default function CustomHeader() {
   }, [uid]);
 
   const openNotifs = () => {
-    closeMenu();
+    closeMenuInstant();
+    closeNav();
     setNotifsOpen(true);
     notifAnim.setValue(0);
     Animated.timing(notifAnim, {
@@ -323,7 +382,7 @@ export default function CustomHeader() {
     }
   };
 
-  // NAV BUTTON
+  // NAV BUTTON (desktop / duży web)
   const NavButton = ({
     icon,
     label,
@@ -335,7 +394,10 @@ export default function CustomHeader() {
     route: string;
     premium?: boolean;
   }) => {
-    const active = pathname === route || pathname?.startsWith(route);
+    const active =
+      pathname === route ||
+      pathname?.startsWith(route);
+
     const scale = useRef(new Animated.Value(1)).current;
     const [hovered, setHovered] = useState(false);
 
@@ -430,17 +492,23 @@ export default function CustomHeader() {
     </Pressable>
   );
 
+  // zamknięcie overlayów przy zmianie trasy
   useEffect(() => {
     if (menuOpen) closeMenu();
     if (notifsOpen) closeNotifs();
+    if (navOpen) closeNav();
   }, [pathname]);
 
   // RENDER
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.main}>
+        {/* LEWA STRONA – logo + theme pill */}
         <View style={styles.left}>
-          <Pressable onPress={() => router.push("/")} style={styles.logoWrap}>
+          <Pressable
+            onPress={() => router.push("/" as any)}
+            style={styles.logoWrap}
+          >
             <Text style={styles.logoTop}>Mission</Text>
             <Text style={styles.logoBottom}>Home</Text>
           </Pressable>
@@ -448,18 +516,8 @@ export default function CustomHeader() {
           <Pressable
             onPress={toggleTheme}
             style={({ pressed }) => [
-              {
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: palette.border,
-                backgroundColor: palette.card,
-              },
-              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+              styles.themePill,
+              pressed && styles.themePillPressed,
             ]}
           >
             <Ionicons
@@ -468,177 +526,330 @@ export default function CustomHeader() {
               color={palette.accent}
             />
             {Platform.OS === "web" && (
-              <Text
-                style={{ color: palette.text, fontWeight: "700" }}
-              >
+              <Text style={styles.themePillText}>
                 {theme.toUpperCase()}
               </Text>
             )}
           </Pressable>
         </View>
 
+        {/* PRAWA STRONA – wersja zależna od platformy/width */}
         {!user ? null : (
           <>
-            <View style={styles.center}>
-              <NavButton
-                icon="calendar-outline"
-                label="Kalendarz"
-                route="/calendar"
-              />
+            {/* DESKTOP / DUŻY WEB */}
+            {!isMobileWeb && (
+              <>
+                <View style={styles.center}>
+                  <NavButton
+                    icon="calendar-outline"
+                    label="Kalendarz"
+                    route="/calendar"
+                  />
 
-              <NavButton
-                icon="people-outline"
-                label="Rodzina"
-                route="/family"
-                premium
-              />
+                  <NavButton
+                    icon="people-outline"
+                    label="Rodzina"
+                    route="/family"
+                    premium
+                  />
 
-              <NavButton
-                icon="stats-chart-outline"
-                label="Statystyki"
-                route="/stats"
-              />
+                  <NavButton
+                    icon="stats-chart-outline"
+                    label="Statystyki"
+                    route="/stats"
+                  />
 
-              <NavButton
-                icon="trophy-outline"
-                label="Osiągnięcia"
-                route="/achievements"
-              />
+                  <NavButton
+                    icon="trophy-outline"
+                    label="Osiągnięcia"
+                    route="/achievements"
+                  />
 
-              <NavButton
-                icon="podium-outline"
-                label="Ranking"
-                route="/Ranking"
-              />
-            </View>
+                  <NavButton
+                    icon="podium-outline"
+                    label="Ranking"
+                    route="/Ranking"
+                  />
+                </View>
 
-            <View style={styles.right}>
-              <Pressable
-                onPress={() => router.push("/premium")}
-                style={({ pressed }) => [
-                  styles.premiumBtn,
-                  pressed && styles.premiumBtnPressed,
-                ]}
-              >
-                {isWeb && (
-                  <Text style={styles.premiumText}>Premium</Text>
-                )}
-
-                <Ionicons
-                  name="sparkles"
-                  size={18}
-                  color={ACCENT_PREMIUM}
-                />
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/messages")}
-                style={({ pressed }) => [
-                  styles.bellBtn,
-                  pressed && {
-                    opacity: 0.9,
-                    transform: [{ scale: 0.98 }],
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="chatbubbles-outline"
-                  size={20}
-                  color={palette.navIcon}
-                />
-
-                {isWeb && (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
+                <View style={styles.right}>
+                  <Pressable
+                    onPress={() => router.push("/premium" as any)}
+                    style={({ pressed }) => [
+                      styles.premiumBtn,
+                      pressed && styles.premiumBtnPressed,
+                    ]}
                   >
-                    <Text style={styles.bellLabel}>Wiadomości</Text>
+                    {isWeb && (
+                      <Text style={styles.premiumText}>Premium</Text>
+                    )}
+
                     <Ionicons
                       name="sparkles"
-                      size={14}
+                      size={18}
                       color={ACCENT_PREMIUM}
                     />
-                  </View>
-                )}
-              </Pressable>
+                  </Pressable>
 
-              <Pressable
-                onPress={toggleNotifs}
-                style={({ pressed }) => [
-                  styles.bellBtn,
-                  pressed && {
-                    opacity: 0.9,
-                    transform: [{ scale: 0.98 }],
-                  },
-                ]}
-              >
-                <View style={{ position: "relative" }}>
+                  <Pressable
+                    onPress={() => router.push("/messages" as any)}
+                    style={({ pressed }) => [
+                      styles.bellBtn,
+                      pressed && {
+                        opacity: 0.9,
+                        transform: [{ scale: 0.98 }],
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="chatbubbles-outline"
+                      size={20}
+                      color={palette.navIcon}
+                    />
+
+                    {isWeb && (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Text style={styles.bellLabel}>Wiadomości</Text>
+                        <Ionicons
+                          name="sparkles"
+                          size={14}
+                          color={ACCENT_PREMIUM}
+                        />
+                      </View>
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    onPress={toggleNotifs}
+                    style={({ pressed }) => [
+                      styles.bellBtn,
+                      pressed && {
+                        opacity: 0.9,
+                        transform: [{ scale: 0.98 }],
+                      },
+                    ]}
+                  >
+                    <View style={{ position: "relative" }}>
+                      <Ionicons
+                        name={
+                          notifsOpen
+                            ? "notifications"
+                            : "notifications-outline"
+                        }
+                        size={20}
+                        color={palette.navIcon}
+                      />
+                      <Badge count={unreadCount} />
+                    </View>
+
+                    {isWeb && (
+                      <Text style={styles.bellLabel}>Powiadomienia</Text>
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    onPress={toggleMenu}
+                    style={({ pressed }) => [
+                      styles.profileBtn,
+                      pressed && styles.profileBtnPressed,
+                    ]}
+                  >
+                    <View style={styles.avatarOuter}>
+                      <View style={styles.avatarInner}>
+                        {user?.photoURL ? (
+                          <Image
+                            source={{ uri: user.photoURL }}
+                            style={styles.avatarImage}
+                          />
+                        ) : (
+                          <View style={styles.avatarFallback}>
+                            <Text style={styles.avatarFallbackText}>
+                              {initials}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+                    <Text
+                      style={styles.profileName}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {shownName}
+                    </Text>
+
+                    <Ionicons
+                      name={menuOpen ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color={palette.profileChevron}
+                    />
+                  </Pressable>
+                </View>
+              </>
+            )}
+
+            {/* MOBILE WEB – tryb jak natywny */}
+            {isMobileWeb && (
+              <View style={styles.mobileActions}>
+                {/* MENU (NAV) */}
+                <Pressable
+                  onPress={toggleNav}
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                >
                   <Ionicons
-                    name={
-                      notifsOpen ? "notifications" : "notifications-outline"
-                    }
+                    name="ellipsis-horizontal"
                     size={20}
                     color={palette.navIcon}
                   />
-                  <Badge count={unreadCount} />
-                </View>
+                </Pressable>
 
-                {isWeb && (
-                  <Text style={styles.bellLabel}>Powiadomienia</Text>
-                )}
-              </Pressable>
-
-              <Pressable
-                onPress={toggleMenu}
-                style={({ pressed }) => [
-                  styles.profileBtn,
-                  pressed && styles.profileBtnPressed,
-                ]}
-              >
-                <View style={styles.avatarOuter}>
-                  <View style={styles.avatarInner}>
-                    {user?.photoURL ? (
-                      <Image
-                        source={{ uri: user.photoURL }}
-                        style={styles.avatarImage}
-                      />
-                    ) : (
-                      <View style={styles.avatarFallback}>
-                        <Text style={styles.avatarFallbackText}>
-                          {initials}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                <Text
-                  style={styles.profileName}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
+                {/* POWIADOMIENIA */}
+                <Pressable
+                  onPress={toggleNotifs}
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
                 >
-                  {shownName}
-                </Text>
+                  <View style={{ position: "relative" }}>
+                    <Ionicons
+                      name={
+                        notifsOpen
+                          ? "notifications"
+                          : "notifications-outline"
+                      }
+                      size={20}
+                      color={palette.navIcon}
+                    />
+                    <Badge count={unreadCount} />
+                  </View>
+                </Pressable>
 
-                <Ionicons
-                  name={menuOpen ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color={palette.profileChevron}
-                />
-              </Pressable>
-            </View>
+                {/* PREMIUM */}
+                <Pressable
+                  onPress={() => router.push("/premium" as any)}
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="sparkles"
+                    size={18}
+                    color={ACCENT_PREMIUM}
+                  />
+                </Pressable>
+
+                {/* PROFIL */}
+                <Pressable
+                  onPress={toggleMenu}
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                >
+                  <View style={styles.avatarOuterSmall}>
+                    <View style={styles.avatarInner}>
+                      {user?.photoURL ? (
+                        <Image
+                          source={{ uri: user.photoURL }}
+                          style={styles.avatarImage}
+                        />
+                      ) : (
+                        <View style={styles.avatarFallback}>
+                          <Text style={styles.avatarFallbackText}>
+                            {initials}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+              </View>
+            )}
           </>
         )}
       </View>
+
+      {/* NAV PANEL — tylko MOBILE WEB */}
+      {isMobileWeb && user && navOpen && (
+        <>
+          <Pressable
+            style={styles.backdropDimmed}
+            onPress={closeNav}
+            pointerEvents="auto"
+          />
+          <View style={styles.mobileNavPanel}>
+            <Text style={styles.mobileNavTitle}>Nawigacja</Text>
+            <View style={styles.mobileNavSeparator} />
+            <ScrollView
+              style={styles.mobileNavScroll}
+              contentContainerStyle={styles.mobileNavList}
+            >
+              {NAV_ITEMS.map((item) => {
+                const active =
+                  pathname === item.route ||
+                  pathname?.startsWith(item.route);
+                return (
+                  <Pressable
+                    key={item.route}
+                    onPress={() => {
+                      closeNav();
+                      router.push(item.route as any);
+                    }}
+                    style={({ pressed }) => [
+                      styles.mobileNavItem,
+                      active && styles.mobileNavItemActive,
+                      pressed && styles.mobileNavItemPressed,
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.icon}
+                      size={18}
+                      color={
+                        active ? palette.navIconActive : palette.navIcon
+                      }
+                    />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text
+                        style={[
+                          styles.mobileNavText,
+                          active && styles.mobileNavTextActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                      {item.premium && (
+                        <Ionicons
+                          name="sparkles"
+                          size={14}
+                          color={ACCENT_PREMIUM}
+                        />
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       {/* MENU DROPDOWN */}
       {user && menuOpen && (
         <>
           <Pressable
-            style={styles.backdrop}
+            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
             onPress={closeMenu}
             pointerEvents="auto"
           />
@@ -671,7 +882,7 @@ export default function CustomHeader() {
               label="Profil"
               onPress={() => {
                 closeMenu();
-                router.push("/Profile");
+                router.push("/Profile" as any);
               }}
             />
 
@@ -680,7 +891,7 @@ export default function CustomHeader() {
               label="Ustawienia"
               onPress={() => {
                 closeMenu();
-                router.push("/settings");
+                router.push("/settings" as any);
               }}
             />
 
@@ -689,7 +900,7 @@ export default function CustomHeader() {
               label="Zgłoś błąd"
               onPress={() => {
                 closeMenu();
-                router.push("/bug");
+                router.push("/bug" as any);
               }}
             />
 
@@ -703,7 +914,7 @@ export default function CustomHeader() {
                   await auth.signOut();
                 } catch {}
                 closeMenu();
-                router.replace("/login");
+                router.replace("/login" as any);
               }}
             />
           </Animated.View>
@@ -714,7 +925,7 @@ export default function CustomHeader() {
       {user && notifsOpen && (
         <>
           <Pressable
-            style={styles.backdrop}
+            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
             onPress={closeNotifs}
             pointerEvents="auto"
           />
@@ -825,26 +1036,7 @@ export default function CustomHeader() {
               </ScrollView>
             )}
 
-            {/* FOOTER — BUTTON „Zobacz wszystkie” USUNIĘTY */}
             <View style={styles.notifFooter}>
-
-              {/* ❌ REMOVED BUTTON
-              <TouchableOpacity
-                onPress={() => {
-                  closeNotifs();
-                  router.push("/notifications");
-                }}
-                activeOpacity={0.9}
-                style={[
-                  styles.footerBtn,
-                  { backgroundColor: ACCENT_NOTIF },
-                ]}
-              >
-                <Ionicons name="open-outline" size={14} color="#fff" />
-                <Text style={styles.footerBtnText}>Zobacz wszystkie</Text>
-              </TouchableOpacity>
-              */}
-
               <TouchableOpacity
                 onPress={clearVisible}
                 activeOpacity={0.9}
@@ -906,8 +1098,6 @@ function makePalette({
 
     themePillBg: isDark ? "#020617" : "#e2f5f3",
     themePillBorder: colors.border,
-    themeIcon: isDark ? "#cbd5e1" : "#0f172a",
-    themeIconActive: "#fefce8",
 
     profileChevron: isDark ? "#94a3b8" : "#475569",
 
@@ -924,7 +1114,11 @@ function makePalette({
   };
 }
 
-function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
+function makeStyles(
+  palette: ReturnType<typeof makePalette>,
+  isWeb: boolean,
+  isMobileWeb: boolean
+) {
   return StyleSheet.create({
     wrap: {
       width: "100%",
@@ -937,12 +1131,13 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
     },
     main: {
       width: "100%",
-      borderRadius: 999,
+      borderRadius: isMobileWeb ? 16 : 999,
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: palette.card,
       flexDirection: "row",
       alignItems: "center",
+      justifyContent: "space-between",
       paddingHorizontal: 14,
       paddingVertical: 6,
     },
@@ -951,6 +1146,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
+      flexShrink: 1,
     },
     logoWrap: {
       paddingRight: 6,
@@ -969,6 +1165,26 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       color: "#1dd4c7",
       lineHeight: 20,
       marginTop: -2,
+    },
+
+    themePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: palette.themePillBorder,
+      backgroundColor: palette.themePillBg,
+    },
+    themePillPressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.97 }],
+    },
+    themePillText: {
+      color: palette.text,
+      fontWeight: "700",
     },
 
     center: {
@@ -1098,6 +1314,13 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       padding: 2,
       backgroundColor: palette.avatarRing,
     },
+    avatarOuterSmall: {
+      width: 28,
+      height: 28,
+      borderRadius: 999,
+      padding: 1,
+      backgroundColor: palette.avatarRing,
+    },
     avatarInner: {
       flex: 1,
       borderRadius: 999,
@@ -1132,6 +1355,30 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       maxWidth: isWeb ? 160 : 120,
     },
 
+    // MOBILE WEB ACTIONS
+    mobileActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 6,
+      marginLeft: 8,
+    },
+    iconBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: palette.border,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "transparent",
+      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+    },
+    iconBtnPressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.96 }],
+    },
+
     backdrop: {
       position: Platform.OS === "web" ? "fixed" : "absolute",
       top: 0,
@@ -1141,11 +1388,20 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       backgroundColor: "transparent",
       zIndex: 999,
     },
+    backdropDimmed: {
+      position: Platform.OS === "web" ? "fixed" : "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0,0,0,0.35)",
+      zIndex: 999,
+    },
 
     menu: {
       position: "absolute",
       right: 18,
-      top: 56,
+      top: isMobileWeb ? 56 : 56,
       width: 210,
       backgroundColor: palette.menuBg,
       borderRadius: 14,
@@ -1180,9 +1436,9 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
     notifPanel: {
       position: "absolute",
       right: 18,
-      top: 56,
-      width: 360,
-      maxWidth: "92%",
+      top: isMobileWeb ? 60 : 56,
+      width: isMobileWeb ? "92%" : 360,
+      maxWidth: isMobileWeb ? "92%" : 360,
       backgroundColor: palette.menuBg,
       borderRadius: 14,
       borderWidth: 1,
@@ -1296,5 +1552,64 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean) {
       fontWeight: "900",
       fontSize: 12,
     },
+
+    // MOBILE NAV PANEL
+    mobileNavPanel: {
+      position: "absolute",
+      top: 60,
+      left: 12,
+      right: 12,
+      borderRadius: 16,
+      backgroundColor: palette.menuBg,
+      borderWidth: 1,
+      borderColor: palette.menuBorder,
+      zIndex: 1002,
+      ...(isWeb
+        ? ({ boxShadow: "0 18px 40px rgba(0,0,0,0.45)" } as any)
+        : null),
+    },
+    mobileNavTitle: {
+      fontSize: 15,
+      fontWeight: "900",
+      color: palette.text,
+      paddingHorizontal: 14,
+      paddingTop: 10,
+    },
+    mobileNavSeparator: {
+      height: 1,
+      backgroundColor: palette.menuBorder,
+      marginTop: 8,
+    },
+    mobileNavScroll: {
+      maxHeight: 380,
+    },
+    mobileNavList: {
+      paddingVertical: 6,
+      paddingHorizontal: 8,
+    },
+    mobileNavItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 10,
+    },
+    mobileNavItemActive: {
+      backgroundColor: "rgba(47,107,255,0.08)",
+    },
+    mobileNavItemPressed: {
+      opacity: 0.9,
+    },
+    mobileNavText: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: palette.text,
+    },
+    mobileNavTextActive: {
+      color: palette.navIconActive,
+    },
   });
 }
+
+//src/components/CustomHeader.tsx

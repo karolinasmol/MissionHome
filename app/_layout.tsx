@@ -3,9 +3,9 @@ import "../src/firebase/firebase";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Pressable, Animated, ActivityIndicator } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
-import * as Font from "expo-font";
 
-import ioniconsTtf from "react-native-vector-icons/Fonts/Ionicons.ttf";
+import { Ionicons } from "@expo/vector-icons";
+import { useFonts } from "expo-font";
 
 import CustomHeader from "../src/components/CustomHeader";
 
@@ -22,17 +22,13 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../src/firebase/firebase";
 
 export default function RootLayout() {
-  const [ready, setReady] = useState(false);
+  // ❤️ TO JEST NAJWAŻNIEJSZE – ładujemy fonty Ionicons prawidłowo!
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+  });
 
   useEffect(() => {
-    (async () => {
-      await Font.loadAsync({ Ionicons: ioniconsTtf });
-      setReady(true);
-    })();
-  }, []);
-
-  // ★ Scroll (web)
-  useEffect(() => {
+    // scrollbars only for web
     if (typeof document !== "undefined") {
       const style = document.createElement("style");
       style.innerHTML = `
@@ -45,7 +41,7 @@ export default function RootLayout() {
     }
   }, []);
 
-  if (!ready) return null;
+  if (!fontsLoaded) return null;
 
   return (
     <ThemeProvider>
@@ -89,29 +85,17 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!authReady) return;
 
-    // 1) Brak użytkownika – wpuszczamy tylko na trasy auth
     if (!user) {
-      if (!isAuthRoute) {
-        router.replace("/login");
-      }
+      if (!isAuthRoute) router.replace("/login");
       return;
     }
 
-    // 2) Jest użytkownik, ale NIEZWERYFIKOWANY e-mail
     if (!user.emailVerified) {
-      // Jeśli próbuje wejść na coś innego niż login/register/forgot-password,
-      // cofamy go na login. Na trasach auth zostawiamy go w spokoju
-      // (np. /register może pokazać okienko "potwierdź e-mail").
-      if (!isAuthRoute) {
-        router.replace("/login");
-      }
+      if (!isAuthRoute) router.replace("/login");
       return;
     }
 
-    // 3) Użytkownik zweryfikowany – nie trzymamy go na ekranach logowania/rejestracji
-    if (isAuthRoute) {
-      router.replace("/");
-    }
+    if (isAuthRoute) router.replace("/");
   }, [authReady, user, isAuthRoute, router]);
 
   if (!authReady) {
@@ -200,5 +184,3 @@ function HeaderWithMenu() {
     </View>
   );
 }
-
-// app/_layout.tsx

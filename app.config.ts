@@ -1,17 +1,18 @@
 export default {
-  expo: {
-    name: "domoweobowiazki",
-    slug: "domoweobowiazki",
-    scheme: "domoweobowiazki",
-    platforms: ["ios", "android", "web"],
+  name: "domoweobowiazki",
+  slug: "domoweobowiazki",
+  scheme: "domoweobowiazki",
+  version: "1.0.0",
 
-    web: {
-      bundler: "metro",      // <-- TO JEST KLUCZOWE!!!
-      output: "static"       // <-- konieczne dla expo export
-    },
+  platforms: ["ios", "android", "web"],
 
-    experiments: {
-      typedRoutes: true      // dla expo-router 6.x
-    }
+  experiments: {
+    typedRoutes: true
+  },
+
+  web: {
+    bundler: "metro",
+    output: "static",
+    favicon: "./assets/favicon.png"
   }
 };

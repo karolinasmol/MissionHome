@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, ScrollView, Text, View, Pressable } from "react-native";
 import {
   collection,
   doc,
@@ -54,11 +54,15 @@ type NoweWyzwanieContextValue = {
   close: () => void;
   accept: () => Promise<void>;
   decline: () => Promise<void>;
-  submitSelection: (acceptedIds: string[], declinedIds: string[]) => Promise<void>;
+  submitSelection: (
+    acceptedIds: string[],
+    declinedIds: string[]
+  ) => Promise<void>;
   refresh: () => Promise<void>;
 };
 
-const NoweWyzwanieContext = createContext<NoweWyzwanieContextValue | null>(null);
+const NoweWyzwanieContext =
+  createContext<NoweWyzwanieContextValue | null>(null);
 
 /* ----------------------------------------------------
    CONSTS
@@ -130,7 +134,11 @@ async function stampLastModalAt(uid: string) {
    PROVIDER
 ---------------------------------------------------- */
 
-export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }) {
+export function NoweWyzwanieProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [challenges, setChallenges] = useState<NewChallenge[]>([]);
@@ -156,42 +164,22 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
     return unsub;
   }, []);
 
-  /* ------------------------------------------------------------
-     0) After login → generate challenges (ONLY IF EMAIL VERIFIED)
-  ------------------------------------------------------------ */
+  /* 0) Generate daily challenges */
   useEffect(() => {
     if (!user?.uid) return;
-
-    // BLOCK if email NOT verified
-    if (!user.emailVerified) {
-      console.log("[DailyChallenges] SKIP — email not verified");
-      return;
-    }
+    if (!user.emailVerified) return;
 
     const url =
       "https://europe-central2-domowe-443e7.cloudfunctions.net/generateDailyChallenges";
 
-    console.log("[DailyChallenges] CALL:", `${url}?uid=${user.uid}`);
-
-    fetch(`${url}?uid=${user.uid}`)
-      .then(async (r) => {
-        let json = null;
-        try {
-          json = await r.json();
-        } catch {
-          console.warn("[DailyChallenges] JSON parse error");
-        }
-        console.log("[DailyChallenges] RESPONSE:", json);
-      })
-      .catch((e) => console.error("[DailyChallenges] ERROR:", e));
+    fetch(`${url}?uid=${user.uid}`).catch((e) =>
+      console.error("[DailyChallenges ERROR]", e)
+    );
   }, [user?.uid, user?.emailVerified]);
 
-  /* ------------------------------------------------------------
-     1) Listen user metadata (lastChallengeModalAt)
-  ------------------------------------------------------------ */
+  /* 1) Last modal open time */
   useEffect(() => {
-    if (!user?.uid) return;
-    if (!user.emailVerified) return; // block
+    if (!user?.uid || !user.emailVerified) return;
 
     return onSnapshot(
       doc(db, `users/${user.uid}`),
@@ -203,17 +191,11 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
     );
   }, [user?.uid, user?.emailVerified]);
 
-  /* ------------------------------------------------------------
-     2) Listen PENDING challenges
-  ------------------------------------------------------------ */
+  /* 2) Listen for PENDING */
   useEffect(() => {
-    if (!user?.uid) return;
-    if (!user.emailVerified) return; // block
-
-    console.log("[NoweWyzwanie] Subscribing for PENDING…");
+    if (!user?.uid || !user.emailVerified) return;
 
     const colRef = collection(db, `users/${user.uid}/new_challenges`);
-
     const q = query(
       colRef,
       where("status", "==", "PENDING"),
@@ -246,8 +228,6 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
           if (!data.uiPresentedAt) idsToMark.push(docSnap.id);
         });
 
-        console.log("[NoweWyzwanie] PENDING:", list);
-
         setChallenges(list);
 
         if (list.length === 0) {
@@ -267,20 +247,16 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
             ...idsToMark.map((id) => markPresented(user.uid, id)),
           ]);
         } catch (e) {
-          console.error("[NoweWyzwanie] Autopopup error:", e);
+          console.error("[NoweWyzwanie] autopopup error", e);
         }
 
-        console.log("[NoweWyzwanie] OPEN MODAL 🎉");
         setIsOpen(true);
       },
-      (err) => console.error("[NoweWyzwanie] PENDING snapshot error:", err)
+      (err) => console.error("[NoweWyzwanie] snapshot error:", err)
     );
   }, [user?.uid, user?.emailVerified, hasSeenToday]);
 
-  /* ------------------------------------------------------------
-     HANDLERS
-  ------------------------------------------------------------ */
-
+  /* HANDLERS */
   const open = () => challenges.length > 0 && setIsOpen(true);
   const close = () => setIsOpen(false);
 
@@ -318,13 +294,14 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
     user?.uid && challenges.length > 0 && submitSelection([challenges[0].id], []);
 
   const decline = async () =>
-    user?.uid && challenges.length > 0 && submitSelection([], [challenges[0].id]);
+    user?.uid &&
+    challenges.length > 0 &&
+    submitSelection([], [challenges[0].id]);
 
   const refresh = async () => {
     if (!user?.uid) return;
 
     const colRef = collection(db, `users/${user.uid}/new_challenges`);
-
     const q = query(
       colRef,
       where("status", "==", "PENDING"),
@@ -382,25 +359,33 @@ export function NoweWyzwanieProvider({ children }: { children: React.ReactNode }
     [user, isOpen, loading, hasSeenToday, challenges]
   );
 
-  return <NoweWyzwanieContext.Provider value={value}>{children}</NoweWyzwanieContext.Provider>;
+  return (
+    <NoweWyzwanieContext.Provider value={value}>
+      {children}
+    </NoweWyzwanieContext.Provider>
+  );
 }
 
-/* ------------------------------------------------------------
+/* ----------------------------------------------------
    HOOK
------------------------------------------------------------- */
+---------------------------------------------------- */
 export function useNoweWyzwanie() {
   const ctx = useContext(NoweWyzwanieContext);
-  if (!ctx) throw new Error("useNoweWyzwanie must be used within NoweWyzwanieProvider");
+  if (!ctx)
+    throw new Error(
+      "useNoweWyzwanie must be used within NoweWyzwanieProvider"
+    );
   return ctx;
 }
 
-/* ------------------------------------------------------------
+/* ----------------------------------------------------
    MODAL
------------------------------------------------------------- */
+---------------------------------------------------- */
 
 export const NoweWyzwanieModalRN = () => {
-  const { isOpen, close, challenges, submitSelection } = useNoweWyzwanie();
+  const { isOpen, challenges, submitSelection } = useNoweWyzwanie();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [confirmDecline, setConfirmDecline] = useState(false);
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
@@ -419,12 +404,10 @@ export const NoweWyzwanieModalRN = () => {
   const submit = () => {
     const acc: string[] = [];
     const dec: string[] = [];
-    challenges.forEach((c) => (selected[c.id] ? acc.push(c.id) : dec.push(c.id)));
+    challenges.forEach((c) =>
+      selected[c.id] ? acc.push(c.id) : dec.push(c.id)
+    );
     submitSelection(acc, dec);
-  };
-
-  const rejectAll = () => {
-    submitSelection([], challenges.map((c) => c.id));
   };
 
   const niceDate = (d: Date) =>
@@ -435,8 +418,7 @@ export const NoweWyzwanieModalRN = () => {
 
   return (
     <Modal visible={isOpen} transparent animationType="fade">
-      <Pressable
-        onPress={close}
+      <View
         style={{
           flex: 1,
           backgroundColor: "rgba(0,0,0,0.5)",
@@ -445,7 +427,7 @@ export const NoweWyzwanieModalRN = () => {
           padding: 16,
         }}
       >
-        <Pressable
+        <View
           style={{
             width: "100%",
             maxWidth: 600,
@@ -457,6 +439,7 @@ export const NoweWyzwanieModalRN = () => {
             overflow: "hidden",
           }}
         >
+          {/* HEADER */}
           <View
             style={{
               padding: 18,
@@ -472,6 +455,7 @@ export const NoweWyzwanieModalRN = () => {
             </Text>
           </View>
 
+          {/* LISTA */}
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
             {challenges.map((ch) => {
               const sel = selected[ch.id];
@@ -485,7 +469,9 @@ export const NoweWyzwanieModalRN = () => {
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: sel ? "#22d3ee" : "#64748b",
-                    backgroundColor: sel ? "rgba(34,211,238,0.15)" : "#1e293b",
+                    backgroundColor: sel
+                      ? "rgba(34,211,238,0.15)"
+                      : "#1e293b",
                   }}
                 >
                   <View
@@ -514,14 +500,24 @@ export const NoweWyzwanieModalRN = () => {
                   </View>
 
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: "#e2e8f0", fontSize: 16 }}>{ch.title}</Text>
+                    <Text style={{ color: "#e2e8f0", fontSize: 16 }}>
+                      {ch.title}
+                    </Text>
 
                     <Text style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>
                       {formatRecurrenceFromRuleId(ch.ruleId)} •{" "}
-                      <Text style={{ color: "#e2e8f0" }}>{niceDate(ch.dueAt)}</Text>
+                      <Text style={{ color: "#e2e8f0" }}>
+                        {niceDate(ch.dueAt)}
+                      </Text>
                     </Text>
 
-                    <Text style={{ color: "#a78bfa", fontSize: 12, marginTop: 4 }}>
+                    <Text
+                      style={{
+                        color: "#a78bfa",
+                        fontSize: 12,
+                        marginTop: 4,
+                      }}
+                    >
                       Nagroda: +{ch.expValue} EXP
                     </Text>
                   </View>
@@ -530,6 +526,7 @@ export const NoweWyzwanieModalRN = () => {
             })}
           </ScrollView>
 
+          {/* BUTTONY */}
           <View
             style={{
               padding: 16,
@@ -540,7 +537,7 @@ export const NoweWyzwanieModalRN = () => {
             }}
           >
             <Pressable
-              onPress={rejectAll}
+              onPress={() => setConfirmDecline(true)}
               style={{
                 flex: 1,
                 paddingVertical: 12,
@@ -551,7 +548,9 @@ export const NoweWyzwanieModalRN = () => {
                 alignItems: "center",
               }}
             >
-              <Text style={{ color: "#e2e8f0", fontWeight: "700" }}>Odrzuć wszystkie</Text>
+              <Text style={{ color: "#e2e8f0", fontWeight: "700" }}>
+                Odrzuć wszystkie
+              </Text>
             </Pressable>
 
             <Pressable
@@ -566,11 +565,93 @@ export const NoweWyzwanieModalRN = () => {
                 alignItems: "center",
               }}
             >
-              <Text style={{ color: "#022c22", fontWeight: "900" }}>Zatwierdź wybór</Text>
+              <Text style={{ color: "#022c22", fontWeight: "900" }}>
+                Zatwierdź wybór
+              </Text>
             </Pressable>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
+
+      {/* MODAL POTWIERDZENIA */}
+      <Modal visible={confirmDecline} transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 380,
+              backgroundColor: "#0f172a",
+              padding: 22,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: "rgba(148,163,184,0.5)",
+            }}
+          >
+            <Text
+              style={{ color: "#e2e8f0", fontSize: 18, fontWeight: "800" }}
+            >
+              Odrzucić wyzwanie?
+            </Text>
+
+            <Text style={{ color: "#94a3b8", marginTop: 10 }}>
+              Kolejna szansa pojawi się dopiero jutro.
+              Na pewno chcesz odrzucić?
+            </Text>
+
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 12,
+                marginTop: 22,
+              }}
+            >
+              <Pressable
+                onPress={() => setConfirmDecline(false)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: "#64748b",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: "#e2e8f0", fontWeight: "700" }}>
+                  Anuluj
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setConfirmDecline(false);
+                  submitSelection([], challenges.map((c) => c.id));
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: 999,
+                  backgroundColor: "#ef4444",
+                  borderWidth: 1,
+                  borderColor: "#b91c1c",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: "white", fontWeight: "900" }}>
+                  Odrzuć
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 };

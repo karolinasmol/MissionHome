@@ -1,12 +1,10 @@
 // src/components/CustomHeader.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  Animated,
-  Platform,
   Image,
   ActivityIndicator,
   ScrollView,
@@ -52,8 +50,6 @@ type NotifRow = {
   body?: string | null;
   read?: boolean;
   createdAt?: any;
-  inviteId?: string | null;
-  familyId?: string | null;
 };
 
 export default function CustomHeader() {
@@ -66,12 +62,10 @@ export default function CustomHeader() {
   const palette = useMemo(() => makePalette({ isDark, colors }), [isDark, colors]);
   const styles = useMemo(() => makeStyles(palette), [palette]);
 
-  const useNativeDriver = Platform.OS !== "web";
-
   /* ========== AUTH ========== */
   const [user, setUser] = useState(() => auth.currentUser);
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsub = onAuthStateChanged(auth, setUser);
     return () => unsub();
   }, []);
 
@@ -83,26 +77,22 @@ export default function CustomHeader() {
   useEffect(() => {
     if (!uid) return setNick(null);
 
-    const loadNick = async () => {
+    (async () => {
       try {
         const ref = doc(db as any, "users", uid);
         const snap = await getDoc(ref);
         if (snap.exists()) {
-          const data = snap.data() as any;
-          const raw = (data?.nick ?? "").trim();
+          const raw = (snap.data()?.nick ?? "").trim();
           setNick(raw || null);
-        } else setNick(null);
+        }
       } catch {
         setNick(null);
       }
-    };
-    loadNick();
+    })();
   }, [uid]);
 
-  const authName = (user?.displayName || "").trim() || null;
-  const emailPart = user?.email ? user.email.split("@")[0] : null;
-
-  const displayName = nick || authName || emailPart || "Profil";
+  const displayName =
+    nick || user?.displayName?.trim() || user?.email?.split("@")[0] || "Profil";
   const initials = getInitials(displayName);
 
   /* ========== NAV STRUCTURE ========== */
@@ -133,10 +123,7 @@ export default function CustomHeader() {
   useEffect(() => {
     if (!uid) return setUnreadCount(0);
 
-    const qUnread = query(
-      collection(db as any, `users/${uid}/notifications`),
-      where("read", "==", false)
-    );
+    const qUnread = query(collection(db as any, `users/${uid}/notifications`), where("read", "==", false));
 
     const unsub = onSnapshot(
       qUnread,
@@ -151,6 +138,7 @@ export default function CustomHeader() {
     if (!notifsOpen || !uid) return setNotifRows(notifsOpen ? [] : null);
 
     setNotifLoading(true);
+
     const q = query(
       collection(db as any, `users/${uid}/notifications`),
       orderBy("createdAt", "desc"),
@@ -192,9 +180,7 @@ export default function CustomHeader() {
     if (!uid || !notifRows?.length) return;
 
     const batch = writeBatch(db as any);
-    notifRows.forEach((n) =>
-      batch.delete(doc(db as any, `users/${uid}/notifications/${n.id}`))
-    );
+    notifRows.forEach((n) => batch.delete(doc(db as any, `users/${uid}/notifications/${n.id}`)));
     await batch.commit();
     setNotifRows([]);
   };
@@ -213,20 +199,13 @@ export default function CustomHeader() {
     });
   };
 
-  const notifIconFor = (t?: string) => {
-    switch (t) {
-      case "FAMILY_INVITE":
-        return "people";
-      case "FRIEND_INVITE":
-        return "person-add";
-      case "LEVEL_UP":
-        return "sparkles";
-      case "WIN":
-        return "trophy";
-      default:
-        return "notifications";
-    }
-  };
+  const notifIconFor = (t?: string) =>
+    ({
+      FAMILY_INVITE: "people",
+      FRIEND_INVITE: "person-add",
+      LEVEL_UP: "sparkles",
+      WIN: "trophy",
+    }[t || ""] || "notifications");
 
   const Badge = ({ count }: { count: number }) =>
     !count ? null : (
@@ -235,7 +214,7 @@ export default function CustomHeader() {
       </View>
     );
 
-  /* ========== RENDER GŁÓWNEGO HEADERA (działa na mobile!) ========== */
+  /* ========== FIX: dynamiczny offset panelu ========== */
   const panelTop = Math.max(insets.top + 50, 80);
 
   return (
@@ -251,7 +230,7 @@ export default function CustomHeader() {
         </Pressable>
 
         <View style={styles.actions}>
-          {/* MENU (… ) */}
+          {/* MENU */}
           <Pressable
             onPress={() => {
               closeAll();
@@ -304,228 +283,204 @@ export default function CustomHeader() {
           </Pressable>
         </View>
       </View>
-      {/* ================= NAV MENU ( … ) ================= */}
+
+      {/* ================= NAV MENU ================= */}
       <Modal transparent visible={navOpen} animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setNavOpen(false)} />
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.modalOverlay} onPress={() => setNavOpen(false)} />
 
-        <View
-          style={[
-            styles.modalCard,
-            {
-              top: panelTop,
-              left: 12,
-              right: 12,
-              maxWidth: 420,
-              alignSelf: "center",
-            },
-          ]}
-        >
-          <Text style={styles.modalTitle}>Nawigacja</Text>
-          <View style={styles.modalSep} />
+          <View style={[styles.modalCard, { marginTop: panelTop }]}>
+            <Text style={styles.modalTitle}>Nawigacja</Text>
+            <View style={styles.modalSep} />
 
-          {NAV.map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() => {
-                setNavOpen(false);
-                router.push(item.route as any);
-              }}
-              style={({ pressed }) => [
-                styles.navRowItem,
-                pressed && { opacity: 0.8 },
-                pathname.startsWith(item.route) && styles.navRowItemActive,
-              ]}
-            >
-              <Ionicons
-                name={item.icon}
-                size={18}
-                color={
-                  pathname.startsWith(item.route)
-                    ? palette.navIconActive
-                    : palette.navIcon
-                }
-              />
-              <Text
-                style={[
-                  styles.navRowText,
-                  pathname.startsWith(item.route) && { color: palette.navIconActive },
-                ]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
+            <ScrollView style={{ maxHeight: 380 }}>
+              {NAV.map((item) => (
+                <Pressable
+                  key={item.key}
+                  onPress={() => {
+                    setNavOpen(false);
+                    router.push(item.route as any);
+                  }}
+                  style={({ pressed }) => [
+                    styles.navRowItem,
+                    pressed && { opacity: 0.8 },
+                    pathname.startsWith(item.route) && styles.navRowItemActive,
+                  ]}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={18}
+                    color={
+                      pathname.startsWith(item.route)
+                        ? palette.navIconActive
+                        : palette.navIcon
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.navRowText,
+                      pathname.startsWith(item.route) && {
+                        color: palette.navIconActive,
+                      },
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
 
       {/* ================= PROFILE MENU ================= */}
       <Modal transparent visible={profileOpen} animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setProfileOpen(false)} />
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.modalOverlay} onPress={() => setProfileOpen(false)} />
 
-        <View
-          style={[
-            styles.modalCard,
-            {
-              top: panelTop,
-              right: 12,
-              width: 260,
-            },
-          ]}
-        >
-          <Text style={styles.modalTitle}>{displayName}</Text>
-          <Text style={styles.modalSub}>{user?.email}</Text>
+          <View style={[styles.modalCard, { marginTop: panelTop, width: 260 }]}>
+            <Text style={styles.modalTitle}>{displayName}</Text>
+            <Text style={styles.modalSub}>{user?.email}</Text>
 
-          <View style={styles.modalSep} />
+            <View style={styles.modalSep} />
 
-          {/* SETTINGS */}
-          <Pressable
-            onPress={() => {
-              setProfileOpen(false);
-              router.push("/settings" as any);
-            }}
-            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
-          >
-            <Ionicons name="settings-outline" size={18} color={palette.menuText} />
-            <Text style={styles.menuRowText}>Ustawienia</Text>
-          </Pressable>
+            <ScrollView style={{ maxHeight: 340 }}>
+              {/* SETTINGS */}
+              <Pressable
+                onPress={() => {
+                  setProfileOpen(false);
+                  router.push("/settings" as any);
+                }}
+                style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+              >
+                <Ionicons name="settings-outline" size={18} color={palette.menuText} />
+                <Text style={styles.menuRowText}>Ustawienia</Text>
+              </Pressable>
 
-          {/* BUG REPORT */}
-          <Pressable
-            onPress={() => {
-              setProfileOpen(false);
-              router.push("/bug" as any);
-            }}
-            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
-          >
-            <Ionicons name="bug-outline" size={18} color={palette.menuText} />
-            <Text style={styles.menuRowText}>Zgłoś błąd</Text>
-          </Pressable>
+              {/* BUG REPORT */}
+              <Pressable
+                onPress={() => {
+                  setProfileOpen(false);
+                  router.push("/bug" as any);
+                }}
+                style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+              >
+                <Ionicons name="bug-outline" size={18} color={palette.menuText} />
+                <Text style={styles.menuRowText}>Zgłoś błąd</Text>
+              </Pressable>
 
-          <View style={styles.modalSep} />
+              <View style={styles.modalSep} />
 
-          {/* LOGOUT */}
-          <Pressable
-            onPress={async () => {
-              try {
-                await auth.signOut();
-              } catch {}
-              setProfileOpen(false);
-              router.replace("/login" as any);
-            }}
-            style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
-          >
-            <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-            <Text style={[styles.menuRowText, { color: "#ef4444" }]}>Wyloguj</Text>
-          </Pressable>
+              {/* LOGOUT */}
+              <Pressable
+                onPress={async () => {
+                  try {
+                    await auth.signOut();
+                  } catch {}
+                  setProfileOpen(false);
+                  router.replace("/login" as any);
+                }}
+                style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+              >
+                <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+                <Text style={[styles.menuRowText, { color: "#ef4444" }]}>Wyloguj</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
         </View>
       </Modal>
 
       {/* ================= NOTIFICATIONS ================= */}
       <Modal transparent visible={notifsOpen} animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setNotifsOpen(false)} />
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.modalOverlay} onPress={() => setNotifsOpen(false)} />
 
-        <View
-          style={[
-            styles.notifCard,
-            {
-              top: panelTop,
-              left: 12,
-              right: 12,
-              maxWidth: 460,
-              alignSelf: "center",
-            },
-          ]}
-        >
-          {/* HEADER */}
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Powiadomienia</Text>
+          <View style={[styles.notifCard, { marginTop: panelTop }]}>
+            <View style={styles.notifHeader}>
+              <Text style={styles.notifTitle}>Powiadomienia</Text>
 
-            <View style={{ flexDirection: "row" }}>
-              <TouchableOpacity
-                onPress={markVisibleRead}
-                activeOpacity={0.85}
-                style={[
-                  styles.notifAction,
-                  { backgroundColor: ACCENT_NOTIF, marginRight: 8 },
-                ]}
-              >
-                <Ionicons name="checkmark-done" size={14} color="#fff" />
-                <Text style={styles.notifActionText}>Przeczytane</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row" }}>
+                <TouchableOpacity
+                  onPress={markVisibleRead}
+                  activeOpacity={0.85}
+                  style={[styles.notifAction, { backgroundColor: ACCENT_NOTIF, marginRight: 8 }]}
+                >
+                  <Ionicons name="checkmark-done" size={14} color="#fff" />
+                  <Text style={styles.notifActionText}>Przeczytane</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={clearVisible}
-                activeOpacity={0.85}
-                style={[styles.notifAction, { backgroundColor: "#6B7280" }]}
-              >
-                <Ionicons name="trash-outline" size={14} color="#fff" />
-                <Text style={styles.notifActionText}>Wyczyść</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={clearVisible}
+                  activeOpacity={0.85}
+                  style={[styles.notifAction, { backgroundColor: "#6B7280" }]}
+                >
+                  <Ionicons name="trash-outline" size={14} color="#fff" />
+                  <Text style={styles.notifActionText}>Wyczyść</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
 
-          <View style={styles.modalSep} />
+            <View style={styles.modalSep} />
 
-          {/* BODY */}
-          {notifLoading ? (
-            <View style={styles.notifLoading}>
-              <ActivityIndicator color={palette.text} />
-            </View>
-          ) : notifRows == null ? (
-            <View style={styles.notifLoading}>
-              <Text style={{ color: palette.muted }}>Ładowanie…</Text>
-            </View>
-          ) : notifRows.length === 0 ? (
-            <View style={styles.notifLoading}>
-              <Text style={{ color: palette.muted }}>Brak powiadomień</Text>
-            </View>
-          ) : (
-            <ScrollView style={styles.notifScroll}>
-              {notifRows.map((n) => {
-                const unread = !n.read;
-                return (
-                  <TouchableOpacity
-                    key={n.id}
-                    activeOpacity={0.85}
-                    onPress={() => toggleNotifRead(n)}
-                    style={[
-                      styles.notifRow,
-                      unread && styles.notifRowUnread,
-                    ]}
-                  >
-                    <Ionicons
-                      name={notifIconFor(n.type) as any}
-                      size={18}
-                      color={unread ? ACCENT_NOTIF : palette.navIcon}
-                      style={{ marginRight: 10 }}
-                    />
+            {notifLoading ? (
+              <View style={styles.notifLoading}>
+                <ActivityIndicator color={palette.text} />
+              </View>
+            ) : notifRows == null ? (
+              <View style={styles.notifLoading}>
+                <Text style={{ color: palette.muted }}>Ładowanie…</Text>
+              </View>
+            ) : notifRows.length === 0 ? (
+              <View style={styles.notifLoading}>
+                <Text style={{ color: palette.muted }}>Brak powiadomień</Text>
+              </View>
+            ) : (
+              <ScrollView style={[styles.notifScroll, { maxHeight: 380 }]}>
+                {notifRows.map((n) => {
+                  const unread = !n.read;
+                  return (
+                    <TouchableOpacity
+                      key={n.id}
+                      activeOpacity={0.85}
+                      onPress={() => toggleNotifRead(n)}
+                      style={[styles.notifRow, unread && styles.notifRowUnread]}
+                    >
+                      <Ionicons
+                        name={notifIconFor(n.type) as any}
+                        size={18}
+                        color={unread ? ACCENT_NOTIF : palette.navIcon}
+                        style={{ marginRight: 10 }}
+                      />
 
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.notifRowTitle,
-                          { fontWeight: unread ? "900" : "700" },
-                        ]}
-                      >
-                        {n.title || "Powiadomienie"}
-                      </Text>
-
-                      {n.body && (
-                        <Text numberOfLines={2} style={styles.notifRowBody}>
-                          {n.body}
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.notifRowTitle,
+                            { fontWeight: unread ? "900" : "700" },
+                          ]}
+                        >
+                          {n.title || "Powiadomienie"}
                         </Text>
-                      )}
-                    </View>
 
-                    {unread && <View style={styles.dot} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
+                        {n.body && (
+                          <Text numberOfLines={2} style={styles.notifRowBody}>
+                            {n.body}
+                          </Text>
+                        )}
+                      </View>
+
+                      {unread && <View style={styles.dot} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
         </View>
       </Modal>
+    </SafeAreaView>
+  );
 }
 
 /* ========================== HELPERS ========================== */
@@ -599,7 +554,6 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       borderColor: p.border,
       backgroundColor: "transparent",
       marginLeft: 6,
-      flexShrink: 0,
     },
 
     premiumChip: {
@@ -612,7 +566,6 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       borderColor: p.border,
       backgroundColor: p.chipBg,
       marginLeft: 6,
-      flexShrink: 0,
     },
 
     profileBtn: {
@@ -625,7 +578,6 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       backgroundColor: p.chipBg,
       borderWidth: 1,
       borderColor: p.border,
-      flexShrink: 0,
     },
 
     avatarOuter: {
@@ -661,19 +613,29 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     badgeText: { color: "#fff", fontSize: 9, fontWeight: "900" },
 
     /* ===== MODALS ===== */
+    modalContainer: {
+      flex: 1,
+      justifyContent: "flex-start",
+      alignItems: "center",
+      paddingTop: 10,
+    },
+
     modalOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: "rgba(0,0,0,0.35)",
     },
+
     modalCard: {
-      position: "absolute",
       backgroundColor: p.menuBg,
       borderWidth: 1,
       borderColor: p.menuBorder,
       borderRadius: 16,
-      padding: 12,
-      elevation: 10,
+      padding: 14,
+      width: "92%",
+      maxWidth: 420,
+      maxHeight: "80%",
     },
+
     modalTitle: { fontSize: 15, fontWeight: "900", color: p.text },
     modalSub: { fontSize: 12, color: p.muted, marginTop: 2, marginBottom: 4 },
     modalSep: {
@@ -705,14 +667,16 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
 
     /* ===== NOTIFICATIONS ===== */
     notifCard: {
-      position: "absolute",
       backgroundColor: p.menuBg,
       borderWidth: 1,
       borderColor: p.menuBorder,
       borderRadius: 16,
-      padding: 12,
-      elevation: 12,
+      padding: 14,
+      width: "92%",
+      maxWidth: 460,
+      maxHeight: "82%",
     },
+
     notifHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -736,7 +700,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     },
 
     notifLoading: { paddingVertical: 20, alignItems: "center" },
-    notifScroll: { maxHeight: 380 },
+    notifScroll: {},
 
     notifRow: {
       flexDirection: "row",
@@ -762,3 +726,4 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     },
   });
 }
+

@@ -1,3 +1,4 @@
+// Updated MessagesMobile with improved mobile layout
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -48,13 +49,13 @@ export default function MessagesMobile() {
   const [loadingMsg, setLoadingMsg] = useState(false);
   const scrollRef = useRef(null);
 
-  const drawerX = useRef(new Animated.Value(0)).current; // 0 = otwarte, -260 = schowane
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const drawerX = useRef(new Animated.Value(-240)).current; // start hidden for mobile
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const toggleDrawer = () => {
     Animated.timing(drawerX, {
-      toValue: drawerOpen ? -260 : 0,
-      duration: 200,
+      toValue: drawerOpen ? -240 : 0,
+      duration: 180,
       useNativeDriver: true,
     }).start();
     setDrawerOpen(!drawerOpen);
@@ -187,19 +188,19 @@ export default function MessagesMobile() {
         style={{
           flexDirection: "row",
           alignItems: "center",
-          padding: 12,
+          padding: 10,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         }}
       >
         <TouchableOpacity onPress={toggleDrawer}>
-          <Ionicons name="menu" size={28} color={colors.text} />
+          <Ionicons name="menu" size={26} color={colors.text} />
         </TouchableOpacity>
 
         <Text
           style={{
             color: colors.text,
-            fontSize: 18,
+            fontSize: 17,
             fontWeight: "800",
             marginLeft: 12,
           }}
@@ -212,27 +213,27 @@ export default function MessagesMobile() {
       <Animated.View
         style={{
           position: "absolute",
-          top: 60,
+          top: 58,
           bottom: 0,
           left: 0,
-          width: 260,
+          width: 240,
           backgroundColor: colors.card,
           borderRightWidth: 1,
           borderColor: colors.border,
-          padding: 12,
+          padding: 10,
           transform: [{ translateX: drawerX }],
-          zIndex: 10,
+          zIndex: 20,
         }}
       >
         <Text
           style={{
             color: colors.text,
             fontWeight: "800",
-            fontSize: 16,
-            marginBottom: 12,
+            fontSize: 15,
+            marginBottom: 10,
           }}
         >
-          Członkowie rodziny
+          Rodzina
         </Text>
 
         <ScrollView>
@@ -249,9 +250,9 @@ export default function MessagesMobile() {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  padding: 10,
-                  borderRadius: 10,
-                  marginBottom: 8,
+                  padding: 8,
+                  borderRadius: 8,
+                  marginBottom: 6,
                   backgroundColor:
                     selectedUid === String(uid) ? colors.accent + "22" : "transparent",
                   borderWidth: 1,
@@ -262,18 +263,13 @@ export default function MessagesMobile() {
                 {m.avatarUrl ? (
                   <Image
                     source={{ uri: m.avatarUrl }}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 999,
-                      marginRight: 10,
-                    }}
+                    style={{ width: 32, height: 32, borderRadius: 999, marginRight: 10 }}
                   />
                 ) : (
                   <View
                     style={{
-                      width: 36,
-                      height: 36,
+                      width: 32,
+                      height: 32,
                       borderRadius: 999,
                       backgroundColor: colors.bg,
                       justifyContent: "center",
@@ -289,10 +285,8 @@ export default function MessagesMobile() {
                   </View>
                 )}
 
-                <Text
-                  style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}
-                >
-                  {m.displayName || "Członek rodziny"}
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700" }}>
+                  {m.displayName || "Członek"}
                 </Text>
               </TouchableOpacity>
             );
@@ -301,21 +295,18 @@ export default function MessagesMobile() {
       </Animated.View>
 
       {/* CHAT VIEW */}
-      <View style={{ flex: 1, padding: 12 }}>
+      <View style={{ flex: 1, padding: 10 }}>
         {!selectedUid ? (
           <View
             style={{
               flex: 1,
               alignItems: "center",
               justifyContent: "center",
+              paddingHorizontal: 20,
             }}
           >
-            <Ionicons
-              name="chatbubbles-outline"
-              size={48}
-              color={colors.textMuted}
-            />
-            <Text style={{ marginTop: 12, color: colors.textMuted }}>
+            <Ionicons name="chatbubbles-outline" size={44} color={colors.textMuted} />
+            <Text style={{ marginTop: 10, color: colors.textMuted, textAlign: "center" }}>
               Wybierz osobę, aby rozpocząć rozmowę
             </Text>
           </View>
@@ -326,34 +317,22 @@ export default function MessagesMobile() {
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                paddingBottom: 10,
+                paddingBottom: 8,
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border,
                 marginBottom: 8,
               }}
             >
-              <Ionicons
-                name="person-circle-outline"
-                size={34}
-                color={colors.textMuted}
-              />
+              <Ionicons name="person-circle-outline" size={32} color={colors.textMuted} />
               <View style={{ marginLeft: 10 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: "800",
-                  }}
-                >
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
                   {
                     familyMembers.find(
                       (x) => String(x.uid || x.userId || x.id) === selectedUid
                     )?.displayName
                   }
                 </Text>
-                <Text style={{ fontSize: 11, color: colors.textMuted }}>
-                  dostępny
-                </Text>
+                <Text style={{ fontSize: 11, color: colors.textMuted }}>dostępny</Text>
               </View>
             </View>
 
@@ -361,7 +340,7 @@ export default function MessagesMobile() {
             <ScrollView
               ref={scrollRef}
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 50 }}
+              contentContainerStyle={{ paddingBottom: 70 }}
             >
               {messages.map((msg) => {
                 const isMine = msg.sender === myUid;
@@ -382,18 +361,17 @@ export default function MessagesMobile() {
                       backgroundColor: isMine ? colors.accent : colors.bg,
                       padding: 10,
                       borderRadius: 14,
-                      maxWidth: "75%",
-                      marginBottom: 12,
+                      maxWidth: "85%",
+                      marginBottom: 10,
                       borderWidth: 1,
-                      borderColor: isMine
-                        ? colors.accent + "55"
-                        : colors.border,
+                      borderColor: isMine ? colors.accent + "55" : colors.border,
                     }}
                   >
                     <Text
                       style={{
                         color: isMine ? "#022c22" : colors.text,
                         fontWeight: "600",
+                        fontSize: 14,
                       }}
                     >
                       {msg.text}
@@ -402,7 +380,7 @@ export default function MessagesMobile() {
                     <Text
                       style={{
                         marginTop: 4,
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: "600",
                         color: isMine ? "#01403A" : colors.textMuted,
                         alignSelf: "flex-end",
@@ -416,9 +394,7 @@ export default function MessagesMobile() {
             </ScrollView>
 
             {/* INPUT */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-            >
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
               <View
                 style={{
                   flexDirection: "row",
@@ -437,12 +413,7 @@ export default function MessagesMobile() {
                   placeholderTextColor={colors.textMuted}
                   value={text}
                   onChangeText={setText}
-                  style={{
-                    flex: 1,
-                    color: colors.text,
-                    fontSize: 14,
-                    opacity: !isPremium ? 0.7 : 1,
-                  }}
+                  style={{ flex: 1, color: colors.text, fontSize: 15 }}
                 />
 
                 <TouchableOpacity onPress={sendMessage}>
@@ -456,3 +427,5 @@ export default function MessagesMobile() {
     </SafeAreaView>
   );
 }
+
+//src/views/MessagesMobile.js

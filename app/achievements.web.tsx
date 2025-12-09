@@ -9,6 +9,7 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -17,13 +18,13 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
 
-import { db } from "../src/firebase/firebase";
+import { db } from "../src/firebase/firebase.web";
 import { auth } from "../src/firebase/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
 /* =========================
-   Helpers
+   Helpers: daty + zakresy
 ========================= */
 
 function startOfWeek(date: Date) {
@@ -34,12 +35,14 @@ function startOfWeek(date: Date) {
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
 function startOfMonth(date: Date) {
   const d = new Date(date);
   d.setDate(1);
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
 function endOfMonth(date: Date) {
   const d = new Date(date);
   d.setMonth(d.getMonth() + 1);
@@ -47,38 +50,52 @@ function endOfMonth(date: Date) {
   d.setHours(23, 59, 59, 999);
   return d;
 }
+
 function endOfDay(date: Date) {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
   return d;
 }
+
 function addDays(date: Date, days: number) {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
 }
-function toJsDate(v: any) {
+
+function toJsDate(v: any): Date | null {
   if (!v) return null;
   if (v instanceof Date) return v;
   if (typeof v?.toDate === "function") return v.toDate();
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d;
 }
+
 function isWithin(date: Date, start: Date, end: Date) {
   return date >= start && date <= end;
 }
-function num(v: any) {
+
+function num(v: any): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
+
 function clampPct(v: number) {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
+/* =========================
+   EXP Curve
+========================= */
+
 function requiredExpForLevel(level: number): number {
   if (level <= 1) return 0;
+
   let total = 0;
-  for (let l = 1; l < level; l++) total += 100 + 50 * (l - 1);
+  for (let l = 1; l < level; l++) {
+    const gainForThisLevelUp = 100 + 50 * (l - 1);
+    total += gainForThisLevelUp;
+  }
   return total;
 }
 
@@ -100,7 +117,7 @@ function computeLevelProgress(totalExp: number, levelFromDoc?: number) {
 }
 
 /* =========================
-   Achievements
+   Achievements definitions
 ========================= */
 
 type StatKey =
@@ -155,7 +172,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "streak",
     label: "Streak",
-    description: "Codzienne wykonywanie choć jednej misji.",
+    description: "Rób cokolwiek codziennie - choć jedno wykonane zadanie.",
     icon: "flame-outline",
     statKey: "streakDays",
     thresholds: [7, 21, 45, 90, 180, 365],
@@ -171,7 +188,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "created",
     label: "Organizator",
-    description: "Twórz i przydzielaj zadania.",
+    description: "Twórz i rozdzielaj zadania w domu.",
     icon: "create-outline",
     statKey: "missionsCreatedTotal",
     thresholds: [20, 80, 200, 500, 1200],
@@ -189,7 +206,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "help",
     label: "Pomocna dłoń",
-    description: "Wykonuj misje dla innych domowników.",
+    description: "Wykonuj misje dla innych członków rodziny.",
     icon: "hand-left-outline",
     statKey: "missionsCompletedForOthers",
     thresholds: [5, 20, 60, 150, 400],
@@ -198,7 +215,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "ontime",
     label: "Perfekcjonista",
-    description: "Wykonuj misje tego samego dnia.",
+    description: "Wykonuj misje na czas (tego samego dnia).",
     icon: "time-outline",
     statKey: "missionsCompletedOnTime",
     thresholds: [10, 40, 120, 300, 800],
@@ -213,15 +230,15 @@ function progressFor(stats: MHStats, a: Achievement) {
   let nextThreshold: number | null = null;
 
   for (let i = 0; i < a.thresholds.length; i++) {
-    if (progress >= a.thresholds[i]) {
+    const thr = a.thresholds[i];
+    if (progress >= thr) {
       tierIndex = i + 1;
-      currentThreshold = a.thresholds[i];
+      currentThreshold = thr;
     } else {
-      nextThreshold = a.thresholds[i];
+      nextThreshold = thr;
       break;
     }
   }
-
   return { progress, tierIndex, currentThreshold, nextThreshold };
 }
 
@@ -230,19 +247,20 @@ function percent(val: number, max?: number | null) {
   return clampPct((val / max) * 100);
 }
 
-/* =========================
-   MAIN SCREEN
-========================= */
-
 export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const { width } = useWindowDimensions();
+
+  const isSmallScreen = width < 480;
 
   const { missions, loading: missionsLoading } = useMissions();
   const { members } = useFamily();
 
   const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
-  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(null);
+  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(
+    null
+  );
   const [userLoading, setUserLoading] = useState(true);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
@@ -250,73 +268,72 @@ export default function StatsScreen() {
   const monthStart = useMemo(() => startOfMonth(new Date()), []);
   const monthEnd = useMemo(() => endOfMonth(new Date()), []);
 
-  /* ------------------
-      Auth listener
-  ------------------- */
-
+  /* --- Auth listener --- */
   useEffect(() => {
     const off = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
     return () => off();
   }, []);
 
-  /* ------------------
-      User doc listener
-  ------------------- */
-
+  /* --- User document listener --- */
   useEffect(() => {
     if (!uid) {
       setUserDoc(null);
       setUserLoading(false);
       return;
     }
-
     setUserLoading(true);
     const ref = doc(db, "users", uid);
-
     const unsub = onSnapshot(
       ref,
       (snap) => {
         const d = snap.data() as any;
         setUserDoc({
-          level: num(d?.level ?? 1),
-          totalExp: num(d?.totalExp ?? 0),
+          level: Math.max(1, Math.floor(num(d?.level ?? 1))),
+          totalExp: Math.max(0, Math.floor(num(d?.totalExp ?? 0))),
         });
         setUserLoading(false);
       },
       () => setUserLoading(false)
     );
-
     return unsub;
   }, [uid]);
 
-  /* ------------------
-      Normalize missions
-  ------------------- */
+  /* =========================
+     Normalize missions
+  ========================== */
 
   const normalizedMissions = useMemo(() => {
-    return (Array.isArray(missions) ? missions : [])
+    const list = Array.isArray(missions) ? missions : [];
+    return list
       .filter((m: any) => !m?.archived)
       .map((m: any) => ({
         ...m,
         completedAtJs: toJsDate(m?.completedAt),
-        createdAtJs: toJsDate(m?.createdAt),
-        assignedAtJs: toJsDate(m?.assignedAt),
-        expValueNum: num(m?.expValue ?? 0),
-        assignedToId: m.assignedToUserId ? String(m.assignedToUserId) : null,
-        assignedById: m.assignedByUserId ? String(m.assignedByUserId) : null,
-        createdById: m.createdByUserId ? String(m.createdByUserId) : null,
-        completedById: m.completedByUserId ? String(m.completedByUserId) : null,
+        expValueNum: Math.max(0, Math.floor(num(m?.expValue ?? 0))),
+        assignedToId: m?.assignedToUserId ? String(m.assignedToUserId) : null,
+        createdById: m?.createdByUserId ? String(m.createdByUserId) : null,
+        assignedById: m?.assignedByUserId ? String(m.assignedByUserId) : null,
+        completedById: m?.completedByUserId ? String(m.completedByUserId) : null,
+        assignedAtJs: toJsDate(
+          (m as any)?.assignedAt ??
+            (m as any)?.assignedAtTs ??
+            (m as any)?.assignedDate ??
+            null
+        ),
+        createdAtJs: toJsDate(
+          (m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate
+        ),
       }));
   }, [missions]);
 
   /* =========================
-     FAMILY & FILTERING
+     Family filter
   ========================== */
 
-  const familyMemberIds = useMemo(() => {
+  const familyMemberIds: string[] = useMemo(() => {
     if (!members) return [];
-    return members
-      .map((x: any) => String(x?.uid || x?.userId || x?.id || ""))
+    return (members as any[])
+      .map((x) => String(x?.uid || x?.userId || x?.id || ""))
       .filter(Boolean);
   }, [members]);
 
@@ -325,11 +342,11 @@ export default function StatsScreen() {
     if (!myId) return () => false;
 
     return (m: any) => {
-      const assignedTo = m.assignedToId ? String(m.assignedToId) : null;
-      const assignedBy = m.assignedById ? String(m.assignedById) : null;
-      const createdBy = m.createdById ? String(m.createdById) : null;
+      const assignedTo = m?.assignedToId ? String(m.assignedToId) : null;
+      const assignedBy = m?.assignedById ? String(m.assignedById) : null;
+      const createdBy = m?.createdById ? String(m.createdById) : null;
 
-      if (assignedTo === myId) return true;
+      if (assignedTo && assignedTo === myId) return true;
       if (!assignedTo && (assignedBy === myId || createdBy === myId)) return true;
 
       const isFamilyTarget = !!assignedTo && familyMemberIds.includes(assignedTo);
@@ -339,19 +356,24 @@ export default function StatsScreen() {
     };
   }, [uid, familyMemberIds]);
 
-  const visibleMissions = useMemo(
-    () => normalizedMissions.filter(isMineForStats),
-    [normalizedMissions, isMineForStats]
-  );
+  const visibleMissions = useMemo(() => {
+    return normalizedMissions.filter(isMineForStats);
+  }, [normalizedMissions, isMineForStats]);
 
   /* =========================
-     COMPLETED MISSIONS
+     Filter: missions assigned TO me
   ========================== */
 
+  const myMissions = useMemo(() => {
+    const myId = uid ? String(uid) : null;
+    if (!myId) return [];
+    return visibleMissions.filter((m: any) => m.assignedToId === myId);
+  }, [visibleMissions, uid]);
+
+  // misje, które JA faktycznie ukończyłem
   const myCompleted = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return [];
-
     return visibleMissions.filter((m: any) => {
       if (!m.completed) return false;
       const completedBy = m.completedById ? String(m.completedById) : null;
@@ -362,87 +384,83 @@ export default function StatsScreen() {
     });
   }, [visibleMissions, uid]);
 
-  const myWeekCompleted = useMemo(
-    () =>
-      myCompleted.filter(
-        (m: any) => m.completedAtJs && isWithin(m.completedAtJs, weekStart, weekEnd)
-      ),
-    [myCompleted, weekStart, weekEnd]
-  );
+  const myWeekCompleted = useMemo(() => {
+    return myCompleted.filter((m: any) => {
+      if (!m.completedAtJs) return false;
+      return isWithin(m.completedAtJs, weekStart, weekEnd);
+    });
+  }, [myCompleted, weekStart, weekEnd]);
 
-  const myMonthCompleted = useMemo(
-    () =>
-      myCompleted.filter(
-        (m: any) => m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)
-      ),
-    [myCompleted, monthStart, monthEnd]
-  );
+  const myMonthCompleted = useMemo(() => {
+    return myCompleted.filter((m: any) => {
+      if (!m.completedAtJs) return false;
+      return isWithin(m.completedAtJs, monthStart, monthEnd);
+    });
+  }, [myCompleted, monthStart, monthEnd]);
 
   /* =========================
-     EXP
+     EXP calculations
   ========================== */
 
   const weekExp = useMemo(
-    () => myWeekCompleted.reduce((acc: number, m: any) => acc + m.expValueNum, 0),
+    () => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
     [myWeekCompleted]
   );
 
   const monthExp = useMemo(
-    () => myMonthCompleted.reduce((acc: number, m: any) => acc + m.expValueNum, 0),
+    () => myMonthCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
     [myMonthCompleted]
   );
 
   const totalCompleted = myCompleted.length;
 
-  const hardCompletedTotal = useMemo(
-    () =>
-      myCompleted.filter((m: any) => m.expMode === "hard" || m.expValueNum >= 100)
-        .length,
-    [myCompleted]
-  );
+  const hardCompletedTotal = useMemo(() => {
+    return myCompleted.filter((m: any) => {
+      const mode = (m.expMode as string | undefined) ?? "";
+      const exp = m.expValueNum || 0;
+      return mode === "hard" || exp >= 100;
+    }).length;
+  }, [myCompleted]);
 
   const createdTotal = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return 0;
-
     return visibleMissions.filter(
       (m: any) => m.createdById === myId || m.assignedById === myId
     ).length;
   }, [visibleMissions, uid]);
 
   /* =========================
-     EXTRA STATS
+     Dodatkowe statystyki
   ========================== */
 
+  // Pomocna dłoń – misje ukończone przeze mnie, które były zadaniami innych
   const missionsCompletedForOthers = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return 0;
-
     return myCompleted.filter((m: any) => {
       const assignedTo = m.assignedToId ? String(m.assignedToId) : null;
-      return assignedTo && assignedTo !== myId;
+      return !!assignedTo && assignedTo !== myId;
     }).length;
   }, [myCompleted, uid]);
 
-  const missionsCompletedOnTime = useMemo(
-    () =>
-      myCompleted.filter((m: any) => {
-        if (!m.completedAtJs) return false;
+  // Perfekcjonista – misje ukończone w dniu przydzielenia / stworzenia
+  const missionsCompletedOnTime = useMemo(() => {
+    return myCompleted.filter((m: any) => {
+      const baseDate: Date | null = m.assignedAtJs || m.createdAtJs || null;
+      const completedAt: Date | null = m.completedAtJs;
+      if (!baseDate || !completedAt) return false;
 
-        const base = m.assignedAtJs || m.createdAtJs;
-        if (!base) return false;
+      const start = new Date(baseDate);
+      start.setHours(0, 0, 0, 0);
+      const end = endOfDay(baseDate);
 
-        const start = new Date(base);
-        start.setHours(0, 0, 0, 0);
-        const end = endOfDay(base);
-
-        return m.completedAtJs >= start && m.completedAtJs <= end;
-      }).length,
-    [myCompleted]
-  );
+      return completedAt >= start && completedAt <= end;
+    }).length;
+  }, [myCompleted]);
 
   /* =========================
-     STREAK
+     Streak calculation
   ========================== */
 
   const streakDays = useMemo(() => {
@@ -450,19 +468,29 @@ export default function StatsScreen() {
 
     const byDay = new Set<string>();
     myCompleted.forEach((m: any) => {
-      const d = m.completedAtJs;
+      const d: Date | null = m.completedAtJs;
       if (!d) return;
-      const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(d.getDate()).padStart(2, "0")}`;
       byDay.add(key);
     });
 
-    let count = 0;
-    let cursor = new Date();
-    cursor.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    while (true) {
-      const k = `${cursor.getFullYear()}-${cursor.getMonth() + 1}-${cursor.getDate()}`;
-      if (!byDay.has(k)) break;
+    let count = 0;
+    let cursor = new Date(today);
+
+    for (let i = 0; i < 365 * 2; i++) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(cursor.getDate()).padStart(2, "0")}`;
+
+      if (!byDay.has(key)) break;
+
       count++;
       cursor = addDays(cursor, -1);
     }
@@ -471,11 +499,11 @@ export default function StatsScreen() {
   }, [myCompleted]);
 
   /* =========================
-     SUMMARY STATS
+     Summary stats
   ========================== */
 
-  const mhStats: MHStats = useMemo(
-    () => ({
+  const mhStats: MHStats = useMemo(() => {
+    return {
       missionsCompletedTotal: totalCompleted,
       missionsCompletedWeek: myWeekCompleted.length,
       missionsCompletedMonth: myMonthCompleted.length,
@@ -485,61 +513,66 @@ export default function StatsScreen() {
       hardCompletedTotal,
       missionsCompletedForOthers,
       missionsCompletedOnTime,
-    }),
-    [
-      totalCompleted,
-      myWeekCompleted.length,
-      myMonthCompleted.length,
-      userDoc?.totalExp,
-      streakDays,
-      createdTotal,
-      hardCompletedTotal,
-      missionsCompletedForOthers,
-      missionsCompletedOnTime,
-    ]
-  );
+    };
+  }, [
+    totalCompleted,
+    myWeekCompleted.length,
+    myMonthCompleted.length,
+    userDoc?.totalExp,
+    streakDays,
+    createdTotal,
+    hardCompletedTotal,
+    missionsCompletedForOthers,
+    missionsCompletedOnTime,
+  ]);
 
   /* =========================
-     USER INFO
+     🔥 Nick + Initial
   ========================== */
 
   const myPhotoURL = auth.currentUser?.photoURL || null;
   const myDisplayName = auth.currentUser?.displayName || null;
 
   const myInitial = useMemo(() => {
-    const base = myDisplayName || auth.currentUser?.email?.split("@")[0] || "U";
+    const base =
+      myDisplayName || auth.currentUser?.email?.split("@")[0] || "U";
     return base.trim()?.[0]?.toUpperCase() || "U";
   }, [myDisplayName, auth.currentUser?.email]);
 
-  const levelPack = useMemo(
-    () => computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1),
-    [userDoc?.totalExp, userDoc?.level]
-  );
+  const levelPack = useMemo(() => {
+    return computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1);
+  }, [userDoc?.totalExp, userDoc?.level]);
 
   const busy = missionsLoading || userLoading;
 
-  /* =========================
-     UI RENDER
-  ========================== */
-
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          isSmallScreen && { paddingHorizontal: 10 },
+        ]}
+      >
         <Header
           title="Osiągnięcia"
-          subtitle="EXP, poziom i rozwój w jednym miejscu."
+          subtitle="EXP, poziom i osiągnięcia - wszystko w jednym miejscu."
           colors={colors}
           onBack={() => router.back()}
+          isCompact={isSmallScreen}
         />
 
-        {/* SUMMARY BOX */}
+        {/* =========================
+            SUMMARY BOX
+        ========================== */}
         <View
           style={[
             styles.summary,
             { backgroundColor: colors.card, borderColor: colors.border },
+            isSmallScreen && styles.summaryStack,
           ]}
         >
-          <View style={styles.summaryLeft}>
+          <View style={[styles.summaryLeft, isSmallScreen && styles.summaryLeftStack]}>
+            {/* PROFILE BOX */}
             <View
               style={[
                 styles.rankBadge,
@@ -586,7 +619,11 @@ export default function StatsScreen() {
 
               <View style={{ marginLeft: 10 }}>
                 <Text style={[styles.rankName, { color: colors.text }]}>
-                  {myDisplayName || auth.currentUser?.email?.split("@")[0] || myInitial}
+                  {myDisplayName
+                    ? myDisplayName
+                    : auth.currentUser?.email
+                    ? auth.currentUser.email.split("@")[0]
+                    : myInitial}
                 </Text>
 
                 <Text style={[styles.pointsSub, { color: colors.textMuted }]}>
@@ -595,14 +632,20 @@ export default function StatsScreen() {
               </View>
             </View>
 
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, marginTop: isSmallScreen ? 10 : 0 }}>
               {busy ? (
                 <View style={{ paddingVertical: 6 }}>
                   <ActivityIndicator color={colors.accent} />
                 </View>
               ) : (
                 <>
-                  <Text style={[styles.points, { color: colors.text }]}>
+                  <Text
+                    style={[
+                      styles.points,
+                      { color: colors.text },
+                      isSmallScreen && { fontSize: 20 },
+                    ]}
+                  >
                     Poziom {levelPack.level}
                   </Text>
 
@@ -644,7 +687,12 @@ export default function StatsScreen() {
             </View>
           </View>
 
-          <View style={styles.summaryRight}>
+          <View
+            style={[
+              styles.summaryRight,
+              isSmallScreen && { alignItems: "flex-start", marginTop: 10 },
+            ]}
+          >
             <View
               style={[
                 styles.toNextBox,
@@ -666,20 +714,22 @@ export default function StatsScreen() {
         <ProgressBar
           value={levelPack.pct}
           colors={colors}
-          label={`EXP: ${levelPack.into}/${levelPack.span} (LVL ${levelPack.level} → ${
-            levelPack.level + 1
-          })`}
+          label={`EXP: ${levelPack.into}/${levelPack.span} (Poziom ${
+            levelPack.level
+          } → ${levelPack.level + 1})`}
         />
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
           Twoje osiągnięcia
         </Text>
 
-        {/* ACHIEVEMENTS LIST */}
+        {/* =========================
+            ACHIEVEMENTS LIST
+        ========================== */}
+
         <View style={styles.achList}>
           {ACHIEVEMENTS.map((a) => {
             const p = progressFor(mhStats, a);
-
             const tierName =
               p.tierIndex <= 0
                 ? "-"
@@ -700,38 +750,34 @@ export default function StatsScreen() {
                 key={a.id}
                 style={[
                   styles.achItem,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                  },
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  isSmallScreen && styles.achItemStack,
                 ]}
               >
-                <View style={styles.achTopRow}>
-                  <View
-                    style={[
-                      styles.iconWrap,
-                      {
-                        backgroundColor: colors.accent + "22",
-                        borderColor: colors.accent + "55",
-                      },
-                    ]}
-                  >
-                    <Ionicons name={a.icon} size={22} color={colors.accent} />
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.achTitle, { color: colors.text }]}>
-                      {a.label}
-                    </Text>
-                    <Text style={[styles.achDesc, { color: colors.textMuted }]}>
-                      {a.description}
-                    </Text>
-                  </View>
+                <View
+                  style={[
+                    styles.iconWrap,
+                    {
+                      backgroundColor: colors.accent + "22",
+                      borderColor: colors.accent + "55",
+                    },
+                    isSmallScreen && { marginBottom: 8 },
+                  ]}
+                >
+                  <Ionicons name={a.icon} size={22} color={colors.accent} />
                 </View>
 
-                <View style={{ marginTop: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.achTitle, { color: colors.text }]}>
+                    {a.label}
+                  </Text>
+                  <Text style={[styles.achDesc, { color: colors.textMuted }]}>
+                    {a.description}
+                  </Text>
+
                   <Text
                     style={{
+                      marginTop: 6,
                       fontSize: 12,
                       fontWeight: "900",
                       color: unlocked ? colors.text : colors.textMuted,
@@ -749,9 +795,9 @@ export default function StatsScreen() {
 
                   <View style={styles.tiersRow}>
                     {a.thresholds.map((t, idx) => {
-                      const earned = idx < p.tierIndex;
+                      const earnedThisTier = idx < p.tierIndex;
                       const activeTier = idx === p.tierIndex && p.progress >= t;
-                      const active = earned || activeTier;
+                      const active = earnedThisTier || activeTier;
 
                       return (
                         <View
@@ -803,17 +849,20 @@ export default function StatsScreen() {
                       Wszystkie progi zdobyte ✅
                     </Text>
                   )}
+                </View>
 
-                  <View style={styles.pointsBottomRow}>
-                    <Text style={[styles.pointsEarned, { color: colors.text }]}>
-                      {p.progress}
-                    </Text>
-                    <Text
-                      style={[styles.pointsHint, { color: colors.textMuted }]}
-                    >
-                      wartość
-                    </Text>
-                  </View>
+                <View
+                  style={[
+                    styles.pointsCol,
+                    isSmallScreen && styles.pointsColFull,
+                  ]}
+                >
+                  <Text style={[styles.pointsEarned, { color: colors.text }]}>
+                    {p.progress}
+                  </Text>
+                  <Text style={[styles.pointsHint, { color: colors.textMuted }]}>
+                    wartość
+                  </Text>
                 </View>
               </View>
             );
@@ -827,16 +876,24 @@ export default function StatsScreen() {
 }
 
 /* =========================
-   HEADER COMPONENT
+   HELPER COMPONENTS
 ========================= */
 
-function Header({ title, subtitle, colors, onBack }) {
+function Header({ title, subtitle, colors, onBack, isCompact }) {
   return (
-    <View style={headerStyles.wrap}>
+    <View
+      style={[
+        headerStyles.wrap,
+        isCompact && headerStyles.wrapCompact,
+      ]}
+    >
       <TouchableOpacity
         onPress={onBack}
         activeOpacity={0.85}
-        style={headerStyles.backBtn}
+        style={[
+          headerStyles.backBtn,
+          isCompact && { paddingLeft: 0 },
+        ]}
       >
         <Ionicons name="arrow-back" size={18} color={colors.text} />
         <Text style={[headerStyles.backText, { color: colors.text }]}>
@@ -845,23 +902,32 @@ function Header({ title, subtitle, colors, onBack }) {
       </TouchableOpacity>
 
       <View style={headerStyles.titleCol}>
-        <Text style={[headerStyles.title, { color: colors.text }]}>{title}</Text>
-
+        <Text
+          style={[
+            headerStyles.title,
+            { color: colors.text },
+            isCompact && { textAlign: "left", fontSize: 18 },
+          ]}
+        >
+          {title}
+        </Text>
         {!!subtitle && (
-          <Text style={[headerStyles.subtitle, { color: colors.textMuted }]}>
+          <Text
+            style={[
+              headerStyles.subtitle,
+              { color: colors.textMuted },
+              isCompact && { textAlign: "left" },
+            ]}
+          >
             {subtitle}
           </Text>
         )}
       </View>
 
-      <View style={{ width: 90 }} />
+      <View style={{ width: isCompact ? 0 : 90 }} />
     </View>
   );
 }
-
-/* =========================
-   PROGRESS BAR COMPONENT
-========================= */
 
 function ProgressBar({ value, colors, label, compact = false }) {
   const pct = clampPct(value);
@@ -904,10 +970,6 @@ function ProgressBar({ value, colors, label, compact = false }) {
   );
 }
 
-/* =========================
-   CHIP COMPONENT
-========================= */
-
 function Chip({ colors, icon, label, tone }) {
   const bg = tone === "orange" ? "#f9731622" : colors.accent + "22";
   const border = tone === "orange" ? "#f9731688" : colors.accent + "55";
@@ -942,7 +1004,7 @@ function Chip({ colors, icon, label, tone }) {
 }
 
 /* =========================
-   STYLES — MOBILE FRIENDLY
+   STYLES
 ========================= */
 
 const styles = StyleSheet.create({
@@ -956,7 +1018,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 30,
     width: "100%",
-    maxWidth: 900,
+    maxWidth: 920,
     alignSelf: "center",
   },
 
@@ -969,7 +1031,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    flexWrap: "wrap",
+  },
+
+  summaryStack: {
+    flexDirection: "column",
+    alignItems: "flex-start",
   },
 
   summaryLeft: {
@@ -977,35 +1043,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    flexWrap: "wrap",
   },
 
+  summaryLeftStack: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+
+  /* PROFILE BOX */
   rankBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderWidth: 1,
     borderRadius: 12,
-    flexWrap: "wrap",
-    maxWidth: "100%",
+    borderWidth: 1,
   },
 
   rankName: { fontSize: 15, fontWeight: "900" },
   points: { fontSize: 22, fontWeight: "900" },
   pointsSub: { fontSize: 12, fontWeight: "800" },
 
-  summaryRight: {
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
+  summaryRight: { alignItems: "flex-end", justifyContent: "center" },
 
   toNextBox: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderWidth: 1,
     borderRadius: 999,
+    borderWidth: 1,
   },
 
   sectionTitle: {
@@ -1016,86 +1082,61 @@ const styles = StyleSheet.create({
     textAlign: "left",
   },
 
-  achList: {
-    gap: 14,
-  },
+  achList: { gap: 14 },
 
   achItem: {
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
-    flexDirection: "column",
-    gap: 12,
-  },
-
-  achTopRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    flexWrap: "wrap",
+  },
+
+  achItemStack: {
+    flexDirection: "column",
   },
 
   iconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
   },
 
   achTitle: { fontSize: 14, fontWeight: "900" },
-
-  achDesc: {
-    fontSize: 12,
-    fontWeight: "800",
-    opacity: 0.92,
-    marginTop: 2,
-  },
+  achDesc: { fontSize: 12, fontWeight: "800", opacity: 0.92, marginTop: 2 },
 
   tiersRow: {
     flexDirection: "row",
+    alignItems: "center",
     flexWrap: "wrap",
     gap: 6,
     marginTop: 10,
-    alignItems: "center",
   },
 
   tierBadge: {
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderWidth: 1,
     borderRadius: 10,
+    borderWidth: 1,
   },
 
-  tierBadgeText: {
-    fontSize: 12,
-    fontWeight: "900",
-  },
+  tierBadgeText: { fontSize: 12, fontWeight: "900" },
 
-  pointsBottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
+  pointsCol: { width: 74, alignItems: "flex-end" },
+  pointsColFull: {
+    width: "100%",
+    alignItems: "flex-start",
     marginTop: 10,
-    gap: 4,
   },
-
-  pointsEarned: {
-    fontSize: 16,
-    fontWeight: "900",
-  },
-
-  pointsHint: {
-    fontSize: 11,
-    fontWeight: "800",
-  },
+  pointsEarned: { fontSize: 16, fontWeight: "900" },
+  pointsHint: { fontSize: 11, fontWeight: "800", opacity: 0.9 },
 });
 
-/* =========================
-   HEADER STYLES
-========================= */
-
+/* HEADER */
 const headerStyles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
@@ -1104,6 +1145,12 @@ const headerStyles = StyleSheet.create({
     marginBottom: 12,
     minHeight: 40,
   },
+  wrapCompact: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1112,23 +1159,14 @@ const headerStyles = StyleSheet.create({
     paddingHorizontal: 6,
     borderRadius: 10,
   },
-  backText: {
-    fontWeight: "900",
-    fontSize: 14,
-  },
-  titleCol: {
-    flex: 1,
-    paddingHorizontal: 6,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    opacity: 0.9,
-    textAlign: "center",
-  },
+
+  backText: { fontWeight: "900", fontSize: 14 },
+
+  titleCol: { flex: 1, paddingHorizontal: 6 },
+
+  title: { fontSize: 20, fontWeight: "900", textAlign: "center" },
+
+  subtitle: { fontSize: 12, fontWeight: "800", opacity: 0.9, textAlign: "center" },
 });
+
+// app/stats.tsx

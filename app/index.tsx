@@ -952,15 +952,16 @@ export default function HomeScreen() {
         activeOpacity={0.86}
         onPress={() => (to ? safePush(to) : undefined)}
         style={
-          Platform.OS === "web" ? ({ cursor: "pointer" } as any) : undefined
+          Platform.OS === "web"
+            ? ({ cursor: "pointer", marginLeft: 12 } as any)
+            : { marginLeft: 0, marginTop: 4 }
         }
       >
         <Text
           style={{
             color: colors.textMuted,
-            fontSize: 12,
-            fontWeight: "800",
-            marginBottom: 8,
+            fontSize: 11,
+            fontWeight: "600",
           }}
         >
           {label}
@@ -969,197 +970,102 @@ export default function HomeScreen() {
     );
   };
 
-  const FooterTitle = ({
-    children,
-    icon,
-  }: {
-    children: React.ReactNode;
-    icon?: any;
-  }) => {
-    return (
-      <View style={{ marginBottom: 10 }}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          {icon ? (
-            <Ionicons
-              name={icon}
-              size={16}
-              color={colors.text}
-              style={{ marginRight: 8 }}
-            />
-          ) : null}
-          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }}>
-            {children}
-          </Text>
-        </View>
-
-        <View
-          style={{
-            height: 3,
-            width: 40,
-            borderRadius: 999,
-            marginTop: 6,
-            backgroundColor: colors.accent,
-            opacity: 0.9,
-          }}
-        />
-      </View>
-    );
-  };
-
   const AppFooter = () => {
     return (
       <View
         style={{
-          marginTop: 18,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          borderRadius: 18,
-          overflow: "hidden",
+          marginTop: 32,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.bg, // 🔥 tło takie samo jak cała strona
         }}
       >
-        {/* TOP BAR */}
-        <View
-          style={{
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: 12,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-            flexDirection: isWeb ? "row" : "column",
-            justifyContent: "space-between",
-            alignItems: isWeb ? "center" : "flex-start",
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <View
+        {/* LOGO + NAZWA */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.accent,
+              marginRight: 10,
+            }}
+          >
+            <Ionicons name="home-outline" size={18} color="#022c22" />
+          </View>
+
+          <View>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}>
+              MissionHome
+            </Text>
+            <Text
               style={{
-                width: 34,
-                height: 34,
-                borderRadius: 999,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: colors.accent,
-                marginRight: 10,
+                color: colors.textMuted,
+                fontSize: 12,
+                marginTop: 1,
+                fontWeight: "700",
               }}
             >
-              <Ionicons name="home-outline" size={18} color="#022c22" />
-            </View>
-
-            <View>
-              <Text
-                style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
-              >
-                MissionHome
-              </Text>
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 12,
-                  marginTop: 1,
-                  fontWeight: "700",
-                }}
-              >
-                Porządek w domu, exp w życiu ✨
-              </Text>
-            </View>
+              Porządek w domu, exp w życiu ✨
+            </Text>
           </View>
+        </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginTop: isWeb ? 0 : 12,
-            }}
-          >
-            {(
-              ["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const
-            ).map((icon, idx) => (
-              <TouchableOpacity
-                key={icon}
-                activeOpacity={0.9}
-                style={{ marginLeft: idx === 0 ? 0 : 14 }}
-              >
+        {/* SOCIAL IKONY */}
+        <View style={{ flexDirection: "row", marginBottom: 10 }}>
+          {(["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const).map(
+            (icon) => (
+              <TouchableOpacity key={icon} activeOpacity={0.9} style={{ marginHorizontal: 8 }}>
                 <Ionicons name={icon as any} size={18} color={colors.textMuted} />
               </TouchableOpacity>
-            ))}
-          </View>
+            )
+          )}
         </View>
 
-        {/* COLUMNS */}
+        {/* LINKI LINIA 1 */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
+          <FooterLink label="O aplikacji" to="/about-app" />
+          <FooterLink label="Regulamin" to="/rules" />
+          <FooterLink label="Polityka prywatności" to="/privacy" />
+          <FooterLink label="Kontakt" to="/contact" />
+        </View>
+
+        {/* LINKI LINIA 2 */}
         <View
           style={{
-            paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 8,
-            flexDirection: isWeb ? "row" : "column",
-            justifyContent: "space-between",
+            flexDirection: "row",
             flexWrap: "wrap",
+            justifyContent: "center",
+            marginTop: 6,
           }}
         >
-          <View
-            style={{
-              flex: 1,
-              minWidth: 220,
-              paddingRight: isWeb ? 12 : 0,
-              marginBottom: isWeb ? 0 : 12,
-            }}
-          >
-            <FooterTitle icon="information-circle-outline">
-              Informacje
-            </FooterTitle>
-            <FooterLink label="O aplikacji" to={"/about-app"} />
-            <FooterLink label="Kontakt" to={"/contact"} />
-            <FooterLink label="Polityka prywatności" to={"/privacy"} />
-          </View>
-
-          <View
-            style={{
-              flex: 1,
-              minWidth: 220,
-              paddingRight: isWeb ? 12 : 0,
-              marginBottom: isWeb ? 0 : 12,
-            }}
-          >
-            <FooterTitle icon="help-circle-outline">
-              Centrum pomocy
-            </FooterTitle>
-            <FooterLink label="FAQ – najczęstsze pytania" to={"/faq"} />
-            <FooterLink label="Regulamin" to={"/rules"} />
-          </View>
-
-          <View style={{ flex: 1, minWidth: 220, paddingRight: isWeb ? 12 : 0 }}>
-            <FooterTitle icon="sparkles-outline">Daj nam znać</FooterTitle>
-            <FooterLink label="Zgłoś błąd" to={"/bug"} />
-            <FooterLink label="Zgłoś pomysł" to={"/idea"} />
-          </View>
+          <FooterLink label="FAQ" to="/faq" />
+          <FooterLink label="Zgłoś błąd" to="/bug" />
+          <FooterLink label="Zgłoś pomysł" to="/idea" />
         </View>
 
-        {/* BOTTOM */}
-        <View
+        {/* COPYRIGHT */}
+        <Text
           style={{
-            paddingHorizontal: 16,
-            paddingTop: 10,
-            paddingBottom: 14,
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-            alignItems: "center",
+            color: colors.textMuted,
+            fontSize: 11,
+            fontWeight: "800",
+            marginTop: 12,
+            textAlign: "center",
           }}
         >
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 11,
-              fontWeight: "800",
-              textAlign: "center",
-            }}
-          >
-            © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
-          </Text>
-        </View>
+          © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
+        </Text>
       </View>
     );
   };
+
+
+
 
   /* --------------------------------------------------------------------- */
   /* ------------------------------- UI ---------------------------------- */
@@ -1748,7 +1654,12 @@ export default function HomeScreen() {
                             const node = checkboxRefs.current[m.id];
                             if (node && node.measureInWindow) {
                               node.measureInWindow(
-                                (x: number, y: number, width: number, height: number) => {
+                                (
+                                  x: number,
+                                  y: number,
+                                  width: number,
+                                  height: number
+                                ) => {
                                   const cx = x + width / 2;
                                   const cy = y + height / 2;
                                   // 💥 globalny wybuch przy tym checkboxie

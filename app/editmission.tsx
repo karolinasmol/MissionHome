@@ -5,25 +5,33 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Platform,
   ScrollView,
   ActivityIndicator,
   Image,
+  SafeAreaView,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { RepeatType } from "../src/context/TasksContext";
 import { useFamily } from "../src/hooks/useFamily";
 import { createMission } from "../src/services/missions";
-import { auth } from "../src/firebase/firebase";
-import { db } from "../src/firebase/firebase.web";
+import { auth, db } from "../src/firebase/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
-/* ----------------------- Helpers ----------------------- */
+/* ============================================================
+   Helpers
+============================================================ */
 
 function startOfMonth(date: Date) {
   const d = new Date(date);
   d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -44,9 +52,9 @@ function formatInputDate(date: Date) {
 }
 
 function parseInputDate(value: string) {
-  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const [, year, month, day] = match;
+  const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [, year, month, day] = m;
   const d = new Date(Number(year), Number(month) - 1, Number(day), 12);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -57,15 +65,15 @@ function toSafeDate(v: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/* ----------------------- Difficulty ----------------------- */
+/* ============================================================
+   Config
+============================================================ */
 
 const DIFFICULTY_OPTIONS = [
   { type: "easy", label: "Łatwe", exp: 25 },
   { type: "medium", label: "Średnie", exp: 50 },
   { type: "hard", label: "Trudne", exp: 100 },
 ];
-
-/* ----------------------- Repeat options ----------------------- */
 
 const REPEAT_OPTIONS: { type: RepeatType; label: string }[] = [
   { type: "none", label: "Brak" },
@@ -74,10 +82,8 @@ const REPEAT_OPTIONS: { type: RepeatType; label: string }[] = [
   { type: "monthly", label: "Co miesiąc" },
 ];
 
-/* ----------------------- Types ----------------------- */
-
 type AssigneeChip = {
-  id: string; // "self" albo uid
+  id: string;
   label: string;
   avatarUrl: string | null;
   level: number;
@@ -85,26 +91,30 @@ type AssigneeChip = {
   isSelf: boolean;
 };
 
-/* ----------------------- COMPONENT ----------------------- */
+/* ============================================================
+   MAIN SCREEN — PREMIUM MISSIONHOME NATIVE
+============================================================ */
 
 export default function EditMissionScreen() {
   const router = useRouter();
-  const { members, loading: famLoading } = useFamily();
-  const params = useLocalSearchParams<{ date?: string; missionId?: string }>();
+  const { width } = useWindowDimensions();
+  const isPhone = width < 500;
 
+  const params = useLocalSearchParams<{ date?: string; missionId?: string }>();
   const missionId = params.missionId ? String(params.missionId) : null;
 
+  const { members, loading: membersLoading } = useFamily();
   const currentUser = auth.currentUser;
   const myUid = currentUser?.uid ?? null;
-  const myDisplayName = currentUser?.displayName || "Ty";
-  const myPhotoURL = currentUser?.photoURL || null;
+  const myName = currentUser?.displayName || "Ty";
+  const myPhoto = currentUser?.photoURL || null;
 
   const initialDate = params.date ? new Date(params.date) : new Date();
 
   const [title, setTitle] = useState("");
   const [assignedToId, setAssignedToId] = useState<string>("self");
 
-  const [chosenDate, setChosenDate] = useState(initialDate);
+  const [chosenDate, setChosenDate] = useState(startOfDay(initialDate));
   const [inputDate, setInputDate] = useState(formatInputDate(initialDate));
   const [currentMonth, setCurrentMonth] = useState(startOfMonth(initialDate));
 
@@ -113,17 +123,15 @@ export default function EditMissionScreen() {
 
   const [saving, setSaving] = useState(false);
   const [loadingMission, setLoadingMission] = useState(false);
-
   const [loadedMission, setLoadedMission] = useState<any>(null);
 
-  const isWeb = Platform.OS === "web";
-
-  // żeby nie nadpisywać formularza w trakcie edycji
   const hydratedOnce = useRef(false);
 
-  /* ---------- LISTA DOMOWNIKÓW ---------- */
+  /* ============================================================
+     MEMBERS — DOMOWNICY
+  ============================================================ */
 
-  const myMemberEntry = useMemo(() => {
+  const myMember = useMemo(() => {
     if (!members || !myUid) return null;
     return (
       members.find((m: any) => {
@@ -134,20 +142,20 @@ export default function EditMissionScreen() {
   }, [members, myUid]);
 
   const memberChips: AssigneeChip[] = useMemo(() => {
-    const chips: AssigneeChip[] = [];
+    const arr: AssigneeChip[] = [];
 
-    const myLevel = (myMemberEntry as any)?.level ?? 1;
-    const myAvatar =
-      (myMemberEntry as any)?.avatarUrl ||
-      (myMemberEntry as any)?.photoURL ||
-      myPhotoURL ||
+    const lv = (myMember as any)?.level ?? 1;
+    const avatar =
+      (myMember as any)?.avatarUrl ||
+      (myMember as any)?.photoURL ||
+      myPhoto ||
       null;
 
-    chips.push({
+    arr.push({
       id: "self",
       label: "Ty",
-      avatarUrl: myAvatar,
-      level: myLevel,
+      avatarUrl: avatar,
+      level: lv,
       userId: myUid,
       isSelf: true,
     });
@@ -158,54 +166,52 @@ export default function EditMissionScreen() {
         if (!uid) return;
         if (myUid && uid === myUid) return;
 
-        const label = m.displayName || m.username || m.name || "Bez nazwy";
-        const avatarUrl = m.avatarUrl || m.photoURL || null;
-        const level = m.level ?? 1;
-
-        chips.push({
+        arr.push({
           id: uid,
-          label,
-          avatarUrl,
-          level,
+          label: m.displayName || m.username || m.name || "Bez nazwy",
+          avatarUrl: m.avatarUrl || m.photoURL || null,
+          level: m.level ?? 1,
           userId: uid,
           isSelf: false,
         });
       });
     }
 
-    // ✅ fallback chip (gdy assignedTo nie ma w members) + użyj avataru z misji jeśli jest
-    const assignedToUserId = loadedMission?.assignedToUserId
+    const fallbackUserId = loadedMission?.assignedToUserId
       ? String(loadedMission.assignedToUserId)
       : null;
 
-    const assignedToName = loadedMission?.assignedToName
+    const fallbackName = loadedMission?.assignedToName
       ? String(loadedMission.assignedToName)
       : null;
 
-    const assignedToAvatarUrl =
-      loadedMission?.assignedToAvatarUrl ? String(loadedMission.assignedToAvatarUrl) : null;
+    const fallbackAvatar = loadedMission?.assignedToAvatarUrl
+      ? String(loadedMission.assignedToAvatarUrl)
+      : null;
 
-    if (assignedToUserId && (!myUid || assignedToUserId !== myUid)) {
-      const exists = chips.some((c) => c.id === assignedToUserId);
+    if (fallbackUserId && (!myUid || fallbackUserId !== myUid)) {
+      const exists = arr.some((x) => x.id === fallbackUserId);
       if (!exists) {
-        chips.push({
-          id: assignedToUserId,
-          label: assignedToName || "Nieznany użytkownik",
-          avatarUrl: assignedToAvatarUrl || null,
+        arr.push({
+          id: fallbackUserId,
+          label: fallbackName || "Nieznany użytkownik",
+          avatarUrl: fallbackAvatar || null,
           level: 1,
-          userId: assignedToUserId,
+          userId: fallbackUserId,
           isSelf: false,
         });
       }
     }
 
-    return chips;
-  }, [members, myUid, myMemberEntry, myPhotoURL, loadedMission]);
+    return arr;
+  }, [members, loadedMission, myUid, myMember, myPhoto]);
 
-  const selected =
+  const selectedMember =
     memberChips.find((m) => m.id === assignedToId) || memberChips[0];
 
-  /* ---------- LOAD MISSION ---------- */
+  /* ============================================================
+     LOAD MISSION IF EDITING
+  ============================================================ */
 
   useEffect(() => {
     if (!missionId) return;
@@ -216,10 +222,9 @@ export default function EditMissionScreen() {
     (async () => {
       try {
         setLoadingMission(true);
-
         const snap = await getDoc(doc(db, "missions", missionId));
         if (!snap.exists()) {
-          alert("Nie znaleziono zadania do edycji.");
+          alert("Nie znaleziono zadania.");
           router.back();
           return;
         }
@@ -237,11 +242,15 @@ export default function EditMissionScreen() {
         setRepeatType(rep);
         setDifficulty(diff);
 
-        setChosenDate(due);
-        setInputDate(formatInputDate(due));
-        setCurrentMonth(startOfMonth(due));
+        const dueStart = startOfDay(due);
+        setChosenDate(dueStart);
+        setInputDate(formatInputDate(dueStart));
+        setCurrentMonth(startOfMonth(dueStart));
 
-        const assId = data?.assignedToUserId ? String(data.assignedToUserId) : null;
+        const assId = data?.assignedToUserId
+          ? String(data.assignedToUserId)
+          : null;
+
         if (assId && myUid && assId === myUid) setAssignedToId("self");
         else if (assId) setAssignedToId(assId);
         else setAssignedToId("self");
@@ -261,90 +270,81 @@ export default function EditMissionScreen() {
     };
   }, [missionId, router, myUid]);
 
-  /* ---------- KALENDARZ ---------- */
+  /* ============================================================
+     CALENDAR LOGIC
+  ============================================================ */
 
   const daysGrid = useMemo(() => {
-    const days: (Date | null)[] = [];
-    const firstDay = new Date(currentMonth);
-    const weekday = firstDay.getDay();
-
+    const arr: (Date | null)[] = [];
+    const first = startOfMonth(currentMonth);
+    const weekday = first.getDay();
     const offset = weekday === 0 ? 6 : weekday - 1;
-    for (let i = 0; i < offset; i++) days.push(null);
 
-    const nextMonth = new Date(currentMonth);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(0);
-    const lastDay = nextMonth.getDate();
+    for (let i = 0; i < offset; i++) arr.push(null);
 
-    for (let d = 1; d <= lastDay; d++) {
-      const date = new Date(currentMonth);
-      date.setDate(d);
-      days.push(date);
+    const last = new Date(currentMonth);
+    last.setMonth(last.getMonth() + 1);
+    last.setDate(0);
+    const total = last.getDate();
+
+    for (let d = 1; d <= total; d++) {
+      const dt = new Date(currentMonth);
+      dt.setDate(d);
+      arr.push(startOfDay(dt));
     }
-
-    return days;
+    return arr;
   }, [currentMonth]);
 
-  /* ---------- ZAPIS ---------- */
+  /* ============================================================
+     SAVE MISSION
+  ============================================================ */
 
   const handleSave = async () => {
     if (!title.trim() || saving) return;
 
     if (!myUid) {
-      alert("Musisz być zalogowany, żeby zapisać zadanie.");
+      alert("Musisz być zalogowany.");
       return;
     }
 
     const expValue =
       DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
 
-    const assignee = selected;
-
-    const assignedToUserId = assignee.isSelf ? myUid : assignee.userId;
+    const ass = selectedMember;
+    const assignedToUserId = ass.isSelf ? myUid : ass.userId;
     if (!assignedToUserId) {
-      alert("Nie udało się ustalić osoby przypisanej do zadania.");
+      alert("Brak osoby przypisanej.");
       return;
     }
-
-    const assignedToName = assignee.isSelf ? myDisplayName : assignee.label;
+    const assignedToName = ass.isSelf ? myName : ass.label;
 
     try {
       setSaving(true);
 
-      // ✅ UPDATE
       if (missionId) {
         await updateDoc(doc(db, "missions", missionId), {
           title: title.trim(),
           assignedToUserId,
           assignedToName,
-
-          // ✅ NOWE: utrzymuj avatar przypisanej osoby w dokumencie misji
-          assignedToAvatarUrl: assignee.avatarUrl ?? null,
-
+          assignedToAvatarUrl: ass.avatarUrl ?? null,
           dueDate: chosenDate,
           repeat: { type: repeatType },
           expValue,
           expMode: difficulty,
           updatedAt: serverTimestamp(),
         });
-
         router.back();
         return;
       }
 
-      // ✅ CREATE (fallback)
       await createMission({
         title: title.trim(),
         assignedToUserId,
         assignedToName,
-
         assignedByUserId: myUid,
-        assignedByName: myDisplayName || "Ty",
-
-        // ✅ NOWE: avatary na create
-        assignedByAvatarUrl: myPhotoURL,
-        assignedToAvatarUrl: assignee.avatarUrl,
-
+        assignedByName: myName,
+        assignedByAvatarUrl: myPhoto,
+        assignedToAvatarUrl: ass.avatarUrl,
         dueDate: chosenDate,
         repeat: { type: repeatType },
         expValue,
@@ -360,44 +360,38 @@ export default function EditMissionScreen() {
     }
   };
 
-  /* ---------- LOADING ---------- */
+  /* ============================================================
+     LOADING STATES
+  ============================================================ */
 
-  if (famLoading || loadingMission) {
+  if (loadingMission || membersLoading) {
     return (
-      <View
+      <SafeAreaView
         style={{
           flex: 1,
           backgroundColor: "#020617",
-          alignItems: "center",
           justifyContent: "center",
+          alignItems: "center",
         }}
       >
         <ActivityIndicator size="large" color="#22d3ee" />
-      </View>
+      </SafeAreaView>
     );
   }
 
-  /* ---------- UI ---------- */
-
-  const headerTitle = missionId ? "Edytuj zadanie" : "Dodaj zadanie";
+  /* ============================================================
+     UI — PREMIUM MISSIONHOME LAYOUT
+  ============================================================ */
 
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{
-        padding: 16,
-        maxWidth: 900,
-        width: "100%",
-        alignSelf: isWeb ? "center" : "stretch",
-      }}
-    >
-      <View
-        style={{
-          backgroundColor: "rgba(15,23,42,0.95)",
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: "rgba(148,163,184,0.4)",
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#020617" }}>
+      <ScrollView
+        contentContainerStyle={{
           padding: 16,
+          paddingBottom: 40,
+          width: "100%",
+          maxWidth: 900,
+          alignSelf: "center",
         }}
       >
         {/* HEADER */}
@@ -405,428 +399,474 @@ export default function EditMissionScreen() {
           style={{
             flexDirection: "row",
             alignItems: "center",
-            marginBottom: 16,
+            marginBottom: 20,
           }}
         >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ marginRight: 8 }}
-          >
-            <Ionicons name="chevron-back" size={22} color="#e5e7eb" />
+          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
+            <Ionicons name="chevron-back" size={24} color="#e5e7eb" />
           </TouchableOpacity>
-          <Text style={{ color: "#e5e7eb", fontSize: 18, fontWeight: "700" }}>
-            {headerTitle}
+
+          <Text
+            style={{
+              color: "#e5e7eb",
+              fontSize: 22,
+              fontWeight: "800",
+            }}
+          >
+            {missionId ? "Edytuj zadanie" : "Nowe zadanie"}
           </Text>
         </View>
 
-        {/* ASSIGNED TO */}
-        <Text style={{ color: "#9ca3af", fontSize: 13, marginBottom: 6 }}>
-          Przypisane do
-        </Text>
-
+        {/* MAIN CARD */}
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            padding: 12,
-            borderRadius: 12,
+            backgroundColor: "#0f172a",
             borderWidth: 1,
-            borderColor: "rgba(75,85,99,0.9)",
-            backgroundColor: "#020617",
-            marginBottom: 12,
-            gap: 12,
+            borderColor: "rgba(75,85,99,0.4)",
+            padding: isPhone ? 14 : 18,
+            borderRadius: 18,
           }}
         >
-          {selected.avatarUrl ? (
-            <Image
-              source={{ uri: selected.avatarUrl }}
-              style={{ width: 42, height: 42, borderRadius: 999 }}
-            />
-          ) : (
-            <View
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 999,
-                backgroundColor: "#22d3ee33",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
-                {selected.label?.[0] ?? "?"}
-              </Text>
-            </View>
-          )}
+          {/* ASSIGNEE */}
+          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
+            Przypisane do
+          </Text>
 
-          <View>
-            <Text
-              style={{
-                color: "#e5e7eb",
-                fontSize: 15,
-                fontWeight: "700",
-              }}
-            >
-              {selected.label}
-            </Text>
-            <Text style={{ color: "#64748b", fontSize: 12 }}>
-              Poziom {selected.level}
-            </Text>
-          </View>
-        </View>
-
-        {/* MEMBER CHIPS */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
-          {memberChips.map((m) => {
-            const active = m.id === selected.id;
-            return (
-              <TouchableOpacity
-                key={m.id}
-                onPress={() => setAssignedToId(m.id)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
-                }}
-              >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
-                  {m.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* TRUDNOŚĆ */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
-          Trudność zadania
-        </Text>
-
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
-          {DIFFICULTY_OPTIONS.map((opt) => {
-            const active = difficulty === opt.type;
-            return (
-              <TouchableOpacity
-                key={opt.type}
-                onPress={() => setDifficulty(opt.type)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
-                }}
-              >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
-                  {opt.label} ({opt.exp} EXP)
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* REPEAT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
-          Cykliczność
-        </Text>
-
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
-          {REPEAT_OPTIONS.map((o) => {
-            const active = o.type === repeatType;
-            return (
-              <TouchableOpacity
-                key={o.type}
-                onPress={() => setRepeatType(o.type)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
-                }}
-              >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
-                  {o.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* TITLE INPUT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
-          Nazwa zadania
-        </Text>
-
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Np. Umyć naczynia"
-          placeholderTextColor="#6b7280"
-          style={{
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "rgba(55,65,81,0.9)",
-            padding: 10,
-            marginBottom: 20,
-            backgroundColor: "#020617",
-            color: "#fff",
-          }}
-        />
-
-        {/* DATE INPUT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
-          Data (RRRR-MM-DD)
-        </Text>
-
-        <TextInput
-          value={inputDate}
-          onChangeText={(t) => {
-            setInputDate(t);
-            const valid = parseInputDate(t);
-            if (valid) {
-              setChosenDate(valid);
-              setCurrentMonth(startOfMonth(valid));
-            }
-          }}
-          placeholder="2025-01-01"
-          placeholderTextColor="#6b7280"
-          style={{
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "rgba(55,65,81,0.9)",
-            padding: 10,
-            marginBottom: 14,
-            backgroundColor: "#020617",
-            color: "#fff",
-          }}
-        />
-
-        <Text style={{ color: "#e5e7eb", marginBottom: 10, fontSize: 15 }}>
-          {formatDayLong(chosenDate)}
-        </Text>
-
-        {/* KALENDARZ */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: "rgba(75,85,99,0.9)",
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: "#020617",
-            marginBottom: 24,
-          }}
-        >
-          {/* Month Navigation */}
           <View
             style={{
               flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 8,
               alignItems: "center",
+              padding: 12,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "rgba(75,85,99,0.7)",
+              backgroundColor: "#020617",
+              marginBottom: 12,
+              gap: 12,
             }}
           >
-            <TouchableOpacity
-              onPress={() =>
-                setCurrentMonth((prev) => {
-                  const d = new Date(prev);
-                  d.setMonth(d.getMonth() - 1);
-                  return startOfMonth(d);
-                })
-              }
-              style={{
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: "rgba(75,85,99,0.9)",
-              }}
-            >
-              <Ionicons name="chevron-back" size={16} color="#e5e7eb" />
-            </TouchableOpacity>
-
-            <Text
-              style={{
-                color: "#e5e7eb",
-                fontSize: 14,
-                fontWeight: "600",
-              }}
-            >
-              {currentMonth.toLocaleDateString("pl-PL", {
-                month: "long",
-                year: "numeric",
-              })}
-            </Text>
-
-            <TouchableOpacity
-              onPress={() =>
-                setCurrentMonth((prev) => {
-                  const d = new Date(prev);
-                  d.setMonth(d.getMonth() + 1);
-                  return startOfMonth(d);
-                })
-              }
-              style={{
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: "rgba(75,85,99,0.9)",
-              }}
-            >
-              <Ionicons name="chevron-forward" size={16} color="#e5e7eb" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Week labels */}
-          <View style={{ flexDirection: "row", marginBottom: 6 }}>
-            {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
-              <Text
-                key={d}
+            {selectedMember.avatarUrl ? (
+              <Image
+                source={{ uri: selectedMember.avatarUrl }}
                 style={{
-                  flex: 1,
-                  textAlign: "center",
-                  color: "#6b7280",
-                  fontSize: 11,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 999,
+                }}
+              />
+            ) : (
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 999,
+                  backgroundColor: "#22d3ee33",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                {d}
-              </Text>
-            ))}
-          </View>
-
-          {/* Days Grid */}
-          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-            {daysGrid.map((d, i) => {
-              if (!d) return <View key={i} style={{ width: "14.28%", height: 34 }} />;
-
-              const selectedDay = d.toDateString() === chosenDate.toDateString();
-
-              return (
-                <TouchableOpacity
-                  key={i}
-                  onPress={() => {
-                    setChosenDate(d);
-                    setInputDate(formatInputDate(d));
-                  }}
+                <Text
                   style={{
-                    width: "14.28%",
-                    height: 34,
-                    alignItems: "center",
-                    justifyContent: "center",
+                    color: "#22d3ee",
+                    fontWeight: "700",
+                    fontSize: 18,
                   }}
                 >
-                  <View
+                  {selectedMember.label?.[0] ?? "?"}
+                </Text>
+              </View>
+            )}
+
+            <View>
+              <Text
+                style={{
+                  color: "#e5e7eb",
+                  fontSize: 16,
+                  fontWeight: "700",
+                }}
+              >
+                {selectedMember.label}
+              </Text>
+              <Text style={{ color: "#64748b", fontSize: 12 }}>
+                Poziom {selectedMember.level}
+              </Text>
+            </View>
+          </View>
+
+          {/* MEMBER SELECTOR */}
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 20,
+            }}
+          >
+            {memberChips.map((m) => {
+              const active = m.id === selectedMember.id;
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  onPress={() => setAssignedToId(m.id)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
+                    backgroundColor: active ? "#22d3ee22" : "transparent",
+                  }}
+                >
+                  <Text
                     style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 999,
-                      backgroundColor: selectedDay ? "#22d3ee" : "transparent",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      color: active ? "#22d3ee" : "#e5e7eb",
+                      fontSize: 13,
                     }}
                   >
-                    <Text
-                      style={{
-                        color: selectedDay ? "#022c22" : "#e5e7eb",
-                        fontSize: 13,
-                        fontWeight: selectedDay ? "700" : "400",
-                      }}
-                    >
-                      {d.getDate()}
-                    </Text>
-                  </View>
+                    {m.label}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </View>
-        </View>
 
-        {/* SAVE BUTTONS */}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
-          <TouchableOpacity
-            onPress={() => router.back()}
+          {/* DIFFICULTY */}
+          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
+            Trudność zadania
+          </Text>
+
+          <View
             style={{
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 999,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 20,
+            }}
+          >
+            {DIFFICULTY_OPTIONS.map((opt) => {
+              const active = difficulty === opt.type;
+              return (
+                <TouchableOpacity
+                  key={opt.type}
+                  onPress={() => setDifficulty(opt.type)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
+                    backgroundColor: active ? "#22d3ee22" : "transparent",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active ? "#22d3ee" : "#e5e7eb",
+                      fontSize: 13,
+                    }}
+                  >
+                    {opt.label} ({opt.exp} EXP)
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* REPEAT */}
+          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
+            Powtarzalność
+          </Text>
+
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 20,
+            }}
+          >
+            {REPEAT_OPTIONS.map((r) => {
+              const active = repeatType === r.type;
+              return (
+                <TouchableOpacity
+                  key={r.type}
+                  onPress={() => setRepeatType(r.type)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
+                    backgroundColor: active ? "#22d3ee22" : "transparent",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active ? "#22d3ee" : "#e5e7eb",
+                      fontSize: 13,
+                    }}
+                  >
+                    {r.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* TITLE INPUT */}
+          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
+            Nazwa zadania
+          </Text>
+
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Np. Umyć naczynia"
+            placeholderTextColor="#64748b"
+            style={{
+              borderRadius: 12,
               borderWidth: 1,
-              borderColor: "rgba(148,163,184,0.5)",
+              borderColor: "rgba(75,85,99,0.7)",
+              padding: 12,
+              marginBottom: 20,
+              backgroundColor: "#020617",
+              color: "#f1f5f9",
+              fontSize: 15,
             }}
-          >
-            <Text style={{ color: "#9ca3af", fontSize: 14 }}>Anuluj</Text>
-          </TouchableOpacity>
+          />
 
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={!title.trim() || saving}
+          {/* DATE INPUT */}
+          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
+            Data (RRRR-MM-DD)
+          </Text>
+
+          <TextInput
+            value={inputDate}
+            onChangeText={(t) => {
+              setInputDate(t);
+              const valid = parseInputDate(t);
+              if (valid) {
+                const d0 = startOfDay(valid);
+                setChosenDate(d0);
+                setCurrentMonth(startOfMonth(d0));
+              }
+            }}
+            placeholder="2025-01-01"
+            placeholderTextColor="#64748b"
             style={{
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: title.trim() && !saving ? "#22d3ee" : "#1e293b",
-              opacity: saving ? 0.7 : 1,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: "rgba(75,85,99,0.7)",
+              padding: 12,
+              marginBottom: 10,
+              backgroundColor: "#020617",
+              color: "#f1f5f9",
+              fontSize: 15,
+            }}
+          />
+
+          <Text
+            style={{
+              color: "#e5e7eb",
+              fontSize: 15,
+              marginBottom: 14,
+              fontWeight: "600",
             }}
           >
-            <Text
+            {formatDayLong(chosenDate)}
+          </Text>
+
+          {/* CALENDAR CARD */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: "rgba(75,85,99,0.6)",
+              padding: 14,
+              borderRadius: 16,
+              backgroundColor: "#020617",
+              marginBottom: 24,
+            }}
+          >
+            {/* MONTH HEADER */}
+            <View
               style={{
-                color: title.trim() && !saving ? "#022c22" : "#6b7280",
-                fontSize: 14,
-                fontWeight: "700",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 10,
               }}
             >
-              {saving ? "Zapisywanie..." : "Zapisz"}
-            </Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() =>
+                  setCurrentMonth((prev) => {
+                    const d = new Date(prev);
+                    d.setMonth(d.getMonth() - 1);
+                    return startOfMonth(d);
+                  })
+                }
+                style={{
+                  padding: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: "rgba(75,85,99,0.7)",
+                }}
+              >
+                <Ionicons name="chevron-back" size={18} color="#e5e7eb" />
+              </TouchableOpacity>
+
+              <Text
+                style={{
+                  color: "#e5e7eb",
+                  fontSize: 15,
+                  fontWeight: "700",
+                }}
+              >
+                {currentMonth.toLocaleDateString("pl-PL", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </Text>
+
+              <TouchableOpacity
+                onPress={() =>
+                  setCurrentMonth((prev) => {
+                    const d = new Date(prev);
+                    d.setMonth(d.getMonth() + 1);
+                    return startOfMonth(d);
+                  })
+                }
+                style={{
+                  padding: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: "rgba(75,85,99,0.7)",
+                }}
+              >
+                <Ionicons name="chevron-forward" size={18} color="#e5e7eb" />
+              </TouchableOpacity>
+            </View>
+
+            {/* WEEK LABELS */}
+            <View style={{ flexDirection: "row", marginBottom: 6 }}>
+              {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
+                <Text
+                  key={d}
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontSize: 11,
+                  }}
+                >
+                  {d}
+                </Text>
+              ))}
+            </View>
+
+            {/* DAYS GRID */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+              {daysGrid.map((d, index) => {
+                if (!d)
+                  return (
+                    <View
+                      key={index}
+                      style={{ width: "14.28%", height: 40 }}
+                    />
+                  );
+
+                const selected = d.getTime() === chosenDate.getTime();
+
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => {
+                      const d0 = startOfDay(d);
+                      setChosenDate(d0);
+                      setInputDate(formatInputDate(d0));
+                    }}
+                    style={{
+                      width: "14.28%",
+                      height: 40,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 999,
+                        backgroundColor: selected ? "#22d3ee" : "transparent",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: selected ? "#022c22" : "#e2e8f0",
+                          fontSize: 13,
+                          fontWeight: selected ? "700" : "400",
+                        }}
+                      >
+                        {d.getDate()}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* BUTTONS */}
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              gap: 12,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: "rgba(148,163,184,0.5)",
+              }}
+            >
+              <Text style={{ color: "#94a3b8", fontSize: 14 }}>Anuluj</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleSave}
+              disabled={!title.trim() || saving}
+              style={{
+                paddingHorizontal: 20,
+                paddingVertical: 10,
+                borderRadius: 999,
+                backgroundColor:
+                  title.trim() && !saving
+                    ? "#22d3ee"
+                    : "rgba(148,163,184,0.2)",
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              <Text
+                style={{
+                  color:
+                    title.trim() && !saving
+                      ? "#022c22"
+                      : "rgba(148,163,184,0.7)",
+                  fontSize: 14,
+                  fontWeight: "700",
+                }}
+              >
+                {saving ? "Zapisywanie..." : "Zapisz"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
-
-// app/editmission.tsx

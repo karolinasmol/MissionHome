@@ -6,8 +6,9 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
+  Platform,
   ActivityIndicator,
-  Alert,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -15,9 +16,13 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
-export default function BugReportNative() {
+export default function BugReportWeb() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const { width } = useWindowDimensions();
+
+  const isPhone = width < 520;
+  const isTablet = width >= 520 && width < 900;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -39,7 +44,7 @@ export default function BugReportNative() {
         title: title.trim(),
         description: description.trim(),
         frequency: frequency.trim() || null,
-        platform: "native",
+        platform: Platform.OS,
         appVersion: "1.0.0",
         userId: user?.uid || null,
         userEmail: user?.email || null,
@@ -47,10 +52,15 @@ export default function BugReportNative() {
         status: "new",
       });
 
-      Alert.alert("Dziękujemy!", "Zgłoszenie zostało wysłane.");
+      window.alert("Dziękujemy! Zgłoszenie zostało wysłane ✅");
+
+      setTitle("");
+      setDescription("");
+      setFrequency("");
+
       router.back();
     } catch (e) {
-      Alert.alert("Błąd", "Nie udało się wysłać zgłoszenia.");
+      window.alert("Nie udało się wysłać zgłoszenia.");
     } finally {
       setSending(false);
     }
@@ -60,8 +70,11 @@ export default function BugReportNative() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         contentContainerStyle={{
-          padding: 18,
-          paddingBottom: 32,
+          paddingVertical: isPhone ? 18 : 24,
+          paddingHorizontal: isPhone ? 12 : 20,
+          width: "100%",
+          maxWidth: 820,
+          alignSelf: "center",
         }}
       >
         {/* HEADER */}
@@ -69,15 +82,29 @@ export default function BugReportNative() {
           style={{
             flexDirection: "row",
             alignItems: "center",
-            marginBottom: 22,
             gap: 10,
+            marginBottom: 20,
           }}
         >
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={26} color={colors.text} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              padding: 6,
+              borderRadius: 10,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
           </TouchableOpacity>
 
-          <Text style={{ fontSize: 22, fontWeight: "900", color: colors.text }}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: isPhone ? 18 : 22,
+              fontWeight: "900",
+            }}
+          >
             Zgłoś błąd
           </Text>
         </View>
@@ -86,97 +113,108 @@ export default function BugReportNative() {
         <View
           style={{
             backgroundColor: colors.card,
-            padding: 18,
-            borderRadius: 18,
-            borderWidth: 1,
             borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 18,
+            padding: isPhone ? 14 : 20,
+            shadowColor: "#000",
+            shadowOpacity: 0.12,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
           }}
         >
           <Text
             style={{
               color: colors.text,
-              fontSize: 17,
               fontWeight: "800",
+              fontSize: isPhone ? 16 : 18,
               marginBottom: 6,
             }}
           >
             Pomóż nam ulepszyć MissionHome 💙
           </Text>
-
-          <Text style={{ color: colors.textMuted, marginBottom: 16 }}>
-            Opisz dokładnie, co się stało, a zajmiemy się resztą.
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 13,
+              marginBottom: 18,
+            }}
+          >
+            Opisz problem możliwie dokładnie — im więcej szczegółów, tym szybciej go naprawimy.
           </Text>
 
-          {/* TITLE */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
-            Temat
+          {/* TEMAT */}
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
+            Temat zgłoszenia
           </Text>
           <TextInput
             value={title}
             onChangeText={setTitle}
-            placeholder="Np. nie działa usuwanie zadania"
+            placeholder="Np. Aplikacja zawiesza się przy otwieraniu misji"
             placeholderTextColor={colors.textMuted}
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              marginBottom: 14,
+              padding: 12,
+              backgroundColor: "#020617",
               color: colors.text,
-              fontSize: 15,
+              marginBottom: 16,
+              fontSize: 14,
             }}
           />
 
-          {/* DESCRIPTION */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
+          {/* OPIS */}
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Opis błędu
           </Text>
           <TextInput
             value={description}
             onChangeText={setDescription}
-            placeholder="Opisz krok po kroku co się wydarzyło..."
+            placeholder={
+              "Co dokładnie zrobiłeś/aś?\nCo miało się wydarzyć?\nCo faktycznie się wydarzyło?"
+            }
             placeholderTextColor={colors.textMuted}
+            multiline
+            textAlignVertical="top"
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              minHeight: 150,
-              marginBottom: 14,
+              padding: 12,
+              backgroundColor: "#020617",
               color: colors.text,
-              fontSize: 15,
-              textAlignVertical: "top",
+              minHeight: isPhone ? 140 : 180,
+              fontSize: 14,
+              marginBottom: 16,
             }}
-            multiline
           />
 
           {/* FREQUENCY */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Jak często występuje?
           </Text>
           <TextInput
             value={frequency}
             onChangeText={setFrequency}
-            placeholder="Np. za każdym razem"
+            placeholder="Np. za każdym razem / rzadko / po ostatniej aktualizacji"
             placeholderTextColor={colors.textMuted}
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              marginBottom: 22,
+              padding: 12,
+              backgroundColor: "#020617",
               color: colors.text,
-              fontSize: 15,
+              fontSize: 14,
+              marginBottom: 24,
             }}
           />
 
           {/* BUTTONS */}
           <View
             style={{
-              flexDirection: "row",
+              flexDirection: isPhone ? "column" : "row",
               justifyContent: "flex-end",
               gap: 12,
             }}
@@ -184,16 +222,16 @@ export default function BugReportNative() {
             <TouchableOpacity
               onPress={() => router.back()}
               style={{
-                paddingHorizontal: 20,
+                paddingHorizontal: 18,
                 paddingVertical: 10,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>
-                Anuluj
-              </Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -203,19 +241,19 @@ export default function BugReportNative() {
                 paddingHorizontal: 20,
                 paddingVertical: 10,
                 borderRadius: 999,
-                backgroundColor: canSend ? colors.accent : "#1e293b",
                 flexDirection: "row",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 8,
+                backgroundColor: canSend ? colors.accent : "#1e293b",
                 opacity: sending ? 0.7 : 1,
               }}
             >
               {sending ? (
-                <ActivityIndicator color="#022c22" />
+                <ActivityIndicator size="small" color="#022c22" />
               ) : (
-                <Ionicons name="send" size={18} color="#022c22" />
+                <Ionicons name="send" size={16} color="#022c22" />
               )}
-
               <Text
                 style={{
                   color: canSend ? "#022c22" : "#64748b",

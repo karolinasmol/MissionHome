@@ -1,4 +1,4 @@
-// app/calendar.native.tsx
+// app/calendar.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -7,15 +7,15 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { useMissions } from "../src/hooks/useMissions";
 
-import { auth, db } from "../src/firebase/firebase";
+import { db } from "../src/firebase/firebase.web";
 import { collection, getDocs, limit, query } from "firebase/firestore";
 
+import { auth } from "../src/firebase/firebase";
 import { useFamily } from "../src/hooks/useFamily";
 
 /* ----------------------- Helpers ----------------------- */
@@ -417,11 +417,11 @@ export default function CalendarScreen() {
   /* ------------------------- UI ------------------------- */
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingVertical: 16, paddingHorizontal: 16 }}
-      >
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{ paddingVertical: 16, alignItems: "center" }}
+    >
+      <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 24 }}>
         <Text
           style={{
             color: colors.text,
@@ -484,7 +484,11 @@ export default function CalendarScreen() {
               }
               style={styles.monthNavBtn}
             >
-              <Ionicons name="chevron-forward" size={18} color={colors.text} />
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.text}
+              />
             </TouchableOpacity>
           </View>
 
@@ -1236,8 +1240,8 @@ export default function CalendarScreen() {
             ))
           )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    </ScrollView>
   );
 }
 

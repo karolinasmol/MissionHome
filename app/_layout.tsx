@@ -5,7 +5,7 @@ import { View, Pressable, Animated, ActivityIndicator } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
 
 import { Ionicons } from "@expo/vector-icons";
-import { useFonts } from "expo-font";
+import * as Font from "expo-font"; // 👈 ważne
 
 import CustomHeader from "../src/components/CustomHeader";
 
@@ -22,13 +22,29 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../src/firebase/firebase";
 
 export default function RootLayout() {
-  // ❤️ TO JEST NAJWAŻNIEJSZE – ładujemy fonty Ionicons prawidłowo!
-  const [fontsLoaded] = useFonts({
-    ...Ionicons.font,
-  });
+  /* ============================================================
+     FIX IONICONS – kluczowa poprawka zapobiegająca kwadratom na WEB
+     ============================================================ */
+
+  const [fontsLoaded, setFontsLoaded] = useState(false);
 
   useEffect(() => {
-    // scrollbars only for web
+    async function load() {
+      try {
+        await Font.loadAsync({
+          Ionicons: require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"),
+        });
+      } catch (e) {
+        console.warn("Błąd ładowania fontów Ionicons:", e);
+      } finally {
+        setFontsLoaded(true);
+      }
+    }
+    load();
+  }, []);
+
+  // Web-only CSS (scrollbars)
+  useEffect(() => {
     if (typeof document !== "undefined") {
       const style = document.createElement("style");
       style.innerHTML = `
@@ -74,6 +90,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }, [segments]);
 
+  // Listen auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -82,6 +99,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
+  // Routing rules
   useEffect(() => {
     if (!authReady) return;
 

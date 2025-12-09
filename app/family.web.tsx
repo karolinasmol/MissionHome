@@ -1,4 +1,3 @@
-// src/screens/FamilyScreen.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -13,7 +12,6 @@ import {
   Modal,
   Pressable,
   Alert,
-  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -86,15 +84,6 @@ type FamilyInviteDoc = {
 
 const MAX_FAMILY = 6;
 const ERROR_COLOR = "#dc2626";
-
-// SUPER delikatny, premiumowy cień kart
-const CARD_ELEVATION = {
-  shadowColor: "#000",
-  shadowOpacity: 0.18,
-  shadowRadius: 18,
-  shadowOffset: { width: 0, height: 14 },
-  elevation: 10,
-};
 
 const isProbablyEmail = (val: string) => /@/.test(val);
 const safeInitial = (name?: string) =>
@@ -174,8 +163,7 @@ async function resolveUserByEmailOrNick(
       limit(1)
     );
     const sLower = await getDocs(qEmailLower);
-    if (!sLower.empty)
-      return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
+    if (!sLower.empty) return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
 
     // fallback: jeśli ktoś ma w bazie email nie znormalizowany
     const qEmailRaw = query(
@@ -184,8 +172,7 @@ async function resolveUserByEmailOrNick(
       limit(1)
     );
     const sRaw = await getDocs(qEmailRaw);
-    if (!sRaw.empty)
-      return normalizeUserDoc(sRaw.docs[0].id, sRaw.docs[0].data());
+    if (!sRaw.empty) return normalizeUserDoc(sRaw.docs[0].id, sRaw.docs[0].data());
 
     return null;
   }
@@ -213,12 +200,7 @@ const familyInviteId = (familyId: string, fromUid: string, toUid: string) => {
 // ======= Modal feedback (web+native) =======
 type FeedbackModalState =
   | { visible: false }
-  | {
-      visible: true;
-      title: string;
-      message?: string;
-      variant?: "success" | "error" | "info";
-    };
+  | { visible: true; title: string; message?: string; variant?: "success" | "error" | "info" };
 
 function FeedbackModal({
   state,
@@ -250,7 +232,7 @@ function FeedbackModal({
         onPress={onClose}
         style={{
           flex: 1,
-          backgroundColor: "rgba(15,23,42,0.85)",
+          backgroundColor: "rgba(0,0,0,0.45)",
           padding: 16,
           justifyContent: "center",
           alignItems: "center",
@@ -260,18 +242,15 @@ function FeedbackModal({
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 470,
+            maxWidth: 480,
             backgroundColor: colors.card,
-            borderRadius: 22,
+            borderRadius: 18,
             borderWidth: 1,
             borderColor: colors.border,
-            padding: 18,
-            ...CARD_ELEVATION,
+            padding: 16,
           }}
         >
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Ionicons name={icon as any} size={26} color={iconColor} />
             <Text
               style={{
@@ -305,7 +284,7 @@ function FeedbackModal({
             style={{
               marginTop: 14,
               backgroundColor: colors.accent,
-              borderRadius: 999,
+              borderRadius: 12,
               paddingVertical: 10,
               alignItems: "center",
             }}
@@ -354,7 +333,7 @@ function ConfirmModal({
         onPress={onCancel}
         style={{
           flex: 1,
-          backgroundColor: "rgba(15,23,42,0.85)",
+          backgroundColor: "rgba(0,0,0,0.45)",
           padding: 16,
           justifyContent: "center",
           alignItems: "center",
@@ -364,18 +343,15 @@ function ConfirmModal({
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 470,
+            maxWidth: 480,
             backgroundColor: colors.card,
-            borderRadius: 22,
+            borderRadius: 18,
             borderWidth: 1,
             borderColor: colors.border,
-            padding: 18,
-            ...CARD_ELEVATION,
+            padding: 16,
           }}
         >
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Ionicons
               name={"alert-circle" as any}
               size={26}
@@ -421,11 +397,10 @@ function ConfirmModal({
               style={{
                 paddingVertical: 9,
                 paddingHorizontal: 12,
-                borderRadius: 999,
+                borderRadius: 10,
                 borderWidth: 1,
                 borderColor: colors.border,
               }}
-              activeOpacity={0.9}
             >
               <Text style={{ color: colors.textMuted, fontWeight: "800" }}>
                 {cancelLabel}
@@ -436,11 +411,10 @@ function ConfirmModal({
               onPress={onConfirm}
               style={{
                 paddingVertical: 9,
-                paddingHorizontal: 16,
-                borderRadius: 999,
+                paddingHorizontal: 14,
+                borderRadius: 10,
                 backgroundColor: destructive ? ERROR_COLOR : colors.accent,
               }}
-              activeOpacity={0.9}
             >
               <Text
                 style={{
@@ -798,8 +772,7 @@ export default function FamilyScreen() {
 
     const filtered = checked.filter(Boolean) as FriendshipDoc[];
     filtered.sort(
-      (a: any, b: any) =>
-        (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
+      (a: any, b: any) => (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
     );
     setFriendsAccepted(filtered);
   };
@@ -1750,7 +1723,11 @@ export default function FamilyScreen() {
           status: "cancelled",
           updatedAt: serverTimestamp(),
         });
-        showModal("OK", "Cofnięto zaproszenie do rodziny.", "success");
+        showModal(
+          "OK",
+          "Cofnięto zaproszenie do rodziny.",
+          "success"
+        );
       } catch (e: any) {
         showModal(
           "Błąd",
@@ -1774,47 +1751,29 @@ export default function FamilyScreen() {
     ]);
   };
 
-  // ====== UI helpers (settings vibe, Crystal Cards) ======
-  const cardStyle = {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 16,
-    ...CARD_ELEVATION,
-  };
-
-  const labelStyle = {
-    color: colors.text,
-    fontWeight: "900" as const,
-    fontSize: 16,
-  };
-
-  const mutedStyle = {
-    color: colors.textMuted,
-    fontSize: 13,
-  };
+  // ====== UI helpers (settings vibe) ======
+  const cardStyle = { backgroundColor: colors.card, borderColor: colors.border };
+  const labelStyle = { color: colors.text, fontWeight: "800", fontSize: 15 };
+  const mutedStyle = { color: colors.textMuted, fontSize: 13 };
 
   const buttonStyle = (disabled?: boolean) => ({
     backgroundColor: colors.accent,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     alignItems: "center" as const,
     justifyContent: "center" as const,
-    flexDirection: "row" as const,
     opacity: disabled ? 0.6 : 1,
   });
 
   const ghostButtonStyle = (disabled?: boolean) => ({
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     alignItems: "center" as const,
     justifyContent: "center" as const,
-    flexDirection: "row" as const,
     opacity: disabled ? 0.6 : 1,
   });
 
@@ -1842,15 +1801,14 @@ export default function FamilyScreen() {
     return (
       <Wrapper
         onPress={u.uid ? goToProfile : undefined}
-        activeOpacity={0.9}
+        activeOpacity={0.8}
         style={{
           marginTop: 10,
           borderWidth: 1,
           borderColor: colors.border,
           backgroundColor: colors.bg,
-          borderRadius: 18,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
+          borderRadius: 14,
+          padding: 12,
           flexDirection: "row",
           alignItems: "center",
           gap: 12,
@@ -1908,8 +1866,7 @@ export default function FamilyScreen() {
   };
 
   // ====== Derived picked state
-  const pickedBetween =
-    qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
+  const pickedBetween = qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
   const pickedIsFriend = !!qPicked && friendUidSet.has(qPicked.uid);
   const pickedIncoming =
     !!pickedBetween &&
@@ -1934,7 +1891,6 @@ export default function FamilyScreen() {
   if (familyLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-        <StatusBar barStyle="light-content" />
         <View style={{ flex: 1, justifyContent: "center" }}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
@@ -1942,11 +1898,8 @@ export default function FamilyScreen() {
     );
   }
 
-  const headerTitle = "Znajomi & Rodzina";
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar barStyle="light-content" />
       <FeedbackModal
         state={modal}
         onClose={() => setModal({ visible: false })}
@@ -1961,11 +1914,10 @@ export default function FamilyScreen() {
 
       <ScrollView
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 10,
+          padding: 16,
           paddingBottom: 32,
           width: "100%",
-          maxWidth: 960,
+          maxWidth: 900,
           alignSelf: Platform.OS === "web" ? "center" : "stretch",
           gap: 14,
         }}
@@ -1980,27 +1932,25 @@ export default function FamilyScreen() {
         >
           <TouchableOpacity
             onPress={() => router.back()}
-            style={{
-              paddingRight: 8,
-              paddingVertical: 6,
-              borderRadius: 999,
-            }}
+            style={{ paddingRight: 8, paddingVertical: 4 }}
           >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <Text
             style={{
               color: colors.text,
-              fontSize: 20,
-              fontWeight: "900",
+              fontSize: 18,
+              fontWeight: "800",
             }}
           >
-            {headerTitle}
+            Znajomi & Rodzina
           </Text>
         </View>
 
         {/* ============ RODZINA MAX (TOP) ============ */}
-        <View style={cardStyle}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <View
             style={{
               flexDirection: "row",
@@ -2053,10 +2003,9 @@ export default function FamilyScreen() {
           {/* ============ LISTA CZŁONKÓW RODZINY ============ */}
           <Text
             style={{
-              marginTop: 16,
+              marginTop: 14,
               color: colors.text,
               fontWeight: "900",
-              fontSize: 15,
             }}
           >
             Członkowie rodziny
@@ -2221,7 +2170,6 @@ export default function FamilyScreen() {
               marginTop: 18,
               color: colors.text,
               fontWeight: "900",
-              fontSize: 15,
             }}
           >
             Zaproszenia do rodziny
@@ -2290,7 +2238,6 @@ export default function FamilyScreen() {
                   marginTop: 18,
                   color: colors.text,
                   fontWeight: "900",
-                  fontSize: 15,
                 }}
               >
                 Wysłane zaproszenia
@@ -2338,7 +2285,6 @@ export default function FamilyScreen() {
                   marginTop: 18,
                   color: colors.text,
                   fontWeight: "900",
-                  fontSize: 15,
                 }}
               >
                 Zaproś znajomego do rodziny
@@ -2409,7 +2355,9 @@ export default function FamilyScreen() {
         </View>
 
         {/* ===================== FRIENDS: ADD / REQUESTS / LIST ===================== */}
-        <View style={cardStyle}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Dodaj znajomego</Text>
           <Text style={[mutedStyle, { marginTop: 4 }]}>
             Nick lub e-mail.
@@ -2419,14 +2367,13 @@ export default function FamilyScreen() {
             style={{
               marginTop: 12,
               borderWidth: 1,
-              borderRadius: 999,
+              borderRadius: 14,
               borderColor: qError ? ERROR_COLOR : colors.border,
               paddingHorizontal: 12,
-              paddingVertical: 8,
+              paddingVertical: 10,
               flexDirection: "row",
               alignItems: "center",
               gap: 10,
-              backgroundColor: colors.bg,
             }}
           >
             <Ionicons name="search" size={18} color={colors.textMuted} />
@@ -2499,7 +2446,7 @@ export default function FamilyScreen() {
             <View
               style={{
                 marginTop: 10,
-                borderRadius: 18,
+                borderRadius: 14,
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.bg,
@@ -2677,7 +2624,9 @@ export default function FamilyScreen() {
         </View>
 
         {/* Incoming friend requests */}
-        <View style={cardStyle}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Przychodzące zaproszenia</Text>
           <Text style={[mutedStyle, { marginTop: 4 }]}>
             Kto chce Cię dodać do znajomych.
@@ -2745,7 +2694,9 @@ export default function FamilyScreen() {
         </View>
 
         {/* Outgoing friend requests */}
-        <View style={cardStyle}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Wysłane zaproszenia</Text>
           <Text style={[mutedStyle, { marginTop: 4 }]}>
             Oczekują na akceptację.
@@ -2793,7 +2744,9 @@ export default function FamilyScreen() {
         </View>
 
         {/* Friends list */}
-        <View style={cardStyle}>
+        <View
+          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
+        >
           <Text style={labelStyle}>Znajomi</Text>
           <Text style={[mutedStyle, { marginTop: 4 }]}>
             Twoja lista znajomych.

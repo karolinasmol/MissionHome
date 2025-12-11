@@ -33,6 +33,142 @@ function conversationIdFor(a, b) {
   return [a, b].sort().join("_");
 }
 
+/* ------------------ SAFE MESSAGE FILTER ------------------ */
+
+const badWords = [
+  "kurwa",
+  "k**wa",
+  "k*wa",
+  "k#rwa",
+  "chuj",
+  "ch*j",
+  "huj",
+  "huja",
+  "jebac",
+  "jebać",
+  "jebac",
+  "j3bac",
+  "j3bać",
+  "jebie",
+  "pierdolić",
+  "pierdolic",
+  "p!erdolic",
+  "p!erdol",
+  "p1erdol",
+  "pierdol",
+  "pierdziel",
+  "pizda",
+  "p!zda",
+  "p1zda",
+  "pedal",
+  "pedał",
+  "p3dal",
+  "p3dał",
+  "spierdalaj",
+  "s*pierdalaj",
+];
+
+const threatPhrases = [
+  "zabije",
+  "zabiję",
+  "zabij cie",
+  "zabije cie",
+  "zniszczę cię",
+  "zniszcze cie",
+  "odnajdę cię",
+  "odnajde cie",
+  "mam twój adres",
+  "mam twoj adres",
+  "pier*** cię",
+  "pier*** cie",
+  "roz*** cię",
+  "roz*** cie",
+  "jeb** ci łeb",
+  "jeb** ci leb",
+];
+
+const trustedDomains = [
+  "google.com",
+  "google.pl",
+  "youtube.com",
+  "youtu.be",
+  "wikipedia.org",
+  "gov.pl",
+  "allegro.pl",
+  "olx.pl",
+  "onet.pl",
+  "wp.pl",
+  "interia.pl",
+  "facebook.com",
+  "messenger.com",
+  "instagram.com",
+  "tiktok.com",
+  "twitter.com",
+  "x.com",
+  "reddit.com",
+  "linkedin.com",
+  "github.com",
+  "gitlab.com",
+  "microsoft.com",
+  "apple.com",
+];
+
+function containsBadWords(message: string) {
+  const m = message.toLowerCase();
+  return badWords.some((w) => m.includes(w));
+}
+
+function containsThreats(message: string) {
+  const m = message.toLowerCase();
+  return threatPhrases.some((t) => m.includes(t));
+}
+
+function containsAddressLike(message: string) {
+  // bardzo prosty heurystyczny wzorzec na coś "adresopodobnego"
+  const addrRegex =
+    /\b(ul\.?|al\.?|os\.?|pl\.?|plac|ulicy)\s+[0-9A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż.\-]+/i;
+  return addrRegex.test(message);
+}
+
+function containsPhoneLike(message: string) {
+  // szukamy ciągu cyfr wyglądającego na numer tel. (9–12 cyfr z opcjonalnym + i separatorami)
+  const phoneRegex = /(\+?\d[\s\-]?){9,12}/;
+  return phoneRegex.test(message);
+}
+
+function containsEmailLike(message: string) {
+  const emailRegex =
+    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+  return emailRegex.test(message);
+}
+
+function containsUntrustedLink(message: string) {
+  const urlRegex = /(https?:\/\/[^\s]+)/gi;
+  const urls = message.toLowerCase().match(urlRegex);
+  if (!urls) return false;
+
+  return urls.some((url) => {
+    const isTrusted = trustedDomains.some((domain) =>
+      url.includes(domain)
+    );
+    return !isTrusted;
+  });
+}
+
+function isMessageAllowed(rawMessage: string) {
+  const message = rawMessage.trim();
+  if (!message) return true;
+
+  return !(
+    containsBadWords(message) ||
+    containsThreats(message) ||
+    containsAddressLike(message) ||
+    containsPhoneLike(message) ||
+    containsEmailLike(message) ||
+    containsUntrustedLink(message)
+  );
+}
+
 /* ------------------ LAYOUT HOOK ------------------ */
 function useChatLayout() {
   const { width, height } = useWindowDimensions();
@@ -73,11 +209,18 @@ export default function MessagesMobile() {
   const [messages, setMessages] = useState<any[]>([]);
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const { drawerWidth, messageMaxWidth, headerHeight, keyboardOffset, isDesktop } =
-    useChatLayout();
+  const {
+    drawerWidth,
+    messageMaxWidth,
+    headerHeight,
+    keyboardOffset,
+    isDesktop,
+  } = useChatLayout();
 
   const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const [blockedModalOpen, setBlockedModalOpen] = useState(false);
 
   const toggleDrawer = () => {
     if (isDesktop) return;
@@ -164,6 +307,11 @@ export default function MessagesMobile() {
   const sendMessage = async () => {
     if (!myUid || !selectedUid) return;
     if (!text.trim()) return;
+
+    if (!isMessageAllowed(text)) {
+      setBlockedModalOpen(true);
+      return;
+    }
 
     const convId = conversationIdFor(myUid, selectedUid);
 
@@ -500,7 +648,8 @@ export default function MessagesMobile() {
                 >
                   {(() => {
                     const member = familyMembers.find(
-                      (x) => String(x.uid || x.userId || x.id) === selectedUid
+                      (x) =>
+                        String(x.uid || x.userId || x.id) === selectedUid
                     );
 
                     const pURL = member?.photoURL || member?.avatarUrl;
@@ -550,7 +699,8 @@ export default function MessagesMobile() {
                   >
                     {
                       familyMembers.find(
-                        (x) => String(x.uid || x.userId || x.id) === selectedUid
+                        (x) =>
+                          String(x.uid || x.userId || x.id) === selectedUid
                       )?.displayName
                     }
                   </Text>
@@ -646,7 +796,18 @@ export default function MessagesMobile() {
                       fontSize: 15,
                       paddingVertical: Platform.OS === "ios" ? 4 : 0,
                     }}
-                    multiline
+                    multiline={false}
+                    blurOnSubmit={false}
+                    returnKeyType="send"
+                    onSubmitEditing={sendMessage}
+                    onKeyPress={(e) => {
+                      if (e.nativeEvent.key === "Enter") {
+                        // na webie unikamy nowej linii
+                        // @ts-ignore
+                        e.preventDefault?.();
+                        sendMessage();
+                      }
+                    }}
                   />
 
                   <TouchableOpacity onPress={sendMessage}>
@@ -658,6 +819,105 @@ export default function MessagesMobile() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ----------------- BLOCKED MESSAGE MODAL ----------------- */}
+      {blockedModalOpen && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15,23,42,0.75)",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 300,
+            paddingHorizontal: 18,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              backgroundColor: colors.card,
+              borderRadius: 16,
+              padding: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#fbbf2422",
+                  borderWidth: 1,
+                  borderColor: "#fbbf2466",
+                  marginRight: 10,
+                }}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color="#fbbf24"
+                />
+              </View>
+
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 16,
+                  fontWeight: "900",
+                }}
+              >
+                ⚠️ System przeciążony emocjami
+              </Text>
+            </View>
+
+            <Text
+              style={{
+                color: colors.text,
+                opacity: 0.85,
+                marginBottom: 12,
+              }}
+            >
+              Wykryto słowa, których mój procesor nie uniesie.
+              {"\n"}
+              Zrestartuj kulturę osobistą i spróbuj ponownie.
+            </Text>
+
+            <TouchableOpacity
+              onPress={() => setBlockedModalOpen(false)}
+              style={{
+                backgroundColor: colors.accent,
+                paddingVertical: 10,
+                borderRadius: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#022c22",
+                  fontWeight: "800",
+                }}
+              >
+                Resetuję kulturę
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }

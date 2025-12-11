@@ -1,4 +1,6 @@
 // src/components/CustomHeader.tsx
+// UPDATED: Added "Profil" button in profile dropdown (routes to /profile)
+
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -124,7 +126,10 @@ export default function CustomHeader() {
   useEffect(() => {
     if (!uid) return setUnreadCount(0);
 
-    const qUnread = query(collection(db as any, `users/${uid}/notifications`), where("read", "==", false));
+    const qUnread = query(
+      collection(db as any, `users/${uid}/notifications`),
+      where("read", "==", false)
+    );
 
     const unsub = onSnapshot(
       qUnread,
@@ -286,6 +291,7 @@ export default function CustomHeader() {
       </View>
 
       {/* ================= NAV MENU ================= */}
+
       <Modal transparent visible={navOpen} animationType="fade">
         <View style={styles.modalContainer}>
           <Pressable style={styles.modalOverlay} onPress={() => setNavOpen(false)} />
@@ -335,6 +341,7 @@ export default function CustomHeader() {
       </Modal>
 
       {/* ================= PROFILE MENU ================= */}
+
       <Modal transparent visible={profileOpen} animationType="fade">
         <View style={styles.modalContainer}>
           <Pressable style={styles.modalOverlay} onPress={() => setProfileOpen(false)} />
@@ -346,6 +353,18 @@ export default function CustomHeader() {
             <View style={styles.modalSep} />
 
             <ScrollView style={{ maxHeight: 340 }}>
+              {/* PROFILE PAGE */}
+              <Pressable
+                onPress={() => {
+                  setProfileOpen(false);
+                  router.push("/Profile" as any);
+                }}
+                style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+              >
+                <Ionicons name="person-outline" size={18} color={palette.menuText} />
+                <Text style={styles.menuRowText}>Profil</Text>
+              </Pressable>
+
               {/* SETTINGS */}
               <Pressable
                 onPress={() => {
@@ -392,6 +411,7 @@ export default function CustomHeader() {
       </Modal>
 
       {/* ================= NOTIFICATIONS ================= */}
+
       <Modal transparent visible={notifsOpen} animationType="fade">
         <View style={styles.modalContainer}>
           <Pressable style={styles.modalOverlay} onPress={() => setNotifsOpen(false)} />
@@ -590,6 +610,7 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       borderColor: "rgba(148,163,184,0.6)",
     },
     avatarImage: { width: "100%", height: "100%" },
+
     avatarFallback: {
       flex: 1,
       justifyContent: "center",
@@ -727,4 +748,3 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     },
   });
 }
-

@@ -137,7 +137,7 @@ type Achievement = {
   id: string;
   label: string;
   description: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  // zamiast icon: używamy obrazków po id
   statKey: StatKey;
   thresholds: number[];
   tierNames: string[];
@@ -148,7 +148,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "done_total",
     label: "Wykonawca",
     description: "Wykonuj zadania i utrzymuj tempo.",
-    icon: "checkmark-circle-outline",
     statKey: "missionsCompletedTotal",
     thresholds: [50, 150, 400, 900, 1800, 3000],
     tierNames: [
@@ -164,7 +163,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "exp_total",
     label: "Expowicz",
     description: "Zbieraj EXP za wykonane misje.",
-    icon: "sparkles-outline",
     statKey: "totalExp",
     thresholds: [500, 1500, 3000, 6000, 10000, 20000],
     tierNames: ["Iskra", "Rozbłysk", "Napęd", "Turbo", "Weteran", "Potęga"],
@@ -173,7 +171,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "streak",
     label: "Streak",
     description: "Rób cokolwiek codziennie - choć jedno wykonane zadanie.",
-    icon: "flame-outline",
     statKey: "streakDays",
     thresholds: [7, 21, 45, 90, 180, 365],
     tierNames: [
@@ -189,7 +186,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "created",
     label: "Organizator",
     description: "Twórz i rozdzielaj zadania w domu.",
-    icon: "create-outline",
     statKey: "missionsCreatedTotal",
     thresholds: [20, 80, 200, 500, 1200],
     tierNames: ["Planer", "Koordynator", "Szef kuchni", "Dyrygent", "Architekt"],
@@ -198,7 +194,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "hard",
     label: "Hardcore",
     description: "Wykonuj trudne misje (hard / ≥100 EXP).",
-    icon: "skull-outline",
     statKey: "hardCompletedTotal",
     thresholds: [10, 30, 80, 180, 350],
     tierNames: ["Odważny", "Twardziel", "Niezły zawodnik", "Czołg", "Boss"],
@@ -207,7 +202,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "help",
     label: "Pomocna dłoń",
     description: "Wykonuj misje dla innych członków rodziny.",
-    icon: "hand-left-outline",
     statKey: "missionsCompletedForOthers",
     thresholds: [5, 20, 60, 150, 400],
     tierNames: ["Miły", "Wsparcie", "Dobrodziej", "Ostoja", "Filantrop"],
@@ -216,7 +210,6 @@ const ACHIEVEMENTS: Achievement[] = [
     id: "ontime",
     label: "Perfekcjonista",
     description: "Wykonuj misje na czas (tego samego dnia).",
-    icon: "time-outline",
     statKey: "missionsCompletedOnTime",
     thresholds: [10, 40, 120, 300, 800],
     tierNames: ["Punktualny", "Solidny", "Terminowy", "Perfekcyjny", "Absolut"],
@@ -245,6 +238,73 @@ function progressFor(stats: MHStats, a: Achievement) {
 function percent(val: number, max?: number | null) {
   if (!max || max <= 0) return 100;
   return clampPct((val / max) * 100);
+}
+
+/* =========================
+   Obrazki rang (zamiast ikon)
+========================= */
+
+// UWAGA: załóżmy, że te pliki istnieją w src/assets/
+// done_total.png, exp_total.png, streak.png, created.png, hard.png, help.png, ontime.png
+const ACHIEVEMENT_IMAGES: Record<string, any> = {
+  done_total: require("../src/assets/done_total.png"),
+  exp_total: require("../src/assets/exp_total.png"),
+  streak: require("../src/assets/streak.png"),
+  created: require("../src/assets/created.png"),
+  hard: require("../src/assets/hard.png"),
+  help: require("../src/assets/help.png"),
+  ontime: require("../src/assets/ontime.png"),
+};
+
+function AchievementImage({
+  id,
+  colors,
+}: {
+  id: string;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+}) {
+  const src = ACHIEVEMENT_IMAGES[id];
+
+  if (!src) {
+    // fallback jakby coś nie pykło z assetem
+    return (
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.accent + "22",
+          borderWidth: 1,
+          borderColor: colors.accent + "55",
+        }}
+      >
+        <Text
+          style={{
+            color: colors.accent,
+            fontSize: 10,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          {id}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={src}
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        resizeMode: "cover",
+      }}
+    />
+  );
 }
 
 export default function StatsScreen() {
@@ -758,13 +818,13 @@ export default function StatsScreen() {
                   style={[
                     styles.iconWrap,
                     {
-                      backgroundColor: colors.accent + "22",
-                      borderColor: colors.accent + "55",
+                      backgroundColor: colors.accent + "08",
+                      borderColor: colors.accent + "33",
                     },
                     isSmallScreen && { marginBottom: 8 },
                   ]}
                 >
-                  <Ionicons name={a.icon} size={22} color={colors.accent} />
+                  <AchievementImage id={a.id} colors={{ ...colors }} />
                 </View>
 
                 <View style={{ flex: 1 }}>
@@ -1018,7 +1078,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 30,
     width: "100%",
-    maxWidth: 920,
+    maxWidth: 1280, // 🔥 SZERSZY EKRAN
     alignSelf: "center",
   },
 
@@ -1098,9 +1158,9 @@ const styles = StyleSheet.create({
   },
 
   iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,

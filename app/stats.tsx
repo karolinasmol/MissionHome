@@ -7,11 +7,17 @@ import {
   ScrollView,
   ActivityIndicator,
   Animated,
+  TouchableOpacity,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import * as XLSX from "xlsx";
+import { Platform } from "react-native";
 
 /* ----------------------- Helpers ----------------------- */
 
@@ -109,6 +115,89 @@ export default function StatsScreen() {
         })),
     [missions]
   );
+
+  /* ---------- EXPORT DO EXCELA ---------- */
+
+const handleExport = async () => {
+  try {
+const completed = normalizedMissions
+  .filter((m) => m.completed)
+  .map((m) => ({
+    Tytuł: m.title ?? "Bez nazwy",
+    Status: "Wykonane",
+    "Data wykonania": m.completedAtJs
+      ? m.completedAtJs.toLocaleString("pl-PL")
+      : "",
+    "Data planowana": m.dueDateJs
+      ? m.dueDateJs.toLocaleDateString("pl-PL")
+      : "",
+    "Utworzone przez": m.createdByName ?? "Nieznane",
+    "Zrealizowane przez": m.assignedToName ?? "Nieznane",
+    EXP: m.expValueNum ?? 0,
+  }));
+
+const uncompleted = normalizedMissions
+  .filter((m) => !m.completed)
+  .map((m) => ({
+    Tytuł: m.title ?? "Bez nazwy",
+    Status: "Niewykonane",
+    "Data wykonania": "",
+    "Data planowana": m.dueDateJs
+      ? m.dueDateJs.toLocaleDateString("pl-PL")
+      : "",
+    "Utworzone przez": m.createdByName ?? "Nieznane",
+    "Zrealizowane przez": m.assignedToName ?? "Nieprzypisane",
+    EXP: m.expValueNum ?? 0,
+  }));
+
+
+    // --- Workbook ---
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(completed),
+      "Wykonane"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(uncompleted),
+      "Niewykonane"
+    );
+
+    // --- WEB EXPORT ---
+    if (Platform.OS === "web") {
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+
+      const blob = new Blob([wbout], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "misje_export.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      return;
+    }
+
+    // --- MOBILE EXPORT (Android / iOS) ---
+    const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+
+    const fileUri = FileSystem.documentDirectory + "misje_export.xlsx";
+    await FileSystem.writeAsStringAsync(fileUri, wbout, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    await Sharing.shareAsync(fileUri);
+  } catch (error) {
+    console.error("Błąd eksportu misji:", error);
+    console.error("Błąd eksportu misji:", error);
+    Alert.alert("Błąd eksportu", "Nie udało się wyeksportować pliku.");
+  }
+};
 
   // ----- PODSUMOWANIE TYGODNIA / MIESIĄCA -----
   const weekCompleted = useMemo(
@@ -394,11 +483,29 @@ export default function StatsScreen() {
           style={{
             color: colors.textMuted,
             fontSize: 12,
-            marginBottom: 16,
+            marginBottom: 8,
           }}
         >
           Podsumowanie Twojej misji domowej. PRO MAX edition.
         </Text>
+
+        {/* GUZIK EXPORTU MISJI */}
+        <View style={{ marginBottom: 16 }}>
+          <TouchableOpacity
+            onPress={handleExport}
+            style={{
+              backgroundColor: colors.accent,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              alignSelf: "flex-start",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>
+              Export Misji
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* PODSUMOWANIE GLOBALNE + mini-achievements */}
         <View
@@ -1246,3 +1353,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
+
+// app/stats.tsx

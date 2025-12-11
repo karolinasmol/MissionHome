@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Image,
+  Platform,
   Animated,
 } from "react-native";
 
@@ -27,7 +28,7 @@ import {
 
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
-import { db } from "../src/firebase/firebase"; // ✅ bez .web
+import { db } from "../src/firebase/firebase.web";
 import { auth } from "../src/firebase/firebase";
 
 /* --------------------------------------------------------- */
@@ -345,16 +346,22 @@ export default function HomeScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
   const { members } = useFamily();
+  const isWeb = Platform.OS === "web";
 
   const { particles: fireworkParticles, shoot: triggerFirework } =
     useFireworkManager();
 
-  // refy do checkboxów
+  // refy do checkboxów (bez dodatkowych hooków w mapie)
   const checkboxRefs = useRef<Record<string, any>>({});
 
   console.log("🟦 RENDER HOME – missions count:", missions?.length);
 
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
+  const [repeatDeleteDialog, setRepeatDeleteDialog] = useState<{
+    mission: any;
+    dateKey: string;
+  } | null>(null);
+
   const [timeTravelDialogOpen, setTimeTravelDialogOpen] = useState(false);
 
   const [userStats, setUserStats] = useState<{
@@ -692,13 +699,18 @@ export default function HomeScreen() {
 
   const handleComplete = (mission: any, anim?: Animated.Value) => {
     if (!mission?.id) {
-      Alert.alert("Ups", "Brak ID zadania – nie mogę oznaczyć jako wykonane.");
+      alert("Brak ID zadania – nie mogę oznaczyć jako wykonane.");
       return;
     }
 
     const alreadyDone = isMissionDoneOnDate(mission, selectedDate);
     if (alreadyDone) {
-      Alert.alert("Gotowe ✅", "To zadanie jest już oznaczone jako wykonane.");
+      if (Platform.OS === "web") {
+        // @ts-ignore
+        window.alert("To zadanie jest już oznaczone jako wykonane ✅");
+      } else {
+        Alert.alert("Gotowe ✅", "To zadanie jest już oznaczone jako wykonane.");
+      }
       return;
     }
 
@@ -745,10 +757,7 @@ export default function HomeScreen() {
         });
       } catch (err: any) {
         console.error("🟥 COMPLETE ERROR:", err?.code, err?.message, err);
-        Alert.alert(
-          "Błąd",
-          "Błąd podczas oznaczania jako wykonane. Spróbuj ponownie."
-        );
+        alert("Błąd podczas oznaczania jako wykonane.");
       }
     };
 
@@ -783,7 +792,7 @@ export default function HomeScreen() {
     try {
       if (!mission?.id) {
         console.error("🟥 DELETE ABORT – missing mission.id", mission);
-        Alert.alert("Błąd", "Brak ID zadania – nie mogę usunąć.");
+        alert("Brak ID zadania – nie mogę usunąć.");
         return;
       }
 
@@ -817,10 +826,7 @@ export default function HomeScreen() {
         );
       }
 
-      Alert.alert(
-        "Błąd",
-        "Błąd podczas usuwania zadania. Spróbuj ponownie później."
-      );
+      alert("Błąd podczas usuwania (sprawdź konsolę).");
     }
   };
 
@@ -828,7 +834,7 @@ export default function HomeScreen() {
     try {
       if (!mission?.id) {
         console.error("🟥 SKIP ABORT – missing mission.id", mission);
-        Alert.alert("Błąd", "Brak ID zadania – nie mogę ukryć dla tego dnia.");
+        alert("Brak ID zadania – nie mogę ukryć dla tego dnia.");
         return;
       }
 
@@ -849,16 +855,25 @@ export default function HomeScreen() {
       });
     } catch (err: any) {
       console.error("🟥 SKIP ERROR:", err?.code, err?.message, err);
-      Alert.alert(
-        "Błąd",
-        "Błąd podczas ukrywania zadania dla tego dnia. Spróbuj ponownie."
-      );
+      alert("Błąd podczas ukrywania tego dnia.");
     }
   };
 
   const handleDelete = (mission: any) => {
     const isRepeating = mission?.repeat?.type && mission.repeat.type !== "none";
     const dateKey = formatDateKey(selectedDate);
+
+    if (Platform.OS === "web") {
+      if (!isRepeating) {
+        // @ts-ignore
+        const ok = window.confirm("Czy na pewno chcesz usunąć to zadanie?");
+        if (ok) deleteSeries(mission);
+        return;
+      }
+
+      setRepeatDeleteDialog({ mission, dateKey });
+      return;
+    }
 
     if (!isRepeating) {
       Alert.alert("Usuń zadanie", "Czy na pewno chcesz usunąć to zadanie?", [
@@ -936,7 +951,11 @@ export default function HomeScreen() {
       <TouchableOpacity
         activeOpacity={0.86}
         onPress={() => (to ? safePush(to) : undefined)}
-        style={{ marginTop: 4 }}
+        style={
+          Platform.OS === "web"
+            ? ({ cursor: "pointer", marginLeft: 12 } as any)
+            : { marginLeft: 0, marginTop: 4 }
+        }
       >
         <Text
           style={{
@@ -960,13 +979,11 @@ export default function HomeScreen() {
           paddingHorizontal: 16,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.bg,
+          backgroundColor: colors.bg, // 🔥 tło takie samo jak cała strona
         }}
       >
         {/* LOGO + NAZWA */}
-        <View
-          style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}
-        >
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
           <View
             style={{
               width: 34,
@@ -982,9 +999,7 @@ export default function HomeScreen() {
           </View>
 
           <View>
-            <Text
-              style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
-            >
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}>
               MissionHome
             </Text>
             <Text
@@ -1002,32 +1017,17 @@ export default function HomeScreen() {
 
         {/* SOCIAL IKONY */}
         <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          {(
-            [
-              "logo-facebook",
-              "logo-instagram",
-              "logo-linkedin",
-              "logo-youtube",
-            ] as const
-          ).map((icon) => (
-            <TouchableOpacity
-              key={icon}
-              activeOpacity={0.9}
-              style={{ marginHorizontal: 8 }}
-            >
-              <Ionicons name={icon as any} size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          ))}
+          {(["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const).map(
+            (icon) => (
+              <TouchableOpacity key={icon} activeOpacity={0.9} style={{ marginHorizontal: 8 }}>
+                <Ionicons name={icon as any} size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            )
+          )}
         </View>
 
         {/* LINKI LINIA 1 */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
           <FooterLink label="O aplikacji" to="/about-app" />
           <FooterLink label="Regulamin" to="/rules" />
           <FooterLink label="Polityka prywatności" to="/privacy" />
@@ -1058,12 +1058,14 @@ export default function HomeScreen() {
             textAlign: "center",
           }}
         >
-          © {new Date().getFullYear()} MissionHome — wszystkie prawa
-          zastrzeżone
+          © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
         </Text>
       </View>
     );
   };
+
+
+
 
   /* --------------------------------------------------------------------- */
   /* ------------------------------- UI ---------------------------------- */
@@ -1083,9 +1085,13 @@ export default function HomeScreen() {
         <View
           style={{
             width: "100%",
+            maxWidth: 1344,
             paddingHorizontal: 24,
             flexGrow: 1,
             alignSelf: "center",
+            ...(Platform.OS === "web"
+              ? ({ marginHorizontal: "auto" } as any)
+              : null),
           }}
         >
           {/* HUD */}
@@ -1325,6 +1331,7 @@ export default function HomeScreen() {
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
+                    gap: 8,
                     marginTop: 6,
                   }}
                 >
@@ -1356,7 +1363,6 @@ export default function HomeScreen() {
                       borderWidth: 1,
                       borderColor: colors.border,
                       backgroundColor: "#0ea5e944",
-                      marginHorizontal: 8,
                     }}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
@@ -1404,11 +1410,7 @@ export default function HomeScreen() {
                 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.text}
-                />
+                <Ionicons name="chevron-forward" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -1630,9 +1632,7 @@ export default function HomeScreen() {
                     }}
                   >
                     {/* Top row: checkbox + tytuł + akcje */}
-                    <View
-                      style={{ flexDirection: "row", alignItems: "center" }}
-                    >
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
                       {/* Wrapper na guzik */}
                       <View
                         ref={(el) => {
@@ -1681,9 +1681,7 @@ export default function HomeScreen() {
                             alignItems: "center",
                             borderWidth: 1,
                             borderColor: isDone ? "#22c55e88" : colors.border,
-                            backgroundColor: isDone
-                              ? "#22c55e22"
-                              : "transparent",
+                            backgroundColor: isDone ? "#22c55e22" : "transparent",
                           }}
                           hitSlop={{
                             top: 10,
@@ -1706,9 +1704,7 @@ export default function HomeScreen() {
                             color: isDone ? colors.textMuted : colors.text,
                             fontSize: 15,
                             fontWeight: "800",
-                            textDecorationLine: isDone
-                              ? "line-through"
-                              : "none",
+                            textDecorationLine: isDone ? "line-through" : "none",
                           }}
                         >
                           {m.title}
@@ -2020,9 +2016,7 @@ export default function HomeScreen() {
                           marginBottom: 2,
                         }}
                       >
-                        <Text
-                          style={{ color: colors.textMuted, fontSize: 11 }}
-                        >
+                        <Text style={{ color: colors.textMuted, fontSize: 11 }}>
                           EXP za misję
                         </Text>
                         <Text
@@ -2082,6 +2076,128 @@ export default function HomeScreen() {
           <AppFooter />
         </View>
       </ScrollView>
+
+      {/* WEB modal do usuwania zadań cyklicznych */}
+      {repeatDeleteDialog && Platform.OS === "web" && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15,23,42,0.65)",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 200,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              backgroundColor: colors.card,
+              borderRadius: 16,
+              padding: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 16,
+                fontWeight: "800",
+                marginBottom: 8,
+              }}
+            >
+              Usuń zadanie cykliczne
+            </Text>
+
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 13,
+                marginBottom: 16,
+              }}
+            >
+              To zadanie powtarza się w czasie. Wybierz, co chcesz zrobić dla
+              dnia {formatDayLong(selectedDate)}.
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                }}
+                onPress={async () => {
+                  if (!repeatDeleteDialog) return;
+                  await deleteOnlyToday(
+                    repeatDeleteDialog.mission,
+                    repeatDeleteDialog.dateKey
+                  );
+                  setRepeatDeleteDialog(null);
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "600",
+                    textAlign: "center",
+                  }}
+                >
+                  Usuń tylko ten dzień
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  backgroundColor: "#ef4444",
+                }}
+                onPress={async () => {
+                  if (!repeatDeleteDialog) return;
+                  await deleteSeries(repeatDeleteDialog.mission);
+                  setRepeatDeleteDialog(null);
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#fff",
+                    fontSize: 13,
+                    fontWeight: "700",
+                    textAlign: "center",
+                  }}
+                >
+                  Usuń całą serię
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={{
+                alignSelf: "center",
+                marginTop: 4,
+                paddingVertical: 6,
+                paddingHorizontal: 18,
+              }}
+              onPress={() => setRepeatDeleteDialog(null)}
+            >
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Anuluj
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* TIME TRAVEL modal: blokada odznaczania poza dzisiaj */}
       {timeTravelDialogOpen && (

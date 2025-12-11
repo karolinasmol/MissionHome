@@ -119,25 +119,29 @@ const RulesScreen = () => {
           <SectionTitle title="§1. Informacje ogólne" />
 
           <P>
-            Niniejszy regulamin („Regulamin”) określa zasady korzystania z
-            aplikacji mobilnej MissionHome („Aplikacja”), świadczonej drogą
-            elektroniczną przez przedsiębiorcę prowadzącego jednoosobową
-            działalność gospodarczą pod nazwą MissionHome, z siedzibą w Gdańsku
-            (adres do uzupełnienia), NIP xxx, adres kontaktowy: xxx
-            („Usługodawca”).
+            1. Niniejszy regulamin („Regulamin”) określa zasady korzystania z aplikacji mobilnej
+            MissionHome („Aplikacja”), świadczonej drogą elektroniczną przez przedsiębiorcę
+            prowadzącego jednoosobową działalność gospodarczą pod nazwą MissionHome, z siedzibą
+            w Gdańsku (adres do uzupełnienia), NIP xxx, adres kontaktowy: xxx („Usługodawca”).
           </P>
 
           <P>
-            Aplikacja umożliwia organizację zadań domowych, planowanie
-            obowiązków, współpracę w grupach rodzinnych oraz korzystanie z
-            systemu misji, poziomów oraz punktów doświadczenia (EXP).
+            2. Aplikacja umożliwia organizację zadań domowych, planowanie obowiązków, współpracę
+            w rodzinnych grupach użytkowników oraz korzystanie z systemu misji,
+            poziomów i punktów doświadczenia (EXP).
           </P>
 
           <P>
-            Aplikacja dostępna jest za pośrednictwem sklepów Google Play oraz
-            Apple App Store. Korzystanie z Aplikacji oznacza akceptację
-            Regulaminu.
+            3. Aplikacja dostępna jest za pośrednictwem sklepów Google Play i Apple App Store.
           </P>
+
+          <P>
+            4. Korzystając z Aplikacji, Użytkownik akceptuje Regulamin oraz Politykę Prywatności i Cookies.
+          </P>
+
+          <P>
+            5. Usługodawca jest administratorem danych osobowych Użytkowników w rozumieniu RODO.
+         </P>
         </SectionCard>
 
         {/* §2 DEFINICJE */}
@@ -145,60 +149,82 @@ const RulesScreen = () => {
           <SectionTitle title="§2. Definicje" />
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Aplikacja</Text> — oprogramowanie
+            <Text style={{ fontWeight: "700" }}>1. Aplikacja</Text> - oprogramowanie
             mobilne MissionHome udostępniane Użytkownikom.
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Użytkownik</Text> — osoba
+            <Text style={{ fontWeight: "700" }}>2. Użytkownik</Text> - osoba
             fizyczna korzystająca z Aplikacji.
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Konto</Text> — indywidualny
+            <Text style={{ fontWeight: "700" }}>3. Konto</Text> - indywidualny
             profil Użytkownika tworzony w ramach Aplikacji.
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Usługi</Text> — funkcje
+            <Text style={{ fontWeight: "700" }}>4. Usługi</Text> - funkcje
             dostępne w Aplikacji, zarówno bezpłatne, jak i płatne (Premium).
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Subskrypcja</Text> — płatna
+            <Text style={{ fontWeight: "700" }}>5. Subskrypcja</Text> - płatna
             usługa Premium odnawiana automatycznie co miesiąc lub rok, zakupiona
             za pośrednictwem Google Play lub Apple App Store.
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Rodzina</Text> — grupa
-            Użytkowników współdzielących funkcje Aplikacji.
+            <Text style={{ fontWeight: "700" }}>6. Rodzina</Text> - grupa
+            Użytkowników współdzielących funkcje Aplikacji w ramach Subskrypcji.
           </P>
 
           <P>
-            <Text style={{ fontWeight: "700" }}>Treści Użytkownika</Text> —
+            <Text style={{ fontWeight: "700" }}>7. Treści Użytkownika</Text> -
             wszelkie treści dodawane w Aplikacji przez Użytkownika, takie jak
             zadania, wpisy, opisy, zdjęcia, komentarze.
           </P>
+
+          <P>
+            <Text style={{ fontWeight: "700" }}>8. Usługi Zewnętrzne</Text> -
+            usługi firm trzecich wykorzystywane przez Aplikację, w szczególności Firebase
+            (Google LLC) oraz Stripe (Stripe Payments Europe, Ltd.).
+          </P>
+
+          <P>
+           <Text style={{ fontWeight: "700" }}>9. Dane Techniczne</Text> -
+            dane zbierane automatycznie, w tym adres IP, identyfikatory urządzeń, dane o błędach,
+            statystyki użycia Aplikacji.
+          </P>
         </SectionCard>
 
-        {/* §3 WARUNKI TECHNICZNE */}
+        {/* §3 WARUNKI TECHNICZNE KORZYSTANIA */}
         <SectionCard>
           <SectionTitle title="§3. Warunki techniczne korzystania" />
 
           <P>
-            Do korzystania z Aplikacji wymagane jest urządzenie mobilne z
+            1. Do korzystania z Aplikacji wymagane jest urządzenie mobilne z
             systemem Android lub iOS oraz aktywne połączenie z Internetem.
           </P>
 
           <P>
-            Usługodawca nie ponosi odpowiedzialności za niesprawność urządzenia
+            2. Usługodawca nie ponosi odpowiedzialności za niesprawność urządzenia
             Użytkownika ani brak dostępu do Internetu.
           </P>
 
           <P>
-            Aplikacja może ulegać aktualizacjom, które mogą wpływać na sposób jej
+            3. Aplikacja może ulegać aktualizacjom, które mogą wpływać na sposób jej
             działania lub dostępne funkcje.
+          </P>
+
+          <P>
+            4. Aplikacja może wymagać pobrania aktualizacji. Brak instalacji aktualizacji może
+            skutkować ograniczeniem działania Aplikacji..
+          </P>
+
+          <P>
+            5. Usługodawca nie ponosi odpowiedzialności za przerwy spowodowane działaniem
+            siły wyższej, awarią dostawców usług, problemami po stronie Firebase, Stripe, Google lub Apple.
           </P>
         </SectionCard>
         {/* §4 ZAWARCIE I ROZWIĄZANIE UMOWY */}
@@ -218,9 +244,8 @@ const RulesScreen = () => {
           </P>
 
           <P>
-            3. Użytkownik może zakończyć korzystanie z Aplikacji poprzez jej
-            odinstalowanie, co równoznaczne jest z rozwiązaniem umowy
-            o świadczenie usług bezpłatnych.
+            3. Użytkownik może zakończyć korzystanie z Aplikacji poprzez jej odinstalowanie lub
+            usunięcie Konta, co równoznaczne jest z rozwiązaniem umowy o świadczenie usług bezpłatnych.
           </P>
 
           <P>
@@ -230,6 +255,16 @@ const RulesScreen = () => {
             - działa na szkodę innych Użytkowników lub Usługodawcy,
             - próbuje obejść system płatności Premium,
             - wykorzystuje Aplikację niezgodnie z jej przeznaczeniem.
+          </P>
+
+          <P>
+            5. Użytkownik może usunąć Konto w ustawieniach Aplikacji.
+            Usunięcie Konta jest nieodwracalne.
+          </P>
+
+          <P>
+            6. Usługodawca może odmówić założenia Konta lub je usunąć w przypadku podania
+            fałszywych danych lub naruszenia prawa.
           </P>
         </SectionCard>
 
@@ -256,6 +291,15 @@ const RulesScreen = () => {
             4. Usługodawca może czasowo zawiesić lub trwale usunąć Konto
             naruszające Regulamin lub prawo.
           </P>
+
+          <P>
+            5. Użytkownik ma możliwość eksportu danych, jeśli funkcja ta jest dostępna.
+          </P>
+
+          <P>
+            6. W przypadku utraty dostępu do Konta Użytkownik korzysta z procedury odzyskiwania
+            dostępu oferowanej przez Firebase Authentication.
+          </P>
         </SectionCard>
 
         {/* §6 FUNKCJE APLIKACJI */}
@@ -266,18 +310,28 @@ const RulesScreen = () => {
             1. Aplikacja umożliwia korzystanie z funkcji takich jak:
             - tworzenie zadań i obowiązków,
             - planowanie misji i celów,
+            - otrzymywanie propozycji codziennych zadań,
             - zdobywanie punktów doświadczenia (EXP),
             - rywalizacja w rankingach,
-            - tworzenie Rodzin i zarządzanie ich członkami.
+            - tworzenie Rodzin i zarządzanie ich członkami
+            - konwersacje tekstowe z członkami Rodziny.
           </P>
 
           <P>
-            2. Usługodawca może rozwijać, modyfikować lub usuwać funkcje,
+            2. Usługodawca może rozwijać, modyfikować lub usuwać funkcje Aplikacji,
             jeśli wymaga tego bezpieczeństwo, prawo lub względy techniczne.
           </P>
 
           <P>
             3. Niektóre funkcje są dostępne wyłącznie dla Użytkowników Premium.
+          </P>
+
+          <P>
+            4. Usługodawca może oferować testowe funkcje Premium.
+          </P>
+
+          <P>
+            5. Funkcje analityczne Aplikacji mogą wykorzystywać Firebase Analytics.
           </P>
         </SectionCard>
 
@@ -297,17 +351,16 @@ const RulesScreen = () => {
             - cenie Subskrypcji,
             - okresie rozliczeniowym,
             - zasadach odnowienia,
-            - warunkach anulowania.
           </P>
 
           <P>
-            3. Płatności przetwarzane są wyłącznie przez Google lub Apple.
+            3. Płatności przetwarzane są wyłącznie przez Stripe, Google lub Apple.
             Usługodawca nie gromadzi ani nie przetwarza danych kart płatniczych.
           </P>
 
           <P>
-            4. Zwroty płatności są realizowane wyłącznie przez Google Play
-            lub Apple App Store, zgodnie z ich regulaminami.
+            4. Zwroty płatności są realizowane wyłącznie przez Google Play, Apple App Store
+            lub Stripe zgodnie z ich regulaminami.
           </P>
 
           <P>
@@ -317,26 +370,40 @@ const RulesScreen = () => {
 
           <P>
             6. Funkcje Premium mogą obejmować m.in.:
-            - rozszerzone możliwości tworzenia zadań i misji,
-            - dostęp do zaawansowanych statystyk,
+            - możliwość tworzenia zadań i misji wspólnie z członkami Rodziny,
             - możliwość tworzenia wiadomości rodzinnych,
-            - dodatkowe elementy personalizacji,
             - priorytetową obsługę wsparcia.
           </P>
+
+          <P>
+             7. W przypadku Subskrypcji Stripe, zarządzanie odbywa się przez Stripe Customer Portal.
+          </P>
+
+          <P>
+             8. Subskrypcja odnawia się automatycznie do czasu jej anulowania.
+          </P>
+
+          <P>
+             9. Usługodawca może zmienić zakres funkcji Premium, informując o istotnych zmianach.
+          </P>
+
+          <P>
+             10. Zmiana ceny Subskrypcji jest komunikowana zgodnie z zasadami Google, Apple lub Stripe.
+          </P>
+
         </SectionCard>
         {/* §8 PRAWO ODSTĄPIENIA */}
         <SectionCard>
           <SectionTitle title="§8. Prawo odstąpienia od umowy" />
 
           <P>
-            1. Użytkownik ma prawo odstąpić od zakupu Subskrypcji Premium
-            zgodnie z zasadami określonymi przez Google Play lub Apple App Store.
+            1. Użytkownik ma prawo odstąpić od zakupu Subskrypcji zgodnie z zasadami platformy,
+            przez którą dokonano zakupu.
           </P>
 
           <P>
             2. Usługodawca nie posiada możliwości ręcznej realizacji zwrotów
-            ani anulowania zakupów wykonanych za pośrednictwem platform Google
-            lub Apple.
+            ani anulowania zakupów.
           </P>
 
           <P>

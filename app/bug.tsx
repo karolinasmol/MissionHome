@@ -222,7 +222,7 @@ export default function BugReportNative() {
                   fontWeight: "800",
                 }}
               >
-                {sending ? "Wysyłanie..." : "Wyślij zgłoszenie"}
+                {sending ? "Wysyłanie..." : "Wyślij swoje zgłoszenie"}
               </Text>
             </TouchableOpacity>
           </View>

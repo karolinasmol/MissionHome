@@ -33,26 +33,20 @@ function conversationIdFor(a, b) {
   return [a, b].sort().join("_");
 }
 
-/**
- * Hook odpowiedzialny za layout czatu na różnych rozmiarach ekranu.
- * - na desktopie stały panel z rodziną po lewej
- * - na mobile: wysuwany drawer
- */
+/* ------------------ LAYOUT HOOK ------------------ */
 function useChatLayout() {
   const { width, height } = useWindowDimensions();
 
-  const isDesktop = width >= 900; // breakpoint desktop/laptop
-
-  const headerHeight = 56; // wysokość top bara + cienka linia
+  const isDesktop = width >= 900;
+  const headerHeight = 56;
   const isVerySmallWidth = width < 360;
-  const isShortScreen = height < 700;
 
   const drawerWidth = isDesktop
     ? 280
     : Math.min(260, Math.max(200, width * 0.7));
+
   const messageMaxWidth = isVerySmallWidth ? "78%" : "85%";
 
-  // offset dla KeyboardAvoidingView (top bar + mały margines)
   const keyboardOffset = headerHeight + 8;
 
   return {
@@ -60,7 +54,6 @@ function useChatLayout() {
     messageMaxWidth,
     headerHeight,
     keyboardOffset,
-    isShortScreen,
     isDesktop,
   };
 }
@@ -78,24 +71,16 @@ export default function MessagesMobile() {
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
-  const [loadingMsg, setLoadingMsg] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const {
-    drawerWidth,
-    messageMaxWidth,
-    headerHeight,
-    keyboardOffset,
-    isDesktop,
-  } = useChatLayout();
+  const { drawerWidth, messageMaxWidth, headerHeight, keyboardOffset, isDesktop } =
+    useChatLayout();
 
   const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const toggleDrawer = () => {
-    // Na desktopie nie otwieramy drawer’a – tam lista jest stała po lewej
     if (isDesktop) return;
-
     Animated.timing(drawerX, {
       toValue: drawerOpen ? -drawerWidth : 0,
       duration: 180,
@@ -104,7 +89,7 @@ export default function MessagesMobile() {
     setDrawerOpen(!drawerOpen);
   };
 
-  /* ------------------------- PREMIUM CHECK ------------------------- */
+  /* ------------------ PREMIUM CHECK ------------------ */
   useEffect(() => {
     if (!myUid) return;
 
@@ -141,7 +126,7 @@ export default function MessagesMobile() {
     return () => unsub();
   }, [myUid]);
 
-  /* ------------------------- MEMBERS LIST ------------------------- */
+  /* ------------------ FAMILY MEMBERS ------------------ */
   const familyMembers = useMemo(() => {
     if (!members || !myUid) return [];
     return members.filter(
@@ -149,7 +134,7 @@ export default function MessagesMobile() {
     );
   }, [members, myUid]);
 
-  /* ------------------------- LOAD MESSAGES ------------------------- */
+  /* ------------------ LOAD MESSAGES ------------------ */
   useEffect(() => {
     if (!myUid || !selectedUid) {
       setMessages([]);
@@ -157,17 +142,15 @@ export default function MessagesMobile() {
     }
 
     const convId = conversationIdFor(myUid, selectedUid);
+
     const qy = query(
       collection(db, `messages/${convId}/messages`),
       orderBy("createdAt", "asc")
     );
 
-    setLoadingMsg(true);
-
     const unsub = onSnapshot(qy, (snap) => {
       const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(arr);
-      setLoadingMsg(false);
 
       setTimeout(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
@@ -177,7 +160,7 @@ export default function MessagesMobile() {
     return () => unsub();
   }, [myUid, selectedUid]);
 
-  /* ------------------------- SEND MSG ------------------------- */
+  /* ------------------ SEND MESSAGE ------------------ */
   const sendMessage = async () => {
     if (!myUid || !selectedUid) return;
     if (!text.trim()) return;
@@ -211,7 +194,7 @@ export default function MessagesMobile() {
     }
   };
 
-  /* ------------------------- LOADING ------------------------- */
+  /* ------------------ LOADING SCREEN ------------------ */
   if (checkingPremium) {
     return (
       <SafeAreaView
@@ -227,7 +210,7 @@ export default function MessagesMobile() {
     );
   }
 
-  /* ------------------------- MAIN UI ------------------------- */
+  /* ------------------ MAIN UI ------------------ */
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* TOP BAR */}
@@ -242,7 +225,6 @@ export default function MessagesMobile() {
           height: headerHeight,
         }}
       >
-        {/* Hamburger tylko na smartfonach / małych ekranach */}
         {!isDesktop && (
           <TouchableOpacity onPress={toggleDrawer}>
             <Ionicons name="menu" size={26} color={colors.text} />
@@ -261,7 +243,7 @@ export default function MessagesMobile() {
         </Text>
       </View>
 
-      {/* MOBILE: wysuwany drawer z lewej */}
+      {/* MOBILE DRAWER */}
       {!isDesktop && (
         <Animated.View
           style={{
@@ -293,6 +275,8 @@ export default function MessagesMobile() {
             {familyMembers.map((m) => {
               const uid = m.uid || m.userId || m.id;
 
+              const pURL = m.photoURL || m.avatarUrl;
+
               return (
                 <TouchableOpacity
                   key={uid}
@@ -317,9 +301,9 @@ export default function MessagesMobile() {
                         : colors.border,
                   }}
                 >
-                  {m.avatarUrl ? (
+                  {pURL ? (
                     <Image
-                      source={{ uri: m.avatarUrl }}
+                      source={{ uri: pURL }}
                       style={{
                         width: 32,
                         height: 32,
@@ -363,7 +347,7 @@ export default function MessagesMobile() {
         </Animated.View>
       )}
 
-      {/* CHAT + (desktop: stała lista po lewej) w KeyboardAvoidingView */}
+      {/* CHAT WINDOW */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -375,7 +359,7 @@ export default function MessagesMobile() {
             flexDirection: isDesktop ? "row" : "column",
           }}
         >
-          {/* DESKTOP: stały panel Rodzina po lewej */}
+          {/* DESKTOP SIDE LIST */}
           {isDesktop && (
             <View
               style={{
@@ -401,6 +385,8 @@ export default function MessagesMobile() {
                 {familyMembers.map((m) => {
                   const uid = m.uid || m.userId || m.id;
 
+                  const pURL = m.photoURL || m.avatarUrl;
+
                   return (
                     <TouchableOpacity
                       key={uid}
@@ -422,9 +408,9 @@ export default function MessagesMobile() {
                             : colors.border,
                       }}
                     >
-                      {m.avatarUrl ? (
+                      {pURL ? (
                         <Image
-                          source={{ uri: m.avatarUrl }}
+                          source={{ uri: pURL }}
                           style={{
                             width: 32,
                             height: 32,
@@ -446,9 +432,7 @@ export default function MessagesMobile() {
                             borderColor: colors.border,
                           }}
                         >
-                          <Text
-                            style={{ color: colors.text, fontWeight: "700" }}
-                          >
+                          <Text style={{ color: colors.text, fontWeight: "700" }}>
                             {m.displayName?.[0] ?? "?"}
                           </Text>
                         </View>
@@ -470,7 +454,7 @@ export default function MessagesMobile() {
             </View>
           )}
 
-          {/* PRAWY PANEL – CZAT */}
+          {/* CHAT PANEL */}
           <View
             style={{
               flex: 1,
@@ -484,7 +468,6 @@ export default function MessagesMobile() {
                   flex: 1,
                   alignItems: "center",
                   justifyContent: "center",
-                  paddingHorizontal: 20,
                 }}
               >
                 <Ionicons
@@ -504,7 +487,7 @@ export default function MessagesMobile() {
               </View>
             ) : (
               <>
-                {/* CHAT HEADER (w obrębie widoku czatu) */}
+                {/* ----------------- CHAT HEADER WITH AVATAR ----------------- */}
                 <View
                   style={{
                     flexDirection: "row",
@@ -515,38 +498,65 @@ export default function MessagesMobile() {
                     marginBottom: 6,
                   }}
                 >
-                  <Ionicons
-                    name="person-circle-outline"
-                    size={32}
-                    color={colors.textMuted}
-                  />
-                  <View style={{ marginLeft: 10 }}>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 15,
-                        fontWeight: "800",
-                      }}
-                    >
-                      {
-                        familyMembers.find(
-                          (x) =>
-                            String(x.uid || x.userId || x.id) === selectedUid
-                        )?.displayName
-                      }
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        color: colors.textMuted,
-                      }}
-                    >
-                      dostępny
-                    </Text>
-                  </View>
+                  {(() => {
+                    const member = familyMembers.find(
+                      (x) => String(x.uid || x.userId || x.id) === selectedUid
+                    );
+
+                    const pURL = member?.photoURL || member?.avatarUrl;
+
+                    if (pURL) {
+                      return (
+                        <Image
+                          source={{ uri: pURL }}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                        />
+                      );
+                    }
+
+                    return (
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 999,
+                          backgroundColor: colors.bg,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: "700" }}>
+                          {member?.displayName?.[0] ?? "?"}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
+                  <Text
+                    style={{
+                      marginLeft: 12,
+                      color: colors.text,
+                      fontSize: 17,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {
+                      familyMembers.find(
+                        (x) => String(x.uid || x.userId || x.id) === selectedUid
+                      )?.displayName
+                    }
+                  </Text>
                 </View>
 
-                {/* MESSAGES */}
+                {/* ----------------- MESSAGES ----------------- */}
                 <ScrollView
                   ref={scrollRef}
                   style={{ flex: 1 }}
@@ -575,11 +585,11 @@ export default function MessagesMobile() {
                           backgroundColor: isMine ? colors.accent : colors.bg,
                           padding: 10,
                           borderRadius: 14,
-                          maxWidth: messageMaxWidth as any,
+                          maxWidth: messageMaxWidth,
                           marginBottom: 10,
                           borderWidth: 1,
                           borderColor: isMine
-                            ? (colors.accent as string) + "55"
+                            ? colors.accent + "55"
                             : colors.border,
                         }}
                       >
@@ -597,7 +607,6 @@ export default function MessagesMobile() {
                           style={{
                             marginTop: 4,
                             fontSize: 10,
-                            fontWeight: "600",
                             color: isMine ? "#01403A" : colors.textMuted,
                             alignSelf: "flex-end",
                           }}
@@ -609,7 +618,7 @@ export default function MessagesMobile() {
                   })}
                 </ScrollView>
 
-                {/* INPUT */}
+                {/* ----------------- INPUT FIELD ----------------- */}
                 <View
                   style={{
                     flexDirection: "row",
@@ -617,7 +626,7 @@ export default function MessagesMobile() {
                     borderWidth: 1,
                     borderColor: !isPremium ? colors.accent : colors.border,
                     backgroundColor: !isPremium
-                      ? (colors.accent as string) + "11"
+                      ? colors.accent + "11"
                       : colors.bg,
                     borderRadius: 999,
                     paddingHorizontal: 14,
@@ -653,4 +662,4 @@ export default function MessagesMobile() {
   );
 }
 
-//src/views/MessagesMobile.tsx
+//src/views/messages.web.tsx

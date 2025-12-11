@@ -49,7 +49,7 @@ export default function MessagesMobile() {
   const [loadingMsg, setLoadingMsg] = useState(false);
   const scrollRef = useRef(null);
 
-  const drawerX = useRef(new Animated.Value(-240)).current; // start hidden for mobile
+  const drawerX = useRef(new Animated.Value(-240)).current;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const toggleDrawer = () => {
@@ -209,7 +209,7 @@ export default function MessagesMobile() {
         </Text>
       </View>
 
-      {/* LEFT DRAWER (animated) */}
+      {/* LEFT DRAWER */}
       <Animated.View
         style={{
           position: "absolute",
@@ -239,6 +239,7 @@ export default function MessagesMobile() {
         <ScrollView>
           {familyMembers.map((m) => {
             const uid = m.uid || m.userId || m.id;
+            const pURL = m.photoURL || m.avatarUrl;
 
             return (
               <TouchableOpacity
@@ -260,9 +261,9 @@ export default function MessagesMobile() {
                     selectedUid === String(uid) ? colors.accent : colors.border,
                 }}
               >
-                {m.avatarUrl ? (
+                {pURL ? (
                   <Image
-                    source={{ uri: m.avatarUrl }}
+                    source={{ uri: pURL }}
                     style={{ width: 32, height: 32, borderRadius: 999, marginRight: 10 }}
                   />
                 ) : (
@@ -312,7 +313,7 @@ export default function MessagesMobile() {
           </View>
         ) : (
           <>
-            {/* CHAT HEADER */}
+            {/* ---------------- CHAT HEADER with Avatar ---------------- */}
             <View
               style={{
                 flexDirection: "row",
@@ -323,20 +324,65 @@ export default function MessagesMobile() {
                 marginBottom: 8,
               }}
             >
-              <Ionicons name="person-circle-outline" size={32} color={colors.textMuted} />
-              <View style={{ marginLeft: 10 }}>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                  {
-                    familyMembers.find(
-                      (x) => String(x.uid || x.userId || x.id) === selectedUid
-                    )?.displayName
-                  }
-                </Text>
-                <Text style={{ fontSize: 11, color: colors.textMuted }}>dostępny</Text>
-              </View>
+              {(() => {
+                const member = familyMembers.find(
+                  (x) => String(x.uid || x.userId || x.id) === selectedUid
+                );
+
+                const pURL = member?.photoURL || member?.avatarUrl;
+
+                if (pURL) {
+                  return (
+                    <Image
+                      source={{ uri: pURL }}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    />
+                  );
+                }
+
+                return (
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 999,
+                      backgroundColor: colors.bg,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: "700" }}>
+                      {member?.displayName?.[0] ?? "?"}
+                    </Text>
+                  </View>
+                );
+              })()}
+
+              <Text
+                style={{
+                  marginLeft: 12,
+                  color: colors.text,
+                  fontSize: 17,
+                  fontWeight: "800",
+                }}
+              >
+                {
+                  familyMembers.find(
+                    (x) => String(x.uid || x.userId || x.id) === selectedUid
+                  )?.displayName
+                }
+              </Text>
             </View>
 
-            {/* MESSAGES */}
+            {/* ---------------- MESSAGES ---------------- */}
             <ScrollView
               ref={scrollRef}
               style={{ flex: 1 }}
@@ -393,7 +439,7 @@ export default function MessagesMobile() {
               })}
             </ScrollView>
 
-            {/* INPUT */}
+            {/* ---------------- INPUT ---------------- */}
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
               <View
                 style={{
@@ -427,5 +473,3 @@ export default function MessagesMobile() {
     </SafeAreaView>
   );
 }
-
-//src/views/MessagesMobile.js

@@ -10,9 +10,11 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
@@ -28,16 +30,13 @@ export default function IdeaScreen() {
 
   const user = auth.currentUser;
 
-  const cardStyle = {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-  };
-
   const canSend =
     title.trim().length > 0 && description.trim().length > 0 && !sending;
 
   const handleSend = async () => {
     if (!canSend) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       setSending(true);
@@ -47,18 +46,14 @@ export default function IdeaScreen() {
         description: description.trim(),
         benefit: benefit.trim() || null,
         platform: Platform.OS,
-        appVersion: "1.0.0", // TODO: podmienić jeśli będziesz trzymać wersję w kodzie
+        appVersion: "1.0.0",
         userId: user?.uid || null,
         userEmail: user?.email || null,
         createdAt: serverTimestamp(),
         status: "new",
       });
 
-      if (Platform.OS === "web") {
-        window.alert("Dziękujemy! Pomysł został wysłany 💡");
-      } else {
-        Alert.alert("Dziękujemy!", "Twój pomysł został wysłany 💡");
-      }
+      Alert.alert("Dziękujemy!", "Twój pomysł został wysłany 💡");
 
       setTitle("");
       setDescription("");
@@ -68,247 +63,276 @@ export default function IdeaScreen() {
       console.error("IDEA REPORT ERROR", err);
       const msg =
         err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
-      if (Platform.OS === "web") {
-        window.alert(msg);
-      } else {
-        Alert.alert("Błąd", msg);
-      }
+      Alert.alert("Błąd", msg);
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: 32,
-          width: "100%",
-          maxWidth: 900,
-          alignSelf: Platform.OS === "web" ? "center" : "stretch",
-        }}
-        keyboardShouldPersistTaps="handled"
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
       >
-        {/* HEADER */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 18,
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: 40,
           }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          bounces={Platform.OS === "ios"}
         >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ paddingRight: 8, paddingVertical: 4 }}
-          >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 18,
-              fontWeight: "800",
-            }}
-          >
-            Zgłoś pomysł
-          </Text>
-        </View>
-
-        {/* FORM CARD */}
-        <View
-          style={{
-            ...cardStyle,
-            borderWidth: 1,
-            borderRadius: 16,
-            padding: 14,
-          }}
-        >
-          <Text
-            style={{
-              color: colors.text,
-              fontWeight: "700",
-              fontSize: 15,
-              marginBottom: 6,
-            }}
-          >
-            Pomóż nam ulepszyć MissionHome 💡
-          </Text>
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 13,
-              marginBottom: 14,
-            }}
-          >
-            Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia.
-            Im bardziej konkretny opis, tym łatwiej nam będzie je wdrożyć.
-          </Text>
-
-          {/* JAKIE POMYSŁY */}
-          <View style={{ marginBottom: 14 }}>
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 12,
-                fontWeight: "700",
-                marginBottom: 4,
-              }}
-            >
-              Jakie pomysły są mile widziane?
-            </Text>
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 11,
-                lineHeight: 16,
-              }}
-            >
-              • nowe funkcje aplikacji {"\n"}
-              • zmiany w wyglądzie {"\n"}
-              • usprawnienia, które ułatwią codzienne korzystanie
-            </Text>
-          </View>
-
-          {/* TYTUŁ POMYSŁU */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
-            Tytuł pomysłu
-          </Text>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Np. Widok tygodnia w kalendarzu"
-            placeholderTextColor={colors.textMuted}
-            style={{
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: colors.border,
-              padding: 10,
-              backgroundColor: "#020617",
-              color: colors.text,
-              marginBottom: 12,
-              fontSize: 14,
-            }}
-          />
-
-          {/* OPIS POMYSŁU */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
-            Opisz swój pomysł
-          </Text>
-          <TextInput
-            value={description}
-            onChangeText={setDescription}
-            placeholder={
-              "Co dokładnie chcesz dodać lub zmienić?\nJak miałoby to działać krok po kroku?\nDla kogo byłaby ta funkcja?"
-            }
-            placeholderTextColor={colors.textMuted}
-            multiline
-            textAlignVertical="top"
-            style={{
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: colors.border,
-              padding: 10,
-              backgroundColor: "#020617",
-              color: colors.text,
-              minHeight: 140,
-              fontSize: 14,
-              marginBottom: 12,
-            }}
-          />
-
-          {/* KORZYŚCI */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
-            Dlaczego to będzie pomocne? (opcjonalnie)
-          </Text>
-          <TextInput
-            value={benefit}
-            onChangeText={setBenefit}
-            placeholder="Np. ułatwi planowanie tygodnia dla całej rodziny..."
-            placeholderTextColor={colors.textMuted}
-            multiline
-            textAlignVertical="top"
-            style={{
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: colors.border,
-              padding: 10,
-              backgroundColor: "#020617",
-              color: colors.text,
-              fontSize: 14,
-              marginBottom: 18,
-              minHeight: 80,
-            }}
-          />
-
-          {/* PRZYCISKI */}
+          {/* HEADER */}
           <View
             style={{
               flexDirection: "row",
-              justifyContent: "flex-end",
-              gap: 10,
+              alignItems: "center",
+              paddingTop: 4,
+              paddingBottom: 12,
             }}
           >
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.back();
+              }}
               style={{
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.border,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                justifyContent: "center",
+                alignItems: "center",
               }}
             >
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 14,
-                }}
-              >
-                Anuluj
-              </Text>
+              <Ionicons
+                name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
+                size={24}
+                color={colors.text}
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={handleSend}
-              disabled={!canSend}
+            <Text
               style={{
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 999,
-                backgroundColor: canSend ? colors.accent : "#1e293b",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                opacity: sending ? 0.8 : 1,
+                flex: 1,
+                textAlign: "center",
+                marginRight: 36,
+                color: colors.text,
+                fontSize: 20,
+                fontWeight: "600",
               }}
             >
-              {sending ? (
-                <ActivityIndicator size="small" color="#022c22" />
-              ) : (
-                <Ionicons name="send" size={16} color="#022c22" />
-              )}
+              Zgłoś pomysł
+            </Text>
+          </View>
+
+          {/* FORM CARD */}
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 18,
+              padding: 16,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "700",
+                fontSize: 16,
+                marginBottom: 8,
+              }}
+            >
+              Pomóż nam ulepszyć MissionHome 💡
+            </Text>
+
+            <Text
+              style={{
+                color: colors.textSecondary,
+                fontSize: 13,
+                lineHeight: 18,
+                marginBottom: 20,
+              }}
+            >
+              Podziel się swoimi pomysłami na nowe funkcje, poprawki lub
+              usprawnienia. Im bardziej konkretny opis, tym łatwiej nam będzie je
+              wdrożyć.
+            </Text>
+
+            {/* CO JEST MILE WIDZIANE */}
+            <View style={{ marginBottom: 18 }}>
               <Text
                 style={{
-                  color: canSend ? "#022c22" : "#6b7280",
-                  fontSize: 14,
+                  color: colors.text,
+                  fontSize: 13,
                   fontWeight: "700",
+                  marginBottom: 6,
                 }}
               >
-                {sending ? "Wysyłanie..." : "Wyślij pomysł"}
+                Jakie pomysły są mile widziane?
               </Text>
-            </TouchableOpacity>
+
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 18,
+                }}
+              >
+                • nowe funkcje aplikacji {"\n"}
+                • zmiany w wyglądzie {"\n"}
+                • usprawnienia ułatwiające codzienne korzystanie
+              </Text>
+            </View>
+
+            {/* TITLE INPUT */}
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+              Tytuł pomysłu
+            </Text>
+
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Np. Widok tygodnia w kalendarzu"
+              placeholderTextColor={colors.textSecondary}
+              style={{
+                marginTop: 6,
+                marginBottom: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                backgroundColor: colors.inputBackground ?? "#020617",
+                color: colors.text,
+                fontSize: 14,
+              }}
+            />
+
+            {/* DESCRIPTION INPUT */}
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+              Opisz swój pomysł
+            </Text>
+
+            <TextInput
+              value={description}
+              onChangeText={setDescription}
+              placeholder={
+                "Co dokładnie chcesz dodać lub zmienić?\nJak miałoby działać?\nDla kogo byłaby ta funkcja?"
+              }
+              placeholderTextColor={colors.textSecondary}
+              multiline
+              textAlignVertical="top"
+              style={{
+                marginTop: 6,
+                marginBottom: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 12,
+                backgroundColor: colors.inputBackground ?? "#020617",
+                color: colors.text,
+                fontSize: 14,
+                minHeight: 140,
+              }}
+            />
+
+            {/* BENEFIT INPUT */}
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+              Dlaczego to będzie pomocne? (opcjonalnie)
+            </Text>
+
+            <TextInput
+              value={benefit}
+              onChangeText={setBenefit}
+              placeholder="Np. ułatwi planowanie tygodnia całej rodzinie..."
+              placeholderTextColor={colors.textSecondary}
+              multiline
+              textAlignVertical="top"
+              style={{
+                marginTop: 6,
+                marginBottom: 20,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 12,
+                backgroundColor: colors.inputBackground ?? "#020617",
+                color: colors.text,
+                fontSize: 14,
+                minHeight: 80,
+              }}
+            />
+
+            {/* BUTTONS */}
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 10,
+              }}
+            >
+              {/* CANCEL */}
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.back();
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.textSecondary,
+                    fontSize: 14,
+                  }}
+                >
+                  Anuluj
+                </Text>
+              </TouchableOpacity>
+
+              {/* SEND */}
+              <TouchableOpacity
+                onPress={handleSend}
+                disabled={!canSend}
+                style={{
+                  paddingHorizontal: 18,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  backgroundColor: canSend ? colors.accent : colors.disabled,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  opacity: sending ? 0.8 : 1,
+                }}
+              >
+                {sending ? (
+                  <ActivityIndicator size="small" color="#022c22" />
+                ) : (
+                  <Ionicons name="send" size={16} color="#022c22" />
+                )}
+
+                <Text
+                  style={{
+                    color: "#022c22",
+                    fontSize: 14,
+                    fontWeight: "700",
+                  }}
+                >
+                  {sending ? "Wysyłanie..." : "Wyślij pomysł"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
-// app/idea.tsx

@@ -1,5 +1,5 @@
 // app/faq.tsx
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,12 +8,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
-  LayoutAnimation,
-  UIManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../src/context/ThemeContext";
 
 type FaqItem = {
@@ -21,11 +18,6 @@ type FaqItem = {
   question: string;
   answer: string;
 };
-
-// Włącz animacje layoutu na Androidzie
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const FAQ_DATA: FaqItem[] = [
   {
@@ -71,17 +63,17 @@ const FaqScreen = () => {
   const colors = useThemeColors();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const toggleItem = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
-    Haptics.selectionAsync();
-
+  const handleToggle = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      {/* HEADER */}
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        { backgroundColor: colors.background ?? "#05030A" },
+      ]}
+    >
       <View style={styles.headerWrapper}>
         <View style={styles.headerInner}>
           <TouchableOpacity
@@ -91,28 +83,35 @@ const FaqScreen = () => {
           >
             <Ionicons
               name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
-              size={24}
-              color={colors.text}
+              size={22}
+              color={colors.text ?? "#FFFFFF"}
             />
           </TouchableOpacity>
-
-          <Text style={[styles.headerTitle, { color: colors.text }]}>FAQ</Text>
-
+          <Text
+            style={[
+              styles.headerTitle,
+              { color: colors.text ?? "#FFFFFF" },
+            ]}
+            numberOfLines={1}
+          >
+            FAQ
+          </Text>
+          {/* pusty placeholder dla wyrównania */}
           <View style={{ width: 32 }} />
         </View>
       </View>
 
-      {/* CONTENT */}
       <ScrollView
-        style={styles.scroll}
+        style={[
+          styles.scroll,
+          { backgroundColor: colors.background ?? "#05030A" },
+        ]}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        bounces={Platform.OS === "ios"}
       >
         <Text
           style={[
             styles.introText,
-            { color: colors.textSecondary ?? colors.text },
+            { color: colors.textSecondary ?? colors.text ?? "#C6C3D7" },
           ]}
         >
           Najczęściej zadawane pytania o MissionHome.{"\n"}
@@ -121,37 +120,45 @@ const FaqScreen = () => {
 
         {FAQ_DATA.map((item) => {
           const isExpanded = expandedId === item.id;
-
           return (
             <View
               key={item.id}
               style={[
                 styles.card,
                 {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
+                  backgroundColor: colors.card ?? "#110C23",
+                  borderColor: colors.border ?? "rgba(255,255,255,0.08)",
                 },
               ]}
             >
               <TouchableOpacity
-                onPress={() => toggleItem(item.id)}
+                onPress={() => handleToggle(item.id)}
                 style={styles.cardHeader}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.questionText, { color: colors.text }]}>
+                <Text
+                  style={[
+                    styles.questionText,
+                    { color: colors.text ?? "#FFFFFF" },
+                  ]}
+                >
                   {item.question}
                 </Text>
-
                 <Ionicons
                   name={isExpanded ? "chevron-up" : "chevron-down"}
                   size={18}
-                  color={colors.textSecondary}
+                  color={colors.textSecondary ?? "#C6C3D7"}
                 />
               </TouchableOpacity>
 
               {isExpanded && (
                 <View style={styles.answerWrapper}>
-                  <Text style={[styles.answerText, { color: colors.textSecondary }]}>
+                  <Text
+                    style={[
+                      styles.answerText,
+                      { color: colors.textSecondary ?? "#C6C3D7" },
+                    ]}
+                  >
                     {item.answer}
                   </Text>
                 </View>
@@ -172,8 +179,8 @@ const styles = StyleSheet.create({
   },
   headerWrapper: {
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 4 : 12,
-    paddingBottom: 10,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   headerInner: {
     flexDirection: "row",
@@ -188,27 +195,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: Platform.select({ ios: "600", android: "700" }),
+    fontSize: 18,
+    fontWeight: "600",
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingBottom: 16,
   },
   introText: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 20,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
     opacity: 0.9,
   },
   card: {
     borderRadius: 18,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
     borderWidth: 1,
   },
   cardHeader: {
@@ -218,16 +225,16 @@ const styles = StyleSheet.create({
   },
   questionText: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     marginRight: 12,
   },
   answerWrapper: {
-    marginTop: 10,
+    marginTop: 8,
   },
   answerText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });
 

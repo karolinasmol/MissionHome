@@ -1,3 +1,4 @@
+// app/premium.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -16,6 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import * as Haptics from "expo-haptics";
 
 import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
@@ -25,33 +27,33 @@ try {
   WebBrowser.maybeCompleteAuthSession();
 } catch {}
 
-/** ====== Plans ====== */
+/* ----------------------------------------------
+   PREMIUM PLANS
+---------------------------------------------- */
 const PLANS = {
   monthly: { title: "Miesięczny", priceLabel: "25 zł / mies.", amountPln: 25 },
   yearly: { title: "Roczny", priceLabel: "100 zł / rok", amountPln: 100 },
 };
 type PlanId = keyof typeof PLANS;
 
-const PrimaryBlue = "#3B82F6";
-const PremiumGold = "#FBBF24";
-const SuccessGreen = "#22C55E";
-const DangerRed = "#EF4444";
+const GOLD = "#FBBF24";
+const BLUE = "#3B82F6";
+const GREEN = "#22C55E";
+const RED = "#EF4444";
 
-/** ====== API ====== */
+/* ----------------------------------------------
+   API HELPERS
+---------------------------------------------- */
 const ENV_BASE = (process.env.EXPO_PUBLIC_PAYMENTS_BASE || "").trim();
 const ENV_KEY = (process.env.EXPO_PUBLIC_PAYMENTS_API_KEY || "").trim();
 const STRIPE_RETURN_HTTPS = (process.env.EXPO_PUBLIC_STRIPE_RETURN_HTTPS || "").trim();
-
 let RESOLVED_BASE: string | null = null;
 
 function buildUrl(base: string, path: string, qs?: Record<string, any>) {
   const u = `${base.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
   if (!qs) return u;
   const sp = new URLSearchParams();
-  Object.entries(qs).forEach(([k, v]) => {
-    if (v == null) return;
-    sp.append(k, String(v));
-  });
+  Object.entries(qs).forEach(([k, v]) => v != null && sp.append(k, String(v)));
   const s = sp.toString();
   return s ? `${u}?${s}` : u;
 }
@@ -64,8 +66,8 @@ function isJsonContentType(ct: string | null | undefined) {
 async function readJsonOrThrow(res: Response) {
   const ct = res.headers.get("content-type");
   const text = await res.text();
-
   let json: any = null;
+
   try {
     json = text ? JSON.parse(text) : null;
   } catch {}
@@ -73,33 +75,29 @@ async function readJsonOrThrow(res: Response) {
   if (!isJsonContentType(ct) || json == null) {
     const snippet = (text || "").slice(0, 220);
     throw new Error(
-      `API zwróciło nie-JSON (content-type: ${ct || "brak"}). Snippet: ${snippet}`
+      `API zwróciło nie-JSON (content-type: ${ct || "brak"}). Snippet:\n${snippet}`
     );
   }
 
-  if (!res.ok) {
-    throw new Error(json?.error || json?.message || `HTTP ${res.status}`);
-  }
-
+  if (!res.ok) throw new Error(json?.error || json?.message || `HTTP ${res.status}`);
   return json;
 }
 
 async function probeHealth(base: string) {
   try {
     const url = buildUrl(base, "/rpc/healthz", { t: Date.now() });
-    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
+    const res = await fetch(url);
     const json = await readJsonOrThrow(res);
-    if (json?.ok !== true) return { ok: false as const, reason: "healthz: ok!=true" };
-    return { ok: true as const, json };
+    return json?.ok === true ? { ok: true as const } : { ok: false as const };
   } catch (e: any) {
-    return { ok: false as const, reason: e?.message || "probe failed" };
+    return { ok: false as const, reason: e?.message };
   }
 }
 
-async function resolveBaseOnce(): Promise<string> {
+async function resolveBaseOnce() {
   if (RESOLVED_BASE) return RESOLVED_BASE;
 
-  const candidates: string[] = [];
+  const candidates = [];
   if (ENV_BASE) candidates.push(ENV_BASE);
 
   if (Platform.OS === "web") candidates.push("/paymentsApi");
@@ -120,10 +118,10 @@ async function resolveBaseOnce(): Promise<string> {
       RESOLVED_BASE = base;
       return base;
     }
-    errors.push(`- ${base}: ${r.reason}`);
+    errors.push(`❌ ${base}: ${r.reason}`);
   }
 
-  throw new Error(`Nie mogę połączyć z API płatności. Próbowano:\n${errors.join("\n")}`);
+  throw new Error(`Brak połączenia z API płatności:\n${errors.join("\n")}`);
 }
 
 async function authHeaders() {
@@ -133,7 +131,7 @@ async function authHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function apiPost<T = any>(path: string, body: any): Promise<T> {
+async function apiPost<T>(path: string, body: any): Promise<T> {
   const base = await resolveBaseOnce();
   const url = buildUrl(base, path);
 
@@ -148,11 +146,10 @@ async function apiPost<T = any>(path: string, body: any): Promise<T> {
     body: JSON.stringify(body || {}),
   });
 
-  const json = await readJsonOrThrow(res);
-  return (json as T) ?? ({} as T);
+  return readJsonOrThrow(res);
 }
 
-async function apiGet<T = any>(path: string, qs?: Record<string, any>): Promise<T> {
+async function apiGet<T>(path: string, qs?: Record<string, any>): Promise<T> {
   const base = await resolveBaseOnce();
   const url = buildUrl(base, path, qs);
 
@@ -165,38 +162,29 @@ async function apiGet<T = any>(path: string, qs?: Record<string, any>): Promise<
     },
   });
 
-  const json = await readJsonOrThrow(res);
-  return (json as T) ?? ({} as T);
+  return readJsonOrThrow(res);
 }
 
-/** RPC */
-async function createPaymentIntent(payload: any) {
-  return apiPost("/rpc/createPaymentIntent", payload);
-}
+/* ----------------------------------------------
+   RPC WRAPPERS
+---------------------------------------------- */
+const createPaymentIntent = (body: any) => apiPost("/rpc/createPaymentIntent", body);
+const getPaymentStatus = (args: any) => apiPost("/rpc/getPaymentIntentStatus", args);
+const finalizePayment = (args: any) => apiPost("/rpc/finalizePayment", args);
+const getUserPremium = (uid: string) => apiGet("/rpc/userPremium", { uid });
 
-async function getPaymentStatus(args: { paymentIntentId?: string; sessionId?: string }) {
-  return apiPost("/rpc/getPaymentIntentStatus", args);
-}
-
-async function finalizePayment(args: { paymentIntentId?: string; sessionId?: string }) {
-  return apiPost("/rpc/finalizePayment", args);
-}
-
-async function getUserPremium(uid: string) {
-  return apiGet("/rpc/userPremium", { uid });
-}
-
-/** Helpers */
+/* ----------------------------------------------
+   UTILITIES
+---------------------------------------------- */
 function toDateSafe(v: any): Date | null {
   try {
     if (!v) return null;
     if (v instanceof Date) return v;
     if (v instanceof Timestamp) return v.toDate();
     if (typeof v?.toDate === "function") return v.toDate();
-    if (typeof v?.seconds === "number") return new Date(v.seconds * 1000);
     if (typeof v === "string") {
       const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? null : d;
+      return isNaN(d.getTime()) ? null : d;
     }
     return null;
   } catch {
@@ -204,214 +192,202 @@ function toDateSafe(v: any): Date | null {
   }
 }
 
-function cleanWebQueryParams(keys: string[]) {
-  if (Platform.OS !== "web" || typeof window === "undefined") return;
-  try {
-    const url = new URL(window.location.href);
-    keys.forEach((k) => url.searchParams.delete(k));
-    window.history.replaceState({}, "", url.toString());
-  } catch {}
-}
-
 export default function PremiumScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    session_id?: string;
-    payment_intent?: string;
-    cancelled?: string;
-  }>();
-
+  const params = useLocalSearchParams();
   const { colors } = useThemeColors();
 
   const [authReady, setAuthReady] = useState(false);
-
   const [isPremium, setIsPremium] = useState(false);
   const [premiumUntil, setPremiumUntil] = useState<Date | null>(null);
-
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const [payModal, setPayModal] = useState<{ open: boolean; planId: PlanId | null }>({
+  const [payModal, setPayModal] = useState<{
+    open: boolean;
+    planId: PlanId | null;
+  }>({ open: false, planId: null });
+
+  const [alertWeb, setAlertWeb] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
-    planId: null,
+    title: "",
+    message: "",
   });
 
-  // ładny modal alertu zamiast window.alert
-  const [alertState, setAlertState] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-  }>({ open: false, title: "", message: "" });
+  const uid = auth.currentUser?.uid || null;
 
-  const showNiceAlert = useCallback((title: string, message: string) => {
-    if (Platform.OS === "web") {
-      setAlertState({ open: true, title, message });
-      return;
-    }
-    Alert.alert(title, message);
-  }, []);
-
-  const closeNiceAlert = () => {
-    setAlertState((prev) => ({ ...prev, open: false }));
-  };
-
+  /* ----------------------------------------------
+     AUTH LISTENER
+  ---------------------------------------------- */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(() => setAuthReady(true));
     return () => unsub();
   }, []);
 
-  const uid = auth.currentUser?.uid || null;
-
+  /* ----------------------------------------------
+     USER PREMIUM SNAPSHOT
+  ---------------------------------------------- */
   useEffect(() => {
     if (!uid) return;
+
     const ref = doc(db, "users", uid);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.exists()) {
-          setIsPremium(false);
-          setPremiumUntil(null);
-          return;
-        }
-        const d: any = snap.data();
-        setIsPremium(!!d?.isPremium);
-        setPremiumUntil(toDateSafe(d?.premiumUntil));
-      },
-      () => {}
-    );
+    const unsub = onSnapshot(ref, (snap) => {
+      if (!snap.exists()) {
+        setIsPremium(false);
+        setPremiumUntil(null);
+        return;
+      }
+      const d: any = snap.data();
+      setIsPremium(!!d?.isPremium);
+      setPremiumUntil(toDateSafe(d?.premiumUntil));
+    });
+
     return () => unsub();
   }, [uid]);
 
-  const premiumUntilText = premiumUntil ? premiumUntil.toLocaleDateString("pl-PL") : null;
+  const premiumUntilText = premiumUntil
+    ? premiumUntil.toLocaleDateString("pl-PL")
+    : null;
 
+  /* ----------------------------------------------
+     NICE ALERT (NATIVE + WEB)
+  ---------------------------------------------- */
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === "web") {
+      setAlertWeb({ open: true, title, message });
+      return;
+    }
+    Alert.alert(title, message);
+  };
+
+  const closeAlertWeb = () => setAlertWeb({ ...alertWeb, open: false });
+
+  /* ----------------------------------------------
+     RETURN HANDLING (Stripe redirect)
+  ---------------------------------------------- */
   const handleReturn = useCallback(
-    async (args: { sessionId?: string; paymentIntentId?: string; cancelled?: boolean }) => {
-      if (args.cancelled) {
-        setErr("Płatność została anulowana.");
+    async ({
+      sessionId,
+      paymentIntentId,
+      cancelled,
+    }: {
+      sessionId?: string;
+      paymentIntentId?: string;
+      cancelled?: boolean;
+    }) => {
+      if (cancelled) {
+        setErr("Płatność anulowana.");
         return;
       }
-      if (!args.sessionId && !args.paymentIntentId) return;
+
+      if (!sessionId && !paymentIntentId) return;
 
       try {
         setBusy(true);
         setErr("");
 
         const stat = await getPaymentStatus({
-          sessionId: args.sessionId || undefined,
-          paymentIntentId: args.paymentIntentId || undefined,
+          sessionId,
+          paymentIntentId,
         });
 
         const status = String(stat?.status || "");
 
         if (status === "processing") {
-          showNiceAlert("Płatność w trakcie ⏳", "Stripe jeszcze potwierdza płatność.");
+          showAlert("W trakcie", "Stripe jeszcze potwierdza płatność ⏳");
           return;
         }
 
         if (status === "succeeded") {
-          const fin = await finalizePayment({
-            sessionId: args.sessionId || undefined,
-            paymentIntentId: args.paymentIntentId || undefined,
-          });
+          const fin = await finalizePayment({ sessionId, paymentIntentId });
 
           if (fin?.ok) {
-            let untilLabel: string | null = null;
-            if (fin?.premiumUntil) {
-              const d = new Date(fin.premiumUntil);
-              if (!Number.isNaN(d.getTime())) untilLabel = d.toLocaleDateString("pl-PL");
-            }
-            showNiceAlert("Premium aktywne ✅", untilLabel || "Płatność przyjęta.");
+            const d = fin?.premiumUntil ? new Date(fin.premiumUntil) : null;
+            const label = d ? d.toLocaleDateString("pl-PL") : "";
+            showAlert("Premium aktywne 🎉", label || "Płatność ukończona.");
             return;
           }
 
-          setErr(
-            fin?.status ? `Status płatności: ${fin.status}` : "Nie udało się sfinalizować płatności."
-          );
+          setErr("Nie udało się sfinalizować płatności.");
           return;
         }
 
-        if (status === "requires_payment_method" || status === "requires_action") {
-          setErr("Płatność nie została ukończona.");
+        if (status === "requires_payment_method") {
+          setErr("Błąd płatności.");
           return;
         }
 
         setErr(`Status płatności: ${status}`);
       } catch (e: any) {
-        setErr(e?.message || "Błąd weryfikacji płatności.");
+        setErr(e?.message || "Błąd przetwarzania płatności.");
       } finally {
         setBusy(false);
       }
     },
-    [showNiceAlert]
+    []
   );
 
   useEffect(() => {
     const cancelled = params?.cancelled === "1";
     const sessionId = params?.session_id ? String(params.session_id) : "";
-    const paymentIntentId = params?.payment_intent ? String(params.payment_intent) : "";
+    const paymentIntentId = params?.payment_intent
+      ? String(params.payment_intent)
+      : "";
 
     if (!sessionId && !paymentIntentId && !cancelled) return;
 
     (async () => {
       await handleReturn({
-        sessionId: sessionId || undefined,
-        paymentIntentId: paymentIntentId || undefined,
+        sessionId,
+        paymentIntentId,
         cancelled,
       });
 
-      if (Platform.OS === "web") {
-        cleanWebQueryParams([
-          "session_id",
-          "payment_intent",
-          "payment_intent_client_secret",
-          "cancelled",
-        ]);
-      } else {
-        try {
-          router.replace("/premium");
-        } catch {}
-      }
+      try {
+        router.replace("/premium");
+      } catch {}
     })();
-  }, [params?.session_id, params?.payment_intent, params?.cancelled, handleReturn, router]);
+  }, [params, handleReturn]);
 
+  /* ----------------------------------------------
+     OPEN PLAN
+  ---------------------------------------------- */
   const openPlan = (planId: PlanId) => {
-    if (!authReady) {
-      showNiceAlert("Chwila", "Ładowanie sesji…");
-      return;
-    }
-    if (!auth.currentUser) {
-      showNiceAlert("Zaloguj się", "Musisz być zalogowany.");
-      return;
-    }
+    if (!authReady) return showAlert("Chwila…", "Trwa ładowanie.");
+    if (!auth.currentUser) return showAlert("Zaloguj się", "Musisz być zalogowany.");
 
-    setErr("");
+    Haptics.selectionAsync();
     setPayModal({ open: true, planId });
   };
 
   const closePayModal = () => setPayModal({ open: false, planId: null });
 
+  /* ----------------------------------------------
+     CHECKOUT
+  ---------------------------------------------- */
   const doCheckout = async () => {
     if (!payModal.planId) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
       setBusy(true);
       setErr("");
 
       const u = auth.currentUser;
-      if (!u) throw new Error("Zaloguj się, aby wykupić Premium.");
+      if (!u) throw new Error("Musisz być zalogowany.");
 
       const appReturn = Linking.createURL("/premium");
 
-      const returnUrl =
-        Platform.OS === "web" && typeof window !== "undefined"
-          ? `${window.location.origin}${window.location.pathname}`
-          : (() => {
-              if (!STRIPE_RETURN_HTTPS || !/^https?:\/\//i.test(STRIPE_RETURN_HTTPS)) {
-                throw new Error("Brak EXPO_PUBLIC_STRIPE_RETURN_HTTPS.");
-              }
-              const glue = STRIPE_RETURN_HTTPS.includes("?") ? "&" : "?";
-              return `${STRIPE_RETURN_HTTPS}${glue}appReturn=${encodeURIComponent(appReturn)}`;
-            })();
+      const returnUrl = (() => {
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          return `${window.location.origin}${window.location.pathname}`;
+        }
+
+        if (!STRIPE_RETURN_HTTPS) throw new Error("Brak STRIPE_RETURN_HTTPS");
+        const glue = STRIPE_RETURN_HTTPS.includes("?") ? "&" : "?";
+        return `${STRIPE_RETURN_HTTPS}${glue}appReturn=${encodeURIComponent(appReturn)}`;
+      })();
 
       const payload = {
         planId: payModal.planId,
@@ -421,22 +397,14 @@ export default function PremiumScreen() {
       };
 
       const r = await createPaymentIntent(payload);
-
       const redirectUrl =
-        r?.redirectUrl ||
-        r?.url ||
-        r?.redirect_url ||
-        r?.data?.redirectUrl ||
-        r?.data?.url ||
-        null;
+        r?.redirectUrl || r?.url || r?.redirect_url || r?.data?.url;
 
-      if (!redirectUrl) {
-        throw new Error("Brak redirectUrl z backendu.");
-      }
+      if (!redirectUrl) throw new Error("Brak redirectUrl");
 
       closePayModal();
 
-      if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (Platform.OS === "web") {
         window.location.href = redirectUrl;
       } else {
         await WebBrowser.openBrowserAsync(redirectUrl, {
@@ -446,100 +414,121 @@ export default function PremiumScreen() {
     } catch (e: any) {
       const msg = e?.message || "Błąd inicjalizacji płatności.";
       setErr(msg);
-      showNiceAlert("Płatność", msg);
+      showAlert("Płatność", msg);
     } finally {
       setBusy(false);
     }
   };
 
+  /* ----------------------------------------------
+     REFRESH PREMIUM NOW
+  ---------------------------------------------- */
   const refreshPremiumNow = async () => {
-    if (!uid) return showNiceAlert("Brak sesji", "Zaloguj się ponownie.");
+    if (!uid) return showAlert("Brak sesji", "Zaloguj się ponownie.");
+
     try {
       setBusy(true);
-      setErr("");
       const r = await getUserPremium(uid);
-      const until = r?.premiumUntil ? new Date(r.premiumUntil) : null;
-      showNiceAlert(
-        "Status Premium",
-        r?.isPremium && until
-          ? `Aktywne do: ${until.toLocaleDateString("pl-PL")}`
+      const d = r?.premiumUntil ? new Date(r.premiumUntil) : null;
+      showAlert(
+        "Status premium",
+        r?.isPremium && d
+          ? `Aktywne do: ${d.toLocaleDateString("pl-PL")}`
           : "Premium nieaktywne."
       );
     } catch (e: any) {
-      setErr(e?.message || "Nie udało się odświeżyć statusu Premium.");
+      setErr(e?.message || "Nie udało się odświeżyć.");
     } finally {
       setBusy(false);
     }
   };
 
-  /** ====== UI ====== */
+  /* ----------------------------------------------
+     LAYOUT UTILS
+  ---------------------------------------------- */
+  const card = {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    padding: 16,
+  };
 
   const perks = [
-    "Rodzina MAX: do 6 osób łącznie (Ty + 5).",
-    "Możesz zapraszać członków rodziny spośród znajomych.",
-    "Wspólne funkcje zadań oraz wiadomości z rodziną.",
+    "Rodzina MAX: do 6 osób łącznie.",
+    "Możesz zapraszać członków rodziny.",
+    "Wspólne zadania i wiadomości.",
     "Odznaka Premium w profilu.",
   ];
 
-  /** NOWE PREMIUM CARD STYLE */
-  const cardStyle = useMemo(
-    () => ({
-      backgroundColor: colors.card,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: 20,
-      padding: 18,
-      shadowColor: "#000",
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 3,
-    }),
-    [colors.card, colors.border]
-  );
-
+  /* ----------------------------------------------
+     PAY MODAL CONTENT
+  ---------------------------------------------- */
   const PayModalContent = (
     <View
       style={{
-        ...cardStyle,
+        ...card,
         width: "100%",
         maxWidth: 520,
         padding: 20,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <Ionicons name="sparkles" size={22} color={PremiumGold} />
-        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 17, marginLeft: 10 }}>
+        <Ionicons name="sparkles" size={22} color={GOLD} />
+        <Text
+          style={{
+            marginLeft: 10,
+            color: colors.text,
+            fontWeight: "900",
+            fontSize: 18,
+          }}
+        >
           Płatność za Premium
         </Text>
         <View style={{ flex: 1 }} />
-        <TouchableOpacity onPress={closePayModal} style={{ padding: 6 }} activeOpacity={0.8}>
-          <Ionicons name="close" size={22} color={colors.textMuted} />
+        <TouchableOpacity onPress={closePayModal}>
+          <Ionicons name="close" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       <View style={{ marginTop: 16 }}>
-        <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontSize: 12,
+            fontWeight: "800",
+          }}
+        >
           WYBRANY PLAN
         </Text>
-        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 20, marginTop: 4 }}>
+        <Text
+          style={{
+            color: colors.text,
+            fontWeight: "900",
+            fontSize: 20,
+            marginTop: 6,
+          }}
+        >
           {payModal.planId ? PLANS[payModal.planId].title : "—"}
         </Text>
-        <Text style={{ color: colors.textMuted, marginTop: 6 }}>
+        <Text style={{ color: colors.textSecondary, marginTop: 4 }}>
           Do zapłaty:{" "}
           <Text style={{ color: colors.text, fontWeight: "900" }}>
-            {payModal.planId ? `${PLANS[payModal.planId].amountPln.toFixed(2)} PLN` : "—"}
+            {payModal.planId
+              ? `${PLANS[payModal.planId].amountPln.toFixed(2)} PLN`
+              : "—"}
           </Text>
         </Text>
       </View>
 
-      {!!err && <Text style={{ color: DangerRed, marginTop: 12, fontWeight: "800" }}>{err}</Text>}
+      {err ? (
+        <Text style={{ marginTop: 12, color: RED, fontWeight: "800" }}>{err}</Text>
+      ) : null}
 
-      <TouchableOpacity onPress={doCheckout} disabled={busy} activeOpacity={0.9}>
+      <TouchableOpacity onPress={doCheckout} disabled={busy} style={{ marginTop: 20 }}>
         <LinearGradient
-          colors={["#3B82F6", "#2563EB"]}
+          colors={[BLUE, "#2563EB"]}
           style={{
-            marginTop: 20,
             paddingVertical: 14,
             borderRadius: 14,
             alignItems: "center",
@@ -558,212 +547,290 @@ export default function PremiumScreen() {
 
       <TouchableOpacity
         onPress={closePayModal}
-        style={{ marginTop: 14, paddingVertical: 10, alignItems: "center" }}
         disabled={busy}
+        style={{ marginTop: 14, alignItems: "center", paddingVertical: 10 }}
       >
-        <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
+        <Text style={{ color: colors.textSecondary, fontWeight: "700" }}>Anuluj</Text>
       </TouchableOpacity>
     </View>
   );
 
+  /* ----------------------------------------------
+     RENDER
+  ---------------------------------------------- */
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         contentContainerStyle={{
-          padding: 16,
-          paddingBottom: 32,
-          width: "100%",
-          maxWidth: 900,
-          alignSelf: Platform.OS === "web" ? "center" : "stretch",
-          gap: 14,
+          paddingHorizontal: 16,
+          paddingBottom: 40,
         }}
+        showsVerticalScrollIndicator={false}
+        bounces={Platform.OS === "ios"}
       >
         {/* HEADER */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingVertical: 10,
+          }}
+        >
           <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ paddingVertical: 4, paddingRight: 8 }}
-          >
-            <Ionicons name="chevron-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-
-          <Text style={{ color: colors.text, fontSize: 20, fontWeight: "900" }}>Premium</Text>
-
-          <View style={{ flex: 1 }} />
-
-          <TouchableOpacity
-            onPress={refreshPremiumNow}
-            style={{
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.bg,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 999,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.back();
             }}
-            activeOpacity={0.9}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
           >
-            <Ionicons name="refresh" size={18} color={colors.text} />
-            <Text style={{ color: colors.text, fontWeight: "900" }}>Sprawdź</Text>
+            <Ionicons
+              name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
+              size={24}
+              color={colors.text}
+            />
           </TouchableOpacity>
+
+          <Text
+            style={{
+              flex: 1,
+              textAlign: "center",
+              marginRight: 36,
+              color: colors.text,
+              fontSize: 22,
+              fontWeight: "800",
+            }}
+          >
+            Premium
+          </Text>
         </View>
 
         {/* STATUS CARD */}
-        <View style={{ ...cardStyle }}>
+        <View style={{ ...card }}>
           <LinearGradient
             colors={[colors.card, "rgba(251,191,36,0.12)"]}
             style={{
-              padding: 10,
-              borderRadius: 16,
+              padding: 12,
+              borderRadius: 14,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
             }}
           >
             <Ionicons
               name={isPremium ? "sparkles" : "sparkles-outline"}
               size={24}
-              color={PremiumGold}
+              color={GOLD}
             />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            <Text
+              style={{
+                marginLeft: 12,
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 17,
+              }}
+            >
               {isPremium ? "Premium aktywne" : "Premium nieaktywne"}
             </Text>
-
-            <View style={{ flex: 1 }} />
 
             {isPremium ? (
               <View
                 style={{
-                  backgroundColor: "rgba(251,191,36,0.25)",
-                  paddingHorizontal: 14,
+                  marginLeft: "auto",
+                  backgroundColor: "rgba(251,191,36,0.3)",
+                  paddingHorizontal: 12,
                   paddingVertical: 6,
                   borderRadius: 999,
                 }}
               >
-                <Text style={{ color: PremiumGold, fontWeight: "900", fontSize: 12 }}>AKTYWNE</Text>
+                <Text
+                  style={{
+                    color: GOLD,
+                    fontWeight: "900",
+                    fontSize: 12,
+                  }}
+                >
+                  AKTYWNE
+                </Text>
               </View>
             ) : null}
           </LinearGradient>
 
-          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10 }}>
+          <Text style={{ marginTop: 10, color: colors.textSecondary, fontSize: 14 }}>
             {isPremium
               ? premiumUntilText
                 ? `Aktywne do: ${premiumUntilText}`
                 : "Aktywne."
-              : "Aktywuj Premium, żeby odblokować dodatki."}
+              : "Aktywuj Premium, aby odblokować dodatki."}
           </Text>
 
-          {!!err && <Text style={{ color: DangerRed, marginTop: 10, fontWeight: "800" }}>{err}</Text>}
+          {err ? (
+            <Text
+              style={{
+                marginTop: 10,
+                color: RED,
+                fontWeight: "800",
+              }}
+            >
+              {err}
+            </Text>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={refreshPremiumNow}
+            style={{
+              marginTop: 14,
+              alignSelf: "flex-start",
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 999,
+            }}
+          >
+            <Ionicons name="refresh" size={18} color={colors.text} />
+            <Text
+              style={{
+                marginLeft: 8,
+                color: colors.text,
+                fontWeight: "800",
+              }}
+            >
+              Sprawdź
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* PERKS */}
-        <View style={{ ...cardStyle }}>
+        {/* BENEFITS */}
+        <View style={{ ...card, marginTop: 18 }}>
           <LinearGradient
             colors={[colors.card, "rgba(251,191,36,0.12)"]}
             style={{
-              padding: 10,
-              borderRadius: 16,
+              padding: 12,
+              borderRadius: 14,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
             }}
           >
-            <Ionicons name="sparkles" size={22} color={PremiumGold} />
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            <Ionicons name="sparkles" size={22} color={GOLD} />
+            <Text
+              style={{
+                marginLeft: 10,
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 17,
+              }}
+            >
               Co daje Premium?
             </Text>
           </LinearGradient>
 
-          <View style={{ marginTop: 14, gap: 12 }}>
+          <View style={{ marginTop: 16 }}>
             {perks.map((p, i) => (
-              <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 12,
+                }}
+              >
                 <Ionicons
                   name="checkmark-circle"
                   size={20}
-                  color={SuccessGreen}
-                  style={{ marginTop: 1 }}
+                  color={GREEN}
+                  style={{ marginTop: 2, marginRight: 10 }}
                 />
-                <Text style={{ color: colors.text, flex: 1, lineHeight: 20 }}>{p}</Text>
+                <Text style={{ color: colors.text, lineHeight: 20, flex: 1 }}>
+                  {p}
+                </Text>
               </View>
             ))}
           </View>
         </View>
 
         {/* PLANS */}
-        <View style={{ ...cardStyle }}>
+        <View style={{ ...card, marginTop: 18 }}>
           <LinearGradient
             colors={[colors.card, "rgba(59,130,246,0.15)"]}
-            style={{ padding: 12, borderRadius: 16 }}
+            style={{ padding: 12, borderRadius: 14 }}
           >
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 17,
+              }}
+            >
               Wybierz plan
             </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
+            <Text style={{ color: colors.textSecondary, marginTop: 4, fontSize: 13 }}>
               Płatność przez Stripe Checkout (P24 / BLIK / karta).
             </Text>
           </LinearGradient>
 
-          {!authReady ? (
-            <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "800" }}>
-              Ładowanie sesji…
-            </Text>
-          ) : null}
-
-          <View style={{ marginTop: 16, gap: 14 }}>
+          <View style={{ marginTop: 16 }}>
             {(Object.keys(PLANS) as PlanId[]).map((planId) => {
-              const plan = PLANS[planId];
+              const p = PLANS[planId];
 
               return (
                 <View
                   key={planId}
                   style={{
+                    marginBottom: 14,
                     borderWidth: 1,
-                    borderColor: PremiumGold,
+                    borderColor: GOLD,
                     borderRadius: 18,
                     padding: 16,
                     backgroundColor: colors.card,
-                    shadowColor: PremiumGold,
-                    shadowOpacity: 0.2,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: 4,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text, fontWeight: "900", fontSize: 17 }}>
-                        {plan.title}
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontWeight: "900",
+                          fontSize: 17,
+                        }}
+                      >
+                        {p.title}
                       </Text>
                       <Text
-                        style={{ color: colors.textMuted, marginTop: 4, fontWeight: "700" }}
+                        style={{
+                          marginTop: 4,
+                          color: colors.textSecondary,
+                          fontWeight: "700",
+                        }}
                       >
-                        {plan.priceLabel}
+                        {p.priceLabel}
                       </Text>
                     </View>
 
-                    <TouchableOpacity onPress={() => openPlan(planId)} activeOpacity={0.9}>
+                    <TouchableOpacity onPress={() => openPlan(planId)}>
                       <LinearGradient
                         colors={["#FBBF24", "#F59E0B"]}
                         style={{
                           paddingHorizontal: 18,
                           paddingVertical: 10,
                           borderRadius: 14,
-                          opacity: busy ? 0.7 : 1,
-                          ...(Platform.OS === "web"
-                            ? ({ cursor: "pointer" } as any)
-                            : null),
                         }}
                       >
-                        {busy ? (
-                          <ActivityIndicator color="#fff" />
-                        ) : (
-                          <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>
-                            Wybierz
-                          </Text>
-                        )}
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontWeight: "900",
+                            fontSize: 15,
+                          }}
+                        >
+                          Wybierz
+                        </Text>
                       </LinearGradient>
                     </TouchableOpacity>
                   </View>
@@ -774,59 +841,30 @@ export default function PremiumScreen() {
         </View>
       </ScrollView>
 
-      {/* PAY MODAL */}
-      {Platform.OS === "web" ? (
-        payModal.open ? (
-          <View
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              zIndex: 9999,
-            }}
-            pointerEvents="box-none"
-          >
-            <Pressable
-              style={{
-                flex: 1,
-                backgroundColor: "rgba(0,0,0,0.55)",
-                justifyContent: "center",
-                alignItems: "center",
-                backdropFilter: "blur(6px)",
-              }}
-              onPress={closePayModal}
-            >
-              <Pressable
-                onPress={(e) => e.stopPropagation()}
-                style={{ width: "100%", alignItems: "center", padding: 16 }}
-              >
-                {PayModalContent}
-              </Pressable>
-            </Pressable>
-          </View>
-        ) : null
-      ) : (
-        <Modal visible={payModal.open} transparent animationType="fade" onRequestClose={closePayModal}>
-          <Pressable
-            onPress={closePayModal}
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.55)",
-              padding: 16,
-              justifyContent: "center",
-            }}
-          >
-            <Pressable onPress={() => {}} style={{ width: "100%", alignItems: "center" }}>
-              {PayModalContent}
-            </Pressable>
+      {/* MODAL (native + web) */}
+      <Modal
+        visible={payModal.open}
+        transparent
+        animationType="fade"
+        onRequestClose={closePayModal}
+      >
+        <Pressable
+          onPress={closePayModal}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <Pressable onPress={() => {}} style={{ alignItems: "center" }}>
+            {PayModalContent}
           </Pressable>
-        </Modal>
-      )}
+        </Pressable>
+      </Modal>
 
-      {/* NICE ALERT MODAL (web) */}
-      {alertState.open && Platform.OS === "web" && (
+      {/* WEB ALERT */}
+      {alertWeb.open && Platform.OS === "web" && (
         <View
           style={{
             position: "fixed",
@@ -838,44 +876,41 @@ export default function PremiumScreen() {
             justifyContent: "center",
             alignItems: "center",
             padding: 16,
-            zIndex: 10000,
-            backdropFilter: "blur(6px)",
           }}
         >
           <View
             style={{
-              ...cardStyle,
+              ...card,
               maxWidth: 420,
               width: "100%",
               padding: 20,
             }}
           >
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Ionicons name="sparkles" size={24} color={PremiumGold} />
+              <Ionicons name="sparkles" size={24} color={GOLD} />
               <Text
                 style={{
                   marginLeft: 10,
                   fontSize: 18,
                   fontWeight: "900",
                   color: colors.text,
-                  flexShrink: 1,
                 }}
               >
-                {alertState.title}
+                {alertWeb.title}
               </Text>
+
               <View style={{ flex: 1 }} />
-              <Pressable onPress={closeNiceAlert} hitSlop={8}>
-                <Ionicons name="close" size={22} color={colors.textMuted} />
+
+              <Pressable onPress={closeAlertWeb}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </Pressable>
             </View>
 
-            <Text style={{ marginTop: 12, color: colors.text, lineHeight: 20 }}>
-              {alertState.message}
-            </Text>
+            <Text style={{ marginTop: 12, color: colors.text }}>{alertWeb.message}</Text>
 
-            <Pressable onPress={closeNiceAlert} style={{ marginTop: 20 }}>
+            <Pressable onPress={closeAlertWeb} style={{ marginTop: 20 }}>
               <LinearGradient
-                colors={["#3B82F6", "#2563EB"]}
+                colors={[BLUE, "#2563EB"]}
                 style={{
                   paddingVertical: 12,
                   borderRadius: 12,
@@ -889,7 +924,7 @@ export default function PremiumScreen() {
         </View>
       )}
 
-      {/* Busy overlay */}
+      {/* BUSY OVERLAY */}
       {busy && (
         <View
           pointerEvents="none"
@@ -899,34 +934,37 @@ export default function PremiumScreen() {
             right: 0,
             top: 0,
             bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.15)",
-            alignItems: "center",
+            backgroundColor: "rgba(0,0,0,0.2)",
             justifyContent: "center",
+            alignItems: "center",
           }}
         >
           <View
             style={{
               backgroundColor: colors.card,
-              borderColor: colors.border,
-              borderWidth: 1,
-              paddingHorizontal: 18,
+              paddingHorizontal: 20,
               paddingVertical: 14,
               borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
               flexDirection: "row",
               alignItems: "center",
-              gap: 12,
-              shadowColor: "#000",
-              shadowOpacity: 0.15,
-              shadowRadius: 20,
             }}
           >
             <ActivityIndicator color={colors.accent} />
-            <Text style={{ color: colors.text, fontWeight: "900" }}>Przetwarzam…</Text>
+            <Text
+              style={{
+                marginLeft: 12,
+                color: colors.text,
+                fontWeight: "800",
+                fontSize: 15,
+              }}
+            >
+              Przetwarzam…
+            </Text>
           </View>
         </View>
       )}
     </SafeAreaView>
   );
 }
-
-//src/app/premium.tsx

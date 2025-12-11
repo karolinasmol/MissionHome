@@ -102,6 +102,7 @@ export default function CustomHeader() {
     { key: "stats", icon: "stats-chart-outline", label: "Statystyki", route: "/stats" },
     { key: "ach", icon: "trophy-outline", label: "Osiągnięcia", route: "/achievements" },
     { key: "rank", icon: "podium-outline", label: "Ranking", route: "/Ranking" },
+    { key: "msg", icon: "chatbubbles-outline", label: "Wiadomości", route: "/messages" },
   ];
 
   /* ========== MODALS ========== */

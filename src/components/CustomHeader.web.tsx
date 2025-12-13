@@ -16,7 +16,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
-import { useTheme, useThemeColors } from "../context/ThemeContext";
+import {
+  useTheme,
+  useThemeColors,
+  THEMES,
+  THEME_LABELS,
+  Theme,
+} from "../context/ThemeContext";
 import { auth, db } from "../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -55,17 +61,16 @@ type NavItem = {
   premium?: boolean;
 };
 
+type AnchorRect = { x: number; y: number; w: number; h: number };
+
 export default function CustomHeader() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { colors, isDark } = useThemeColors();
 
-  const palette = useMemo(
-    () => makePalette({ isDark, colors }),
-    [isDark, colors]
-  );
+  const palette = useMemo(() => makePalette({ isDark, colors }), [isDark, colors]);
 
   const { width } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
@@ -76,6 +81,96 @@ export default function CustomHeader() {
     () => makeStyles(palette, isWeb, isMobileWeb),
     [palette, isWeb, isMobileWeb]
   );
+
+  const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
+  const themeLabelUpper = String(themeLabel).toUpperCase();
+
+  // ✅ pełna lista z ThemeContext
+  const AVAILABLE_THEMES = THEMES as Theme[];
+
+  // THEME DROPDOWN
+  const [themeOpen, setThemeOpen] = useState(false);
+  const themeAnim = useRef(new Animated.Value(0)).current;
+  const themeBtnRef = useRef<any>(null);
+  const [themeAnchor, setThemeAnchor] = useState<AnchorRect | null>(null);
+
+  const measureThemeBtn = () => {
+    try {
+      const node = themeBtnRef.current;
+      if (node && typeof node.measureInWindow === "function") {
+        node.measureInWindow((x: number, y: number, w: number, h: number) => {
+          if (Number.isFinite(x) && Number.isFinite(y)) setThemeAnchor({ x, y, w, h });
+          else setThemeAnchor(null);
+        });
+      } else {
+        setThemeAnchor(null);
+      }
+    } catch {
+      setThemeAnchor(null);
+    }
+  };
+
+  const closeThemeInstant = () => {
+    setThemeOpen(false);
+    themeAnim.stopAnimation();
+    themeAnim.setValue(0);
+  };
+
+  const openTheme = () => {
+    closeMenuInstant();
+    closeNotifsInstant();
+    closeNav();
+    measureThemeBtn();
+    setThemeOpen(true);
+    themeAnim.setValue(0);
+    Animated.timing(themeAnim, {
+      toValue: 1,
+      duration: 160,
+      useNativeDriver: useNative,
+    }).start();
+  };
+
+  const closeTheme = () =>
+    Animated.timing(themeAnim, {
+      toValue: 0,
+      duration: 120,
+      useNativeDriver: useNative,
+    }).start(() => setThemeOpen(false));
+
+  const toggleThemeDropdown = () => {
+    if (themeOpen) closeTheme();
+    else openTheme();
+  };
+
+  const handleThemeSelect = (t: Theme) => {
+    if (t === theme) {
+      closeTheme();
+      return;
+    }
+    try {
+      setTheme(t);
+    } catch {}
+    closeTheme();
+  };
+
+  const themeMenuPos = useMemo(() => {
+    // WEB: fixed pod buttonem (anchor w viewport)
+    if (isWeb && themeAnchor) {
+      return {
+        position: "fixed" as const,
+        left: Math.max(10, themeAnchor.x),
+        top: Math.max(10, themeAnchor.y + themeAnchor.h + 8),
+        width: 232,
+      };
+    }
+    // fallback / native
+    return {
+      position: "absolute" as const,
+      left: 12,
+      top: 62,
+      width: 232,
+    };
+  }, [isWeb, themeAnchor]);
 
   // NAV STRUCTURE (do użycia w panelu mobilnym)
   const NAV_ITEMS: NavItem[] = [
@@ -121,8 +216,7 @@ export default function CustomHeader() {
     return () => unsub();
   }, [uid]);
 
-  const fallbackName =
-    user?.displayName || user?.email?.split("@")[0] || "Użytkownik";
+  const fallbackName = user?.displayName || user?.email?.split("@")[0] || "Użytkownik";
   const shownName = username || fallbackName;
   const initials = getInitials(shownName);
 
@@ -131,6 +225,7 @@ export default function CustomHeader() {
   const menuAnim = useRef(new Animated.Value(0)).current;
 
   const openMenu = () => {
+    closeThemeInstant();
     closeNav();
     closeNotifs();
     setMenuOpen(true);
@@ -159,6 +254,7 @@ export default function CustomHeader() {
 
   const openNav = () => {
     if (!isMobileWeb) return;
+    closeThemeInstant();
     closeMenuInstant();
     closeNotifsInstant();
     setNavOpen(true);
@@ -175,7 +271,6 @@ export default function CustomHeader() {
   };
 
   const closeMenuInstant = () => {
-    // pomocniczo, bez animacji, gdy otwieramy inny panel
     setMenuOpen(false);
     menuAnim.stopAnimation();
     menuAnim.setValue(0);
@@ -216,6 +311,7 @@ export default function CustomHeader() {
   }, [uid]);
 
   const openNotifs = () => {
+    closeThemeInstant();
     closeMenuInstant();
     closeNav();
     setNotifsOpen(true);
@@ -374,9 +470,7 @@ export default function CustomHeader() {
       router.push(
         {
           pathname: "/family",
-          params: n.familyId
-            ? { from: "notif", familyId: n.familyId }
-            : { from: "notif" },
+          params: n.familyId ? { from: "notif", familyId: n.familyId } : { from: "notif" },
         } as any
       );
     }
@@ -394,9 +488,7 @@ export default function CustomHeader() {
     route: string;
     premium?: boolean;
   }) => {
-    const active =
-      pathname === route ||
-      pathname?.startsWith(route);
+    const active = pathname === route || pathname?.startsWith(route);
 
     const scale = useRef(new Animated.Value(1)).current;
     const [hovered, setHovered] = useState(false);
@@ -445,11 +537,7 @@ export default function CustomHeader() {
           />
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Text
-              style={[styles.navLabel, active && styles.navLabelActive]}
-            >
-              {label}
-            </Text>
+            <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
 
             {premium && (
               <Ionicons
@@ -477,59 +565,45 @@ export default function CustomHeader() {
   }) => (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.menuItem,
-        pressed && styles.menuItemPressed,
-      ]}
+      style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
     >
-      <Ionicons
-        name={icon}
-        size={18}
-        color={palette.menuText}
-        style={{ marginRight: 8 }}
-      />
+      <Ionicons name={icon} size={18} color={palette.menuText} style={{ marginRight: 8 }} />
       <Text style={styles.menuItemText}>{label}</Text>
     </Pressable>
   );
 
   // zamknięcie overlayów przy zmianie trasy
   useEffect(() => {
+    if (themeOpen) closeTheme();
     if (menuOpen) closeMenu();
     if (notifsOpen) closeNotifs();
     if (navOpen) closeNav();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   // RENDER
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.main}>
-        {/* LEWA STRONA – logo + theme pill */}
+        {/* LEWA STRONA – logo + themes dropdown */}
         <View style={styles.left}>
-          <Pressable
-            onPress={() => router.push("/" as any)}
-            style={styles.logoWrap}
-          >
+          <Pressable onPress={() => router.push("/" as any)} style={styles.logoWrap}>
             <Text style={styles.logoTop}>Mission</Text>
             <Text style={styles.logoBottom}>Home</Text>
           </Pressable>
 
           <Pressable
-            onPress={toggleTheme}
-            style={({ pressed }) => [
-              styles.themePill,
-              pressed && styles.themePillPressed,
-            ]}
+            ref={themeBtnRef}
+            onPress={toggleThemeDropdown}
+            style={({ pressed }) => [styles.themeBtn, pressed && styles.themeBtnPressed]}
           >
+            <Ionicons name="color-palette" size={16} color={palette.muted} />
+            {isWeb && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
             <Ionicons
-              name="color-palette"
-              size={18}
-              color={palette.accent}
+              name={themeOpen ? "chevron-up" : "chevron-down"}
+              size={14}
+              color={palette.muted}
             />
-            {Platform.OS === "web" && (
-              <Text style={styles.themePillText}>
-                {theme.toUpperCase()}
-              </Text>
-            )}
           </Pressable>
         </View>
 
@@ -540,87 +614,35 @@ export default function CustomHeader() {
             {!isMobileWeb && (
               <>
                 <View style={styles.center}>
-                  <NavButton
-                    icon="calendar-outline"
-                    label="Kalendarz"
-                    route="/calendar"
-                  />
-
-                  <NavButton
-                    icon="people-outline"
-                    label="Rodzina"
-                    route="/family"
-                    premium
-                  />
-
-                  <NavButton
-                    icon="stats-chart-outline"
-                    label="Statystyki"
-                    route="/stats"
-                  />
-
-                  <NavButton
-                    icon="trophy-outline"
-                    label="Osiągnięcia"
-                    route="/achievements"
-                  />
-
-                  <NavButton
-                    icon="podium-outline"
-                    label="Ranking"
-                    route="/Ranking"
-                  />
+                  <NavButton icon="calendar-outline" label="Kalendarz" route="/calendar" />
+                  <NavButton icon="people-outline" label="Rodzina" route="/family" premium />
+                  <NavButton icon="stats-chart-outline" label="Statystyki" route="/stats" />
+                  <NavButton icon="trophy-outline" label="Osiągnięcia" route="/achievements" />
+                  <NavButton icon="podium-outline" label="Ranking" route="/Ranking" />
                 </View>
 
                 <View style={styles.right}>
                   <Pressable
                     onPress={() => router.push("/premium" as any)}
-                    style={({ pressed }) => [
-                      styles.premiumBtn,
-                      pressed && styles.premiumBtnPressed,
-                    ]}
+                    style={({ pressed }) => [styles.premiumBtn, pressed && styles.premiumBtnPressed]}
                   >
-                    {isWeb && (
-                      <Text style={styles.premiumText}>Premium</Text>
-                    )}
-
-                    <Ionicons
-                      name="sparkles"
-                      size={18}
-                      color={ACCENT_PREMIUM}
-                    />
+                    {isWeb && <Text style={styles.premiumText}>Premium</Text>}
+                    <Ionicons name="sparkles" size={18} color={ACCENT_PREMIUM} />
                   </Pressable>
 
                   <Pressable
                     onPress={() => router.push("/messages" as any)}
                     style={({ pressed }) => [
                       styles.bellBtn,
-                      pressed && {
-                        opacity: 0.9,
-                        transform: [{ scale: 0.98 }],
-                      },
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
                     ]}
                   >
-                    <Ionicons
-                      name="chatbubbles-outline"
-                      size={20}
-                      color={palette.navIcon}
-                    />
+                    <Ionicons name="chatbubbles-outline" size={20} color={palette.navIcon} />
 
                     {isWeb && (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Text style={styles.bellLabel}>Wiadomości</Text>
-                        <Ionicons
-                          name="sparkles"
-                          size={14}
-                          color={ACCENT_PREMIUM}
-                        />
+                        <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />
                       </View>
                     )}
                   </Pressable>
@@ -629,59 +651,38 @@ export default function CustomHeader() {
                     onPress={toggleNotifs}
                     style={({ pressed }) => [
                       styles.bellBtn,
-                      pressed && {
-                        opacity: 0.9,
-                        transform: [{ scale: 0.98 }],
-                      },
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
                     ]}
                   >
                     <View style={{ position: "relative" }}>
                       <Ionicons
-                        name={
-                          notifsOpen
-                            ? "notifications"
-                            : "notifications-outline"
-                        }
+                        name={notifsOpen ? "notifications" : "notifications-outline"}
                         size={20}
                         color={palette.navIcon}
                       />
                       <Badge count={unreadCount} />
                     </View>
 
-                    {isWeb && (
-                      <Text style={styles.bellLabel}>Powiadomienia</Text>
-                    )}
+                    {isWeb && <Text style={styles.bellLabel}>Powiadomienia</Text>}
                   </Pressable>
 
                   <Pressable
                     onPress={toggleMenu}
-                    style={({ pressed }) => [
-                      styles.profileBtn,
-                      pressed && styles.profileBtnPressed,
-                    ]}
+                    style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}
                   >
                     <View style={styles.avatarOuter}>
                       <View style={styles.avatarInner}>
                         {user?.photoURL ? (
-                          <Image
-                            source={{ uri: user.photoURL }}
-                            style={styles.avatarImage}
-                          />
+                          <Image source={{ uri: user.photoURL }} style={styles.avatarImage} />
                         ) : (
                           <View style={styles.avatarFallback}>
-                            <Text style={styles.avatarFallbackText}>
-                              {initials}
-                            </Text>
+                            <Text style={styles.avatarFallbackText}>{initials}</Text>
                           </View>
                         )}
                       </View>
                     </View>
 
-                    <Text
-                      style={styles.profileName}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
+                    <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
                       {shownName}
                     </Text>
 
@@ -701,33 +702,19 @@ export default function CustomHeader() {
                 {/* MENU (NAV) */}
                 <Pressable
                   onPress={toggleNav}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    pressed && styles.iconBtnPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
-                  <Ionicons
-                    name="ellipsis-horizontal"
-                    size={20}
-                    color={palette.navIcon}
-                  />
+                  <Ionicons name="ellipsis-horizontal" size={20} color={palette.navIcon} />
                 </Pressable>
 
                 {/* POWIADOMIENIA */}
                 <Pressable
                   onPress={toggleNotifs}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    pressed && styles.iconBtnPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
                   <View style={{ position: "relative" }}>
                     <Ionicons
-                      name={
-                        notifsOpen
-                          ? "notifications"
-                          : "notifications-outline"
-                      }
+                      name={notifsOpen ? "notifications" : "notifications-outline"}
                       size={20}
                       color={palette.navIcon}
                     />
@@ -738,38 +725,23 @@ export default function CustomHeader() {
                 {/* PREMIUM */}
                 <Pressable
                   onPress={() => router.push("/premium" as any)}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    pressed && styles.iconBtnPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
-                  <Ionicons
-                    name="sparkles"
-                    size={18}
-                    color={ACCENT_PREMIUM}
-                  />
+                  <Ionicons name="sparkles" size={18} color={ACCENT_PREMIUM} />
                 </Pressable>
 
                 {/* PROFIL */}
                 <Pressable
                   onPress={toggleMenu}
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    pressed && styles.iconBtnPressed,
-                  ]}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
                   <View style={styles.avatarOuterSmall}>
                     <View style={styles.avatarInner}>
                       {user?.photoURL ? (
-                        <Image
-                          source={{ uri: user.photoURL }}
-                          style={styles.avatarImage}
-                        />
+                        <Image source={{ uri: user.photoURL }} style={styles.avatarImage} />
                       ) : (
                         <View style={styles.avatarFallback}>
-                          <Text style={styles.avatarFallbackText}>
-                            {initials}
-                          </Text>
+                          <Text style={styles.avatarFallbackText}>{initials}</Text>
                         </View>
                       )}
                     </View>
@@ -781,25 +753,94 @@ export default function CustomHeader() {
         )}
       </View>
 
+      {/* THEME DROPDOWN OVERLAY */}
+      {themeOpen && (
+        <>
+          <Pressable
+            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
+            onPress={closeTheme}
+            pointerEvents="auto"
+          />
+
+          <Animated.View
+            pointerEvents="auto"
+            style={[
+              styles.themeMenu,
+              themeMenuPos as any,
+              {
+                opacity: themeAnim,
+                transform: [
+                  {
+                    translateY: themeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-6, 0],
+                    }),
+                  },
+                  {
+                    scale: themeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.98, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.themeMenuHeader}>
+              <Text style={styles.themeMenuTitle}>Motywy</Text>
+            </View>
+
+            <View style={styles.themeMenuSeparator} />
+
+            <ScrollView
+              style={styles.themeMenuScroll}
+              contentContainerStyle={styles.themeMenuList}
+              showsVerticalScrollIndicator={true}
+              indicatorStyle={isDark ? "white" : "black"}
+              persistentScrollbar={true as any}
+            >
+              {AVAILABLE_THEMES.map((t) => {
+                const active = t === theme;
+                return (
+                  <Pressable
+                    key={t}
+                    onPress={() => handleThemeSelect(t)}
+                    style={({ pressed }) => [
+                      styles.themeItem,
+                      active && styles.themeItemActive,
+                      pressed && styles.themeItemPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[styles.themeItemText, active && styles.themeItemTextActive]}
+                      numberOfLines={1}
+                    >
+                      {String(THEME_LABELS?.[t] ?? t).toUpperCase()}
+                    </Text>
+
+                    {active ? (
+                      <Ionicons name="checkmark" size={16} color={palette.navIconActive} />
+                    ) : (
+                      <View style={{ width: 16 }} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Animated.View>
+        </>
+      )}
+
       {/* NAV PANEL — tylko MOBILE WEB */}
       {isMobileWeb && user && navOpen && (
         <>
-          <Pressable
-            style={styles.backdropDimmed}
-            onPress={closeNav}
-            pointerEvents="auto"
-          />
+          <Pressable style={styles.backdropDimmed} onPress={closeNav} pointerEvents="auto" />
           <View style={styles.mobileNavPanel}>
             <Text style={styles.mobileNavTitle}>Nawigacja</Text>
             <View style={styles.mobileNavSeparator} />
-            <ScrollView
-              style={styles.mobileNavScroll}
-              contentContainerStyle={styles.mobileNavList}
-            >
+            <ScrollView style={styles.mobileNavScroll} contentContainerStyle={styles.mobileNavList}>
               {NAV_ITEMS.map((item) => {
-                const active =
-                  pathname === item.route ||
-                  pathname?.startsWith(item.route);
+                const active = pathname === item.route || pathname?.startsWith(item.route);
                 return (
                   <Pressable
                     key={item.route}
@@ -816,25 +857,14 @@ export default function CustomHeader() {
                     <Ionicons
                       name={item.icon}
                       size={18}
-                      color={
-                        active ? palette.navIconActive : palette.navIcon
-                      }
+                      color={active ? palette.navIconActive : palette.navIcon}
                     />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Text
-                        style={[
-                          styles.mobileNavText,
-                          active && styles.mobileNavTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.mobileNavText, active && styles.mobileNavTextActive]}>
                         {item.label}
                       </Text>
                       {item.premium && (
-                        <Ionicons
-                          name="sparkles"
-                          size={14}
-                          color={ACCENT_PREMIUM}
-                        />
+                        <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />
                       )}
                     </View>
                   </Pressable>
@@ -978,15 +1008,10 @@ export default function CustomHeader() {
               </View>
             ) : notifRows.length === 0 ? (
               <View style={styles.notifLoading}>
-                <Text style={{ color: palette.muted }}>
-                  Brak powiadomień
-                </Text>
+                <Text style={{ color: palette.muted }}>Brak powiadomień</Text>
               </View>
             ) : (
-              <ScrollView
-                style={styles.notifScroll}
-                contentContainerStyle={styles.notifList}
-              >
+              <ScrollView style={styles.notifScroll} contentContainerStyle={styles.notifList}>
                 {notifRows.map((n) => {
                   const icon = notifIconFor(n.type);
                   const unread = !n.read;
@@ -996,10 +1021,7 @@ export default function CustomHeader() {
                       key={n.id}
                       activeOpacity={0.92}
                       onPress={() => handleNotifPress(n)}
-                      style={[
-                        styles.notifRow,
-                        unread && styles.notifRowUnread,
-                      ]}
+                      style={[styles.notifRow, unread && styles.notifRowUnread]}
                     >
                       <Ionicons
                         name={icon as any}
@@ -1020,10 +1042,7 @@ export default function CustomHeader() {
                         </Text>
 
                         {!!n.body && (
-                          <Text
-                            numberOfLines={2}
-                            style={styles.notifRowBody}
-                          >
+                          <Text numberOfLines={2} style={styles.notifRowBody}>
                             {n.body}
                           </Text>
                         )}
@@ -1040,10 +1059,7 @@ export default function CustomHeader() {
               <TouchableOpacity
                 onPress={clearVisible}
                 activeOpacity={0.9}
-                style={[
-                  styles.footerBtn,
-                  { backgroundColor: "#6B7280" },
-                ]}
+                style={[styles.footerBtn, { backgroundColor: "#6B7280" }]}
               >
                 <Ionicons name="trash-outline" size={14} color="#fff" />
                 <Text style={styles.footerBtnText}>Wyczyść</Text>
@@ -1069,6 +1085,15 @@ function getInitials(name: string) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
+function hexToRgba(hex: string, alpha: number) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function makePalette({
   isDark,
   colors,
@@ -1083,6 +1108,8 @@ function makePalette({
     border: string;
   };
 }) {
+  const accentSoft = hexToRgba(colors.accent, isDark ? 0.18 : 0.12);
+
   return {
     bg: colors.bg,
     card: colors.card,
@@ -1090,21 +1117,19 @@ function makePalette({
     text: colors.text,
     muted: colors.textMuted,
     accent: colors.accent,
+    accentSoft,
 
     navIcon: isDark ? "#cbd5f5" : "#0f172a",
     navIconActive: colors.accent,
     navText: colors.text,
     navTextActive: colors.accent,
 
-    themePillBg: isDark ? "#020617" : "#e2f5f3",
-    themePillBorder: colors.border,
-
     profileChevron: isDark ? "#94a3b8" : "#475569",
 
-    menuBg: isDark ? "#020617" : "#ffffff",
-    menuBorder: isDark ? "rgba(148,163,184,0.4)" : "rgba(15,23,42,0.12)",
-    menuText: isDark ? "#e5e7eb" : "#0f172a",
-    menuItemHover: isDark ? "rgba(15,23,42,0.92)" : "rgba(15,23,42,0.04)",
+    menuBg: colors.card,
+    menuBorder: colors.border,
+    menuText: colors.text,
+    menuItemHover: isDark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.06)",
 
     chipBg: colors.card,
 
@@ -1114,11 +1139,7 @@ function makePalette({
   };
 }
 
-function makeStyles(
-  palette: ReturnType<typeof makePalette>,
-  isWeb: boolean,
-  isMobileWeb: boolean
-) {
+function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isMobileWeb: boolean) {
   return StyleSheet.create({
     wrap: {
       width: "100%",
@@ -1167,24 +1188,99 @@ function makeStyles(
       marginTop: -2,
     },
 
-    themePill: {
+    // ✅ mały, mniej angażujący przycisk
+    themeBtn: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      gap: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: palette.themePillBorder,
-      backgroundColor: palette.themePillBg,
+      borderColor: palette.border,
+      backgroundColor: "transparent",
+      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
-    themePillPressed: {
-      opacity: 0.85,
-      transform: [{ scale: 0.97 }],
+    themeBtnPressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.98 }],
     },
-    themePillText: {
-      color: palette.text,
-      fontWeight: "700",
+    themeBtnText: {
+      color: palette.muted,
+      fontWeight: "900",
+      fontSize: 12,
+      letterSpacing: 0.35,
+    },
+
+    // ✅ dropdown dopasowany do aktualnego motywu
+    themeMenu: {
+      zIndex: 2200,
+      backgroundColor: palette.menuBg,
+      borderRadius: 16,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: palette.menuBorder,
+      overflow: "hidden",
+      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.28)" } as any) : null),
+    },
+    themeMenuHeader: {
+      paddingHorizontal: 12,
+      paddingBottom: 6,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    themeMenuTitle: {
+      fontSize: 12,
+      fontWeight: "900",
+      color: palette.muted,
+      letterSpacing: 0.5,
+    },
+
+    themeMenuSeparator: {
+      height: 1,
+      backgroundColor: palette.menuBorder,
+      marginBottom: 6,
+      opacity: 0.9,
+    },
+    themeMenuScroll: {
+      maxHeight: 320,
+      ...(isWeb
+        ? ({
+            overflowY: "auto",
+            scrollbarWidth: "thin",
+            scrollbarColor: `${palette.muted} transparent`,
+          } as any)
+        : null),
+    },
+    themeMenuList: {
+      paddingHorizontal: 6,
+      paddingBottom: 6,
+    },
+    themeItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+    },
+    themeItemPressed: {
+      backgroundColor: palette.menuItemHover,
+    },
+    themeItemActive: {
+      backgroundColor: palette.accentSoft,
+    },
+    themeItemText: {
+      color: palette.menuText,
+      fontSize: 12,
+      fontWeight: "900",
+      flex: 1,
+      paddingRight: 10,
+    },
+    themeItemTextActive: {
+      color: palette.navIconActive,
     },
 
     center: {
@@ -1409,9 +1505,7 @@ function makeStyles(
       borderWidth: 1,
       borderColor: palette.menuBorder,
       zIndex: 1000,
-      ...(isWeb
-        ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any)
-        : null),
+      ...(isWeb ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any) : null),
     },
     menuItem: {
       flexDirection: "row",
@@ -1445,9 +1539,7 @@ function makeStyles(
       borderColor: palette.menuBorder,
       overflow: "hidden",
       zIndex: 1001,
-      ...(isWeb
-        ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any)
-        : null),
+      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any) : null),
     },
 
     notifHeader: {
@@ -1506,9 +1598,7 @@ function makeStyles(
       gap: 6,
     },
     notifRowUnread: {
-      backgroundColor: isWeb
-        ? "rgba(47,107,255,0.06)"
-        : "rgba(47,107,255,0.08)",
+      backgroundColor: isWeb ? "rgba(47,107,255,0.06)" : "rgba(47,107,255,0.08)",
     },
     notifRowTitle: {
       color: palette.text,
@@ -1564,9 +1654,7 @@ function makeStyles(
       borderWidth: 1,
       borderColor: palette.menuBorder,
       zIndex: 1002,
-      ...(isWeb
-        ? ({ boxShadow: "0 18px 40px rgba(0,0,0,0.45)" } as any)
-        : null),
+      ...(isWeb ? ({ boxShadow: "0 18px 40px rgba(0,0,0,0.45)" } as any) : null),
     },
     mobileNavTitle: {
       fontSize: 15,
@@ -1612,4 +1700,4 @@ function makeStyles(
   });
 }
 
-//src/components/CustomHeader.tsx
+// src/components/CustomHeader.tsx

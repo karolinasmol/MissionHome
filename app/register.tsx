@@ -1,5 +1,5 @@
 // app/register.tsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,12 @@ import {
   ScrollView,
   Switch,
   Linking,
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -149,6 +155,8 @@ function isProbablyEmail(val: string) {
   return v.length >= 5;
 }
 
+type FocusField = "username" | "email" | "password" | "confirmPassword" | null;
+
 export default function RegisterScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -175,7 +183,10 @@ export default function RegisterScreen() {
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [showRequiredHint, setShowRequiredHint] = useState(false);
 
-  const styles = getStyles(colors);
+  // UI
+  const [focused, setFocused] = useState<FocusField>(null);
+
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
   const resetErrors = () => {
     setUsernameError("");
@@ -281,11 +292,7 @@ export default function RegisterScreen() {
       }
 
       // 2) Email w kolekcji users (fallback)
-      const emailQuery = query(
-        usersRef,
-        where("email", "==", emailLower),
-        limit(1)
-      );
+      const emailQuery = query(usersRef, where("email", "==", emailLower), limit(1));
       const emailSnap = await getDocs(emailQuery);
 
       if (!emailSnap.empty) {
@@ -296,11 +303,7 @@ export default function RegisterScreen() {
       }
 
       // 3) Tworzenie konta w Auth
-      const { user } = await createUserWithEmailAndPassword(
-        auth,
-        emailLower,
-        password
-      );
+      const { user } = await createUserWithEmailAndPassword(auth, emailLower, password);
 
       await updateProfile(user, { displayName: nick });
 
@@ -342,462 +345,683 @@ export default function RegisterScreen() {
     });
   };
 
+  const getBorderColor = (field: FocusField, hasError: boolean) => {
+    if (hasError) return ERROR_COLOR;
+    if (focused === field) return colors.accent;
+    return colors.border;
+  };
+
+  const isTermsReady = termsAccepted && captchaChecked;
+
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      <View
-        style={[
-          styles.card,
-          { backgroundColor: colors.card, borderColor: colors.border },
-        ]}
-      >
-        <Text style={[styles.title, { color: colors.text }]}>MissionHome</Text>
-        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Utwórz konto
-        </Text>
-
-        {showRequiredHint && (
-          <Text style={styles.requiredHint}>
-            Pola oznaczone gwiazdką (*) są wymagane. Uzupełnij je, aby
-            kontynuować.
-          </Text>
-        )}
-
-        {/* Username */}
-        <Text style={[styles.label, { color: colors.textMuted }]}>
-          <Text>Nazwa użytkownika</Text>
-          <Text style={{ color: ERROR_COLOR }}> *</Text>
-        </Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons
-            name="person-outline"
-            size={18}
-            color={colors.textMuted}
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="np. DomowyNinja"
-            placeholderTextColor={colors.textMuted}
-            value={username}
-            onChangeText={(val) => {
-              setUsername(val);
-              if (usernameError) setUsernameError("");
-            }}
-            style={[styles.input, { color: colors.text }]}
-          />
-        </View>
-        {!!usernameError && (
-          <Text style={styles.errorText}>{usernameError}</Text>
-        )}
-
-        {/* Email */}
-        <Text style={[styles.label, { color: colors.textMuted }]}>
-          <Text>Adres e-mail</Text>
-          <Text style={{ color: ERROR_COLOR }}> *</Text>
-        </Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons
-            name="mail-outline"
-            size={18}
-            color={colors.textMuted}
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="Email"
-            placeholderTextColor={colors.textMuted}
-            value={email}
-            onChangeText={(val) => {
-              setEmail(val);
-              if (emailError) setEmailError("");
-            }}
-            style={[styles.input, { color: colors.text }]}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-        </View>
-        {!!emailError && <Text style={styles.errorText}>{emailError}</Text>}
-
-        {/* Hasło */}
-        <Text style={[styles.label, { color: colors.textMuted }]}>
-          <Text>Hasło</Text>
-          <Text style={{ color: ERROR_COLOR }}> *</Text>
-        </Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons
-            name="lock-closed-outline"
-            size={18}
-            color={colors.textMuted}
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="Hasło"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry={!showPassword}
-            value={password}
-            onChangeText={(val) => {
-              setPassword(val);
-              if (passwordError) setPasswordError("");
-            }}
-            style={[styles.input, { color: colors.text }]}
-          />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Ionicons
-              name={showPassword ? "eye-off-outline" : "eye-outline"}
-              size={18}
-              color={colors.textMuted}
-            />
-          </TouchableOpacity>
-        </View>
-        {!!passwordError && (
-          <Text style={styles.errorText}>{passwordError}</Text>
-        )}
-
-        {/* Powtórz hasło */}
-        <Text style={[styles.label, { color: colors.textMuted }]}>
-          <Text>Powtórz hasło</Text>
-          <Text style={{ color: ERROR_COLOR }}> *</Text>
-        </Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons
-            name="lock-closed-outline"
-            size={18}
-            color={colors.textMuted}
-            style={styles.icon}
-          />
-          <TextInput
-            placeholder="Powtórz hasło"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry={!showPassword}
-            value={confirmPassword}
-            onChangeText={(val) => {
-              setConfirmPassword(val);
-              if (confirmPasswordError) setConfirmPasswordError("");
-            }}
-            style={[styles.input, { color: colors.text }]}
-          />
-        </View>
-        {!!confirmPasswordError && (
-          <Text style={styles.errorText}>{confirmPasswordError}</Text>
-        )}
-
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: colors.accent }]}
-          onPress={onPressRegister}
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
         >
-          <Text style={styles.buttonText}>Utwórz konto</Text>
-        </TouchableOpacity>
+          {/* subtelny top accent */}
+          <View style={styles.topAccent} pointerEvents="none" />
 
-        <TouchableOpacity onPress={() => router.push("/login")}>
-          <Text style={[styles.backText, { color: colors.textMuted }]}>
-            ← Masz już konto? Zaloguj się
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Modal z regulaminem – zmniejszony */}
-      <Modal visible={showTermsModal} animationType="fade" transparent>
-        <View style={styles.overlay}>
-          <View
-            style={[
-              styles.termsCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={[styles.termsTitle, { color: colors.text }]}>
-              Regulamin serwisu
-            </Text>
-
-            <ScrollView
-              style={styles.termsScroll}
-              contentContainerStyle={{ paddingBottom: 8 }}
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
             >
-              <Text style={[styles.termsBody, { color: colors.text }]}>
-                {TERMS_PL}
-              </Text>
-            </ScrollView>
+              <View style={styles.brandRow}>
+                <View
+                  style={[
+                    styles.brandIconWrap,
+                    { backgroundColor: colors.accent },
+                  ]}
+                >
+                  <Ionicons name="home-outline" size={18} color="#022c22" />
+                </View>
+                <Text style={[styles.title, { color: colors.text }]}>
+                  MissionHome
+                </Text>
+              </View>
 
-            <TouchableOpacity
-              onPress={handleOpenPDF}
-              style={{ marginBottom: 10 }}
-            >
-              <Text style={[styles.pdfLinkText, { color: colors.accent }]}>
-                Pobierz regulamin w PDF
+              <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+                Utwórz konto
               </Text>
-            </TouchableOpacity>
 
-            <View style={styles.switchRow}>
-              <Switch value={termsAccepted} onValueChange={setTermsAccepted} />
-              <Text style={[styles.switchText, { color: colors.text }]}>
-                Potwierdzam, że zapoznałem się z regulaminem
+              {showRequiredHint && (
+                <View style={styles.hintBox}>
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={16}
+                    color={ERROR_COLOR}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.requiredHint}>
+                    Pola oznaczone gwiazdką (*) są wymagane. Uzupełnij je, aby
+                    kontynuować.
+                  </Text>
+                </View>
+              )}
+
+              {/* Username */}
+              <Text style={[styles.label, { color: colors.textMuted }]}>
+                <Text>Nazwa użytkownika</Text>
+                <Text style={{ color: ERROR_COLOR }}> *</Text>
               </Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  {
+                    borderColor: getBorderColor("username", !!usernameError),
+                    backgroundColor: colors.bg,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="person-outline"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder="np. DomowyNinja"
+                  placeholderTextColor={colors.textMuted}
+                  value={username}
+                  onChangeText={(val) => {
+                    setUsername(val);
+                    if (usernameError) setUsernameError("");
+                  }}
+                  style={[styles.input, { color: colors.text }]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="username"
+                  onFocus={() => setFocused("username")}
+                  onBlur={() => setFocused(null)}
+                  returnKeyType="next"
+                />
+              </View>
+              {!!usernameError && <Text style={styles.errorText}>{usernameError}</Text>}
+
+              {/* Email */}
+              <Text style={[styles.label, { color: colors.textMuted }]}>
+                <Text>Adres e-mail</Text>
+                <Text style={{ color: ERROR_COLOR }}> *</Text>
+              </Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  {
+                    borderColor: getBorderColor("email", !!emailError),
+                    backgroundColor: colors.bg,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="mail-outline"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder="Email"
+                  placeholderTextColor={colors.textMuted}
+                  value={email}
+                  onChangeText={(val) => {
+                    setEmail(val);
+                    if (emailError) setEmailError("");
+                  }}
+                  style={[styles.input, { color: colors.text }]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  autoComplete="email"
+                  onFocus={() => setFocused("email")}
+                  onBlur={() => setFocused(null)}
+                  returnKeyType="next"
+                />
+              </View>
+              {!!emailError && <Text style={styles.errorText}>{emailError}</Text>}
+
+              {/* Hasło */}
+              <Text style={[styles.label, { color: colors.textMuted }]}>
+                <Text>Hasło</Text>
+                <Text style={{ color: ERROR_COLOR }}> *</Text>
+              </Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  {
+                    borderColor: getBorderColor("password", !!passwordError),
+                    backgroundColor: colors.bg,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder="Hasło"
+                  placeholderTextColor={colors.textMuted}
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={(val) => {
+                    setPassword(val);
+                    if (passwordError) setPasswordError("");
+                  }}
+                  style={[styles.input, { color: colors.text }]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="newPassword"
+                  autoComplete="password-new"
+                  onFocus={() => setFocused("password")}
+                  onBlur={() => setFocused(null)}
+                  returnKeyType="next"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={styles.eyeBtn}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color={colors.textMuted}
+                  />
+                </TouchableOpacity>
+              </View>
+              {!!passwordError && <Text style={styles.errorText}>{passwordError}</Text>}
+
+              {/* Powtórz hasło */}
+              <Text style={[styles.label, { color: colors.textMuted }]}>
+                <Text>Powtórz hasło</Text>
+                <Text style={{ color: ERROR_COLOR }}> *</Text>
+              </Text>
+              <View
+                style={[
+                  styles.inputWrapper,
+                  {
+                    borderColor: getBorderColor("confirmPassword", !!confirmPasswordError),
+                    backgroundColor: colors.bg,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder="Powtórz hasło"
+                  placeholderTextColor={colors.textMuted}
+                  secureTextEntry={!showPassword}
+                  value={confirmPassword}
+                  onChangeText={(val) => {
+                    setConfirmPassword(val);
+                    if (confirmPasswordError) setConfirmPasswordError("");
+                  }}
+                  style={[styles.input, { color: colors.text }]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="newPassword"
+                  autoComplete="password-new"
+                  onFocus={() => setFocused("confirmPassword")}
+                  onBlur={() => setFocused(null)}
+                  returnKeyType="done"
+                  onSubmitEditing={onPressRegister}
+                />
+              </View>
+              {!!confirmPasswordError && (
+                <Text style={styles.errorText}>{confirmPasswordError}</Text>
+              )}
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: colors.accent }]}
+                onPress={onPressRegister}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.buttonText}>Utwórz konto</Text>
+                <Ionicons
+                  name="arrow-forward-outline"
+                  size={18}
+                  color="#022c22"
+                  style={{ marginLeft: 8 }}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => router.push("/login")}
+                activeOpacity={0.8}
+                style={styles.backBtn}
+              >
+                <Text style={[styles.backText, { color: colors.textMuted }]}>
+                  ← Masz już konto? Zaloguj się
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.switchRow}>
-              <Switch value={captchaChecked} onValueChange={setCaptchaChecked} />
-              <Text style={[styles.switchText, { color: colors.text }]}>
-                Nie jestem robotem
-              </Text>
+            <View style={styles.bottomSpacer} />
+          </ScrollView>
+
+          {/* Modal z regulaminem */}
+          <Modal visible={showTermsModal} animationType="fade" transparent>
+            <View style={styles.overlay}>
+              <SafeAreaView style={styles.modalSafe}>
+                <View
+                  style={[
+                    styles.termsCard,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.termsHeaderRow}>
+                    <Text style={[styles.termsTitle, { color: colors.text }]}>
+                      Regulamin serwisu
+                    </Text>
+
+                    <Pressable
+                      onPress={() => setShowTermsModal(false)}
+                      hitSlop={10}
+                      style={styles.closeBtn}
+                    >
+                      <Ionicons name="close" size={20} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+
+                  <ScrollView
+                    style={styles.termsScroll}
+                    contentContainerStyle={{ paddingBottom: 10 }}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <Text style={[styles.termsBody, { color: colors.text }]}>
+                      {TERMS_PL}
+                    </Text>
+                  </ScrollView>
+
+                  <TouchableOpacity onPress={handleOpenPDF} style={{ marginBottom: 10 }}>
+                    <Text style={[styles.pdfLinkText, { color: colors.accent }]}>
+                      Pobierz regulamin w PDF
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.switchRow}>
+                    <Switch value={termsAccepted} onValueChange={setTermsAccepted} />
+                    <Text style={[styles.switchText, { color: colors.text }]}>
+                      Potwierdzam, że zapoznałem się z regulaminem
+                    </Text>
+                  </View>
+
+                  <View style={styles.switchRow}>
+                    <Switch value={captchaChecked} onValueChange={setCaptchaChecked} />
+                    <Text style={[styles.switchText, { color: colors.text }]}>
+                      Nie jestem robotem
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    disabled={!isTermsReady}
+                    onPress={handleRegister}
+                    activeOpacity={0.85}
+                    style={[
+                      styles.termsSubmitButton,
+                      {
+                        backgroundColor: isTermsReady ? colors.accent : "#999999",
+                      },
+                    ]}
+                  >
+                    <Text style={styles.termsSubmitText}>Potwierdź i zarejestruj się</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={() => setShowTermsModal(false)} activeOpacity={0.8}>
+                    <Text style={[styles.termsCancelText, { color: colors.accent }]}>
+                      Anuluj
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </SafeAreaView>
             </View>
+          </Modal>
 
-            <TouchableOpacity
-              disabled={!(termsAccepted && captchaChecked)}
-              onPress={handleRegister}
-              style={[
-                styles.termsSubmitButton,
-                {
-                  backgroundColor:
-                    termsAccepted && captchaChecked ? colors.accent : "#999999",
-                },
-              ]}
-            >
-              <Text style={styles.termsSubmitText}>
-                Potwierdź i zarejestruj się
-              </Text>
-            </TouchableOpacity>
+          {/* Modal „Gratulacje / potwierdź e-mail” */}
+          <Modal visible={showCongrats} transparent animationType="fade">
+            <View style={styles.overlay}>
+              <View
+                style={[
+                  styles.congratsCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.congratsTitle, { color: colors.text }]}>
+                  🎉 Konto zostało utworzone!
+                </Text>
+                <Text style={[styles.congratsText, { color: colors.textMuted }]}>
+                  Na Twój adres e-mail wysłaliśmy link weryfikacyjny.{"\n"}
+                  <Text style={{ fontWeight: "800", color: colors.text }}>
+                    Zanim się zalogujesz, kliknij w link w wiadomości, aby potwierdzić e-mail.
+                  </Text>
+                </Text>
 
-            <TouchableOpacity onPress={() => setShowTermsModal(false)}>
-              <Text style={[styles.termsCancelText, { color: colors.accent }]}>
-                Anuluj
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+                <TouchableOpacity
+                  onPress={async () => {
+                    try {
+                      await signOut(auth);
+                    } catch {}
+                    setShowCongrats(false);
+                    router.replace("/login");
+                  }}
+                  activeOpacity={0.85}
+                  style={[styles.congratsButton, { backgroundColor: colors.accent }]}
+                >
+                  <Text style={styles.congratsButtonText}>Przejdź do logowania</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
 
-      {/* Modal „Gratulacje / potwierdź e-mail” */}
-      <Modal visible={showCongrats} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View
-            style={[
-              styles.congratsCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
+          {/* Modal: wulgaryzmy */}
+          <Modal
+            visible={showProfanityModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowProfanityModal(false)}
           >
-            <Text style={[styles.congratsTitle, { color: colors.text }]}>
-              🎉 Konto zostało utworzone!
-            </Text>
-            <Text
-              style={[styles.congratsText, { color: colors.textMuted }]}
-            >
-              Na Twój adres e-mail wysłaliśmy link weryfikacyjny.{"\n"}
-              <Text style={{ fontWeight: "700" }}>
-                Zanim się zalogujesz, kliknij w link w wiadomości, aby
-                potwierdzić e-mail.
-              </Text>
-            </Text>
+            <View style={styles.overlay}>
+              <View
+                style={[
+                  styles.congratsCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.congratsTitle, { color: colors.text }]}>
+                  🚫 Niedozwolona nazwa użytkownika
+                </Text>
+                <Text style={[styles.congratsText, { color: colors.textMuted }]}>
+                  Wulgaryzmy i obraźliwe określenia są zabronione – zarówno w nazwach
+                  użytkowników, jak i w tytułach, opisach oraz innych treściach w aplikacji.
+                </Text>
+                <Text
+                  style={[
+                    styles.congratsText,
+                    { color: colors.textMuted, marginTop: 10, fontWeight: "700" },
+                  ]}
+                >
+                  Wybierz proszę neutralną, kulturalną nazwę, bez przekleństw ani ich
+                  zamaskowanych form (np. „chu*”, „kurw@”, „5pierdalaj” itp.).
+                </Text>
 
-            <TouchableOpacity
-              onPress={async () => {
-                try {
-                  await signOut(auth);
-                } catch {}
-                setShowCongrats(false);
-                router.replace("/login");
-              }}
-              style={[
-                styles.congratsButton,
-                { backgroundColor: colors.accent },
-              ]}
-            >
-              <Text style={styles.congratsButtonText}>
-                Przejdź do logowania
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+                <TouchableOpacity
+                  onPress={() => setShowProfanityModal(false)}
+                  activeOpacity={0.85}
+                  style={[styles.congratsButton, { backgroundColor: colors.accent, marginTop: 14 }]}
+                >
+                  <Text style={styles.congratsButtonText}>OK, rozumiem</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
 
-      {/* Modal: wulgaryzmy */}
-      <Modal
-        visible={showProfanityModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowProfanityModal(false)}
-      >
-        <View style={styles.overlay}>
-          <View
-            style={[
-              styles.congratsCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
+          {/* Modal: e-mail już istnieje */}
+          <Modal
+            visible={showEmailExistsModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowEmailExistsModal(false)}
           >
-            <Text style={[styles.congratsTitle, { color: colors.text }]}>
-              🚫 Niedozwolona nazwa użytkownika
-            </Text>
-            <Text
-              style={[styles.congratsText, { color: colors.textMuted }]}
-            >
-              Wulgaryzmy i obraźliwe określenia są zabronione – zarówno w
-              nazwach użytkowników, jak i w tytułach, opisach oraz innych
-              treściach w aplikacji.
-            </Text>
-            <Text
-              style={[
-                styles.congratsText,
-                { color: colors.textMuted, marginTop: 10, fontWeight: "600" },
-              ]}
-            >
-              Wybierz proszę neutralną, kulturalną nazwę, bez przekleństw ani ich
-              zamaskowanych form (np. „chu*”, „kurw@”, „5pierdalaj” itp.).
-            </Text>
+            <View style={styles.overlay}>
+              <View
+                style={[
+                  styles.congratsCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.congratsTitle, { color: colors.text }]}>
+                  📧 Ten e-mail jest już zajęty
+                </Text>
+                <Text style={[styles.congratsText, { color: colors.textMuted }]}>
+                  Konto z tym adresem e-mail jest już zarejestrowane. Zaloguj się na istniejące
+                  konto lub użyj innego adresu e-mail podczas rejestracji.
+                </Text>
 
-            <TouchableOpacity
-              onPress={() => setShowProfanityModal(false)}
-              style={[
-                styles.congratsButton,
-                { backgroundColor: colors.accent, marginTop: 14 },
-              ]}
-            >
-              <Text style={styles.congratsButtonText}>OK, rozumiem</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal: e-mail już istnieje */}
-      <Modal
-        visible={showEmailExistsModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEmailExistsModal(false)}
-      >
-        <View style={styles.overlay}>
-          <View
-            style={[
-              styles.congratsCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <Text style={[styles.congratsTitle, { color: colors.text }]}>
-              📧 Ten e-mail jest już zajęty
-            </Text>
-            <Text
-              style={[styles.congratsText, { color: colors.textMuted }]}
-            >
-              Konto z tym adresem e-mail jest już zarejestrowane. Zaloguj się na
-              istniejące konto lub użyj innego adresu e-mail podczas rejestracji.
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => {
-                setShowEmailExistsModal(false);
-                if (!emailError) {
-                  setEmailError(
-                    "Konto z tym adresem e-mail już istnieje. Zaloguj się lub użyj innego adresu."
-                  );
-                }
-              }}
-              style={[
-                styles.congratsButton,
-                { backgroundColor: colors.accent, marginTop: 14 },
-              ]}
-            >
-              <Text style={styles.congratsButtonText}>OK, zmienię e-mail</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowEmailExistsModal(false);
+                    if (!emailError) {
+                      setEmailError(
+                        "Konto z tym adresem e-mail już istnieje. Zaloguj się lub użyj innego adresu."
+                      );
+                    }
+                  }}
+                  activeOpacity={0.85}
+                  style={[styles.congratsButton, { backgroundColor: colors.accent, marginTop: 14 }]}
+                >
+                  <Text style={styles.congratsButtonText}>OK, zmienię e-mail</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
+    </SafeAreaView>
   );
 }
 
 const getStyles = (colors: any) =>
   StyleSheet.create({
-    container: {
+    flex: {
       flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
     },
+    safe: {
+      flex: 1,
+    },
+
+    topAccent: {
+      position: "absolute",
+      top: -120,
+      left: -80,
+      width: 260,
+      height: 260,
+      borderRadius: 260,
+      opacity: 0.18,
+      backgroundColor: colors.accent,
+    },
+
+    scrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 18,
+      paddingBottom: 24,
+      alignItems: "center",
+    },
+
     card: {
       width: "100%",
-      maxWidth: 380,
-      padding: 24,
-      borderRadius: 20,
+      maxWidth: 420,
+      padding: 20,
+      borderRadius: 22,
       borderWidth: 1,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.18,
+      shadowRadius: 14,
+      elevation: 6,
     },
+
+    brandRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      marginBottom: 6,
+    },
+    brandIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
     title: {
-      fontSize: 28,
-      fontWeight: "700",
+      fontSize: 26,
+      fontWeight: "800",
+      letterSpacing: 0.2,
       textAlign: "center",
     },
     subtitle: {
       fontSize: 14,
       textAlign: "center",
-      marginTop: 4,
-      marginBottom: 16,
+      marginTop: 2,
+      marginBottom: 14,
+      fontWeight: "600",
+    },
+
+    hintBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: "rgba(220,38,38,0.35)",
+      backgroundColor: "rgba(220,38,38,0.08)",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 12,
     },
     requiredHint: {
       color: ERROR_COLOR,
       fontSize: 12,
-      textAlign: "center",
-      marginBottom: 8,
+      flex: 1,
+      fontWeight: "600",
+      lineHeight: 16,
     },
+
     label: {
       fontSize: 12,
-      fontWeight: "700",
-      marginBottom: 4,
+      fontWeight: "800",
+      marginBottom: 6,
       opacity: 0.95,
+      marginTop: 6,
     },
+
     inputWrapper: {
       flexDirection: "row",
       alignItems: "center",
       borderWidth: 1,
       paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: 12,
+      paddingVertical: Platform.OS === "ios" ? 12 : 10,
+      borderRadius: 14,
       marginBottom: 8,
-      borderColor: colors.border,
     },
     input: {
       flex: 1,
       fontSize: 15,
       marginLeft: 8,
+      paddingVertical: 0,
     },
     icon: {
-      marginRight: 4,
+      marginRight: 2,
     },
+    eyeBtn: {
+      paddingLeft: 8,
+      paddingVertical: 4,
+    },
+
     errorText: {
       color: ERROR_COLOR,
       fontSize: 11,
       marginBottom: 6,
+      fontWeight: "700",
     },
+
     button: {
-      paddingVertical: 12,
+      marginTop: 12,
+      paddingVertical: 13,
       borderRadius: 999,
       alignItems: "center",
-      marginTop: 10,
+      justifyContent: "center",
+      flexDirection: "row",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.14,
+      shadowRadius: 10,
+      elevation: 4,
     },
     buttonText: {
       color: "#022c22",
       fontSize: 16,
-      fontWeight: "700",
-    },
-    backText: {
-      marginTop: 10,
-      fontSize: 14,
-      textAlign: "center",
-      fontWeight: "600",
+      fontWeight: "900",
+      letterSpacing: 0.2,
     },
 
-    /* --- ZMNIEJSZONY MODAL REGULAMINU --- */
+    backBtn: {
+      marginTop: 10,
+      paddingVertical: 8,
+    },
+    backText: {
+      fontSize: 14,
+      textAlign: "center",
+      fontWeight: "700",
+    },
+
+    bottomSpacer: {
+      height: 18,
+    },
+
+    /* --- MODAL --- */
+    overlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 16,
+    },
+    modalSafe: {
+      width: "100%",
+      maxWidth: 560,
+    },
+
     termsCard: {
       width: "100%",
-      maxWidth: 520,
-      maxHeight: "80%",
-      borderRadius: 16,
+      maxHeight: "86%",
+      borderRadius: 18,
       borderWidth: 1,
       paddingVertical: 12,
       paddingHorizontal: 14,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.22,
+      shadowRadius: 18,
+      elevation: 8,
+    },
+    termsHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingBottom: 6,
+    },
+    closeBtn: {
+      position: "absolute",
+      right: 0,
+      top: 0,
+      padding: 6,
     },
     termsScroll: {
-      flex: 1,
+      flexGrow: 0,
       marginBottom: 8,
+      marginTop: 6,
     },
     termsTitle: {
       fontSize: 16,
-      fontWeight: "700",
-      marginBottom: 8,
+      fontWeight: "900",
       textAlign: "center",
+      paddingHorizontal: 30,
     },
     termsBody: {
       fontSize: 13,
@@ -805,7 +1029,7 @@ const getStyles = (colors: any) =>
     },
     pdfLinkText: {
       fontSize: 13,
-      fontWeight: "700",
+      fontWeight: "800",
       textAlign: "center",
       textDecorationLine: "underline",
     },
@@ -815,72 +1039,69 @@ const getStyles = (colors: any) =>
       marginBottom: 8,
     },
     switchText: {
-      marginLeft: 8,
+      marginLeft: 10,
       fontSize: 13,
       flex: 1,
+      fontWeight: "650",
     },
     termsSubmitButton: {
-      paddingVertical: 9,
-      borderRadius: 12,
-      marginTop: 4,
-      marginBottom: 6,
+      paddingVertical: 11,
+      borderRadius: 14,
+      marginTop: 6,
+      marginBottom: 8,
       alignItems: "center",
     },
     termsSubmitText: {
       color: "#ffffff",
-      fontWeight: "700",
+      fontWeight: "900",
       fontSize: 14,
+      letterSpacing: 0.2,
     },
     termsCancelText: {
       textAlign: "center",
       fontSize: 14,
-      fontWeight: "700",
+      fontWeight: "900",
       textDecorationLine: "underline",
-      marginBottom: 4,
+      marginBottom: 2,
     },
 
-    // Overlays / popup
-    overlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.4)",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-    },
     congratsCard: {
       width: "100%",
       maxWidth: 420,
-      borderRadius: 18,
+      borderRadius: 20,
       borderWidth: 1,
       paddingVertical: 20,
       paddingHorizontal: 18,
       shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
+      shadowOffset: { width: 0, height: 10 },
       shadowOpacity: 0.25,
-      shadowRadius: 12,
-      elevation: 6,
+      shadowRadius: 16,
+      elevation: 8,
     },
     congratsTitle: {
       fontSize: 18,
-      fontWeight: "800",
+      fontWeight: "900",
       textAlign: "center",
-      marginBottom: 8,
+      marginBottom: 10,
     },
     congratsText: {
       fontSize: 14,
       textAlign: "center",
-      opacity: 0.95,
+      opacity: 0.96,
+      lineHeight: 20,
+      fontWeight: "650",
     },
     congratsButton: {
-      marginTop: 10,
+      marginTop: 14,
       paddingVertical: 12,
-      borderRadius: 14,
+      borderRadius: 16,
       alignItems: "center",
     },
     congratsButtonText: {
       color: "#022c22",
-      fontWeight: "700",
+      fontWeight: "900",
       fontSize: 16,
+      letterSpacing: 0.2,
     },
   });
 

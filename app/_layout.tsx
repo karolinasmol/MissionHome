@@ -1,16 +1,19 @@
 // --- app/_layout.tsx ---
 import "../src/firebase/firebase";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Pressable, Animated, ActivityIndicator } from "react-native";
+import { View, Pressable, Animated, ActivityIndicator, Platform } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
 
 import { Ionicons } from "@expo/vector-icons";
-import * as Font from "expo-font"; // 👈 ważne
+import * as Font from "expo-font";
 
 import CustomHeader from "../src/components/CustomHeader";
 
 import { TasksProvider } from "../src/context/TasksContext";
 import { ThemeProvider, useTheme, useThemeColors } from "../src/context/ThemeContext";
+
+// ✅ Cookie banner (WEB only) — poprawna ścieżka do Twojego pliku
+import CookieBanner from "../src/components/CookieBanner";
 
 // challenges
 import {
@@ -22,10 +25,6 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../src/firebase/firebase";
 
 export default function RootLayout() {
-  /* ============================================================
-     FIX IONICONS – kluczowa poprawka zapobiegająca kwadratom na WEB
-     ============================================================ */
-
   const [fontsLoaded, setFontsLoaded] = useState(false);
 
   useEffect(() => {
@@ -90,7 +89,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }, [segments]);
 
-  // Listen auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -99,7 +97,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
-  // Routing rules
   useEffect(() => {
     if (!authReady) return;
 
@@ -199,6 +196,9 @@ function HeaderWithMenu() {
       <View style={{ flex: 1 }}>
         <Slot />
       </View>
+
+      {/* ✅ Cookie banner only on WEB */}
+      {Platform.OS === "web" && <CookieBanner />}
     </View>
   );
 }

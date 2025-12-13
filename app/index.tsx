@@ -1058,7 +1058,7 @@ export default function HomeScreen() {
             textAlign: "center",
           }}
         >
-          © {new Date().getFullYear()} MissionHome — wszystkie prawa
+          © {new Date().getFullYear()} MissionHome - wszystkie prawa
           zastrzeżone
         </Text>
       </View>

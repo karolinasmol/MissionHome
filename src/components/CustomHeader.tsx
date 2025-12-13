@@ -18,7 +18,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
-import { useThemeColors } from "../context/ThemeContext";
+import {
+  useTheme,
+  useThemeColors,
+  THEMES,
+  THEME_LABELS,
+  Theme,
+} from "../context/ThemeContext";
 import { auth, db } from "../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -60,9 +66,15 @@ export default function CustomHeader() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
+  const { theme, setTheme } = useTheme();
   const { colors, isDark } = useThemeColors();
+
   const palette = useMemo(() => makePalette({ isDark, colors }), [isDark, colors]);
   const styles = useMemo(() => makeStyles(palette), [palette]);
+
+  const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
+  const themeLabelUpper = String(themeLabel).toUpperCase();
+  const AVAILABLE_THEMES = THEMES as Theme[];
 
   /* ========== AUTH ========== */
   const [user, setUser] = useState(() => auth.currentUser);
@@ -111,12 +123,20 @@ export default function CustomHeader() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
 
   const closeAll = () => {
     setProfileOpen(false);
     setNavOpen(false);
     setNotifsOpen(false);
+    setThemeOpen(false);
   };
+
+  useEffect(() => {
+    // zamykaj panele przy zmianie trasy (jak na web)
+    closeAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   /* ========== NOTIFICATIONS ========== */
   const [unreadCount, setUnreadCount] = useState(0);
@@ -223,17 +243,45 @@ export default function CustomHeader() {
   /* ========== FIX: dynamiczny offset panelu ========== */
   const panelTop = Math.max(insets.top + 50, 80);
 
+  const handleThemeSelect = (t: Theme) => {
+    if (t === theme) {
+      setThemeOpen(false);
+      return;
+    }
+    try {
+      setTheme(t);
+    } catch {}
+    setThemeOpen(false);
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={[styles.safeWrap, { backgroundColor: palette.bg }]}>
       <View style={styles.bar}>
-        {/* LOGO */}
-        <Pressable
-          onPress={() => router.push("/" as any)}
-          style={({ pressed }) => [styles.logoWrap, pressed && { opacity: 0.9 }]}
-        >
-          <Text style={styles.logoTop}>Mission</Text>
-          <Text style={styles.logoBottom}>Home</Text>
-        </Pressable>
+        {/* LEFT: LOGO + THEME */}
+        <View style={styles.left}>
+          <Pressable
+            onPress={() => router.push("/" as any)}
+            style={({ pressed }) => [styles.logoWrap, pressed && { opacity: 0.9 }]}
+          >
+            <Text style={styles.logoTop}>Mission</Text>
+            <Text style={styles.logoBottom}>Home</Text>
+          </Pressable>
+
+          {/* THEME BUTTON (native) */}
+          <Pressable
+            onPress={() => {
+              closeAll();
+              setThemeOpen(true);
+            }}
+            style={({ pressed }) => [styles.themeBtn, pressed && { opacity: 0.9 }]}
+          >
+            <Ionicons name="color-palette" size={16} color={palette.muted} />
+            <Text style={styles.themeBtnText} numberOfLines={1}>
+              {themeLabelUpper}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={palette.muted} />
+          </Pressable>
+        </View>
 
         <View style={styles.actions}>
           {/* MENU */}
@@ -290,6 +338,49 @@ export default function CustomHeader() {
         </View>
       </View>
 
+      {/* ================= THEME MENU ================= */}
+
+      <Modal transparent visible={themeOpen} animationType="fade">
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.modalOverlay} onPress={() => setThemeOpen(false)} />
+
+          <View style={[styles.modalCard, { marginTop: panelTop, width: "92%", maxWidth: 360 }]}>
+            <Text style={styles.modalTitle}>Motywy</Text>
+            <View style={styles.modalSep} />
+
+            <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ paddingBottom: 6 }}>
+              {AVAILABLE_THEMES.map((t) => {
+                const active = t === theme;
+                return (
+                  <Pressable
+                    key={String(t)}
+                    onPress={() => handleThemeSelect(t)}
+                    style={({ pressed }) => [
+                      styles.themeRow,
+                      active && styles.themeRowActive,
+                      pressed && { opacity: 0.9 },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.themeRowText, active && { color: palette.navIconActive }]}
+                      numberOfLines={1}
+                    >
+                      {String(THEME_LABELS?.[t] ?? t).toUpperCase()}
+                    </Text>
+
+                    {active ? (
+                      <Ionicons name="checkmark" size={16} color={palette.navIconActive} />
+                    ) : (
+                      <View style={{ width: 16 }} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* ================= NAV MENU ================= */}
 
       <Modal transparent visible={navOpen} animationType="fade">
@@ -318,17 +409,13 @@ export default function CustomHeader() {
                     name={item.icon}
                     size={18}
                     color={
-                      pathname.startsWith(item.route)
-                        ? palette.navIconActive
-                        : palette.navIcon
+                      pathname.startsWith(item.route) ? palette.navIconActive : palette.navIcon
                     }
                   />
                   <Text
                     style={[
                       styles.navRowText,
-                      pathname.startsWith(item.route) && {
-                        color: palette.navIconActive,
-                      },
+                      pathname.startsWith(item.route) && { color: palette.navIconActive },
                     ]}
                   >
                     {item.label}
@@ -512,13 +599,25 @@ function getInitials(n: string) {
   return (p[0][0] + p[1][0]).toUpperCase();
 }
 
+function hexToRgba(hex: string, alpha: number) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (h.length !== 6) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function makePalette({ isDark, colors }: any) {
+  const accentSoft = hexToRgba(colors.accent, isDark ? 0.18 : 0.12);
+
   return {
     bg: colors.bg,
     card: colors.card,
     border: colors.border,
     text: colors.text,
     muted: colors.textMuted,
+    accentSoft,
 
     navIcon: isDark ? "#cbd5f5" : "#0f172a",
     navIconActive: colors.accent,
@@ -559,9 +658,36 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
       paddingVertical: 6,
     },
 
+    left: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      flexShrink: 1,
+    },
+
     logoWrap: { flexDirection: "column" },
     logoTop: { fontSize: 18, fontWeight: "900", color: p.text, lineHeight: 18 },
     logoBottom: { fontSize: 18, fontWeight: "900", color: "#1dd4c7", lineHeight: 18 },
+
+    themeBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: p.border,
+      backgroundColor: "transparent",
+      maxWidth: 170,
+    },
+    themeBtnText: {
+      color: p.muted,
+      fontWeight: "900",
+      fontSize: 12,
+      letterSpacing: 0.35,
+      maxWidth: 110,
+    },
 
     actions: { flexDirection: "row", alignItems: "center" },
 
@@ -676,6 +802,26 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     menuRowPressed: { backgroundColor: "rgba(148,163,184,0.12)" },
     menuRowText: { fontSize: 14, fontWeight: "800", color: p.menuText },
 
+    /* ===== THEME LIST ===== */
+    themeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+    },
+    themeRowActive: {
+      backgroundColor: p.accentSoft,
+    },
+    themeRowText: {
+      fontSize: 12,
+      fontWeight: "900",
+      color: p.menuText,
+      flex: 1,
+      paddingRight: 10,
+    },
+
     /* ===== NAV MENU ROW ===== */
     navRowItem: {
       flexDirection: "row",
@@ -748,3 +894,5 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     },
   });
 }
+
+// src/components/CustomHeader.tsx

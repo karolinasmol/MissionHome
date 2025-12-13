@@ -18,6 +18,7 @@ import { createMission } from "../src/services/missions";
 import { auth } from "../src/firebase/firebase";
 import { db } from "../src/firebase/firebase.web";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { useThemeColors, THEME_COLORS_MAP, type Theme } from "../src/context/ThemeContext";
 
 /* ----------------------- Helpers ----------------------- */
 
@@ -57,6 +58,53 @@ function toSafeDate(v: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace("#", "").trim();
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  if (full.length !== 6) return hex;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return hex;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function withAlpha(color: string, alpha: number) {
+  if (!color) return `rgba(0,0,0,${alpha})`;
+  if (color.startsWith("#")) return hexToRgba(color, alpha);
+  return color;
+}
+
+// --- helpers do isDark (luminancja bg) ---
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const h = hex.replace("#", "").trim();
+  if (!(h.length === 3 || h.length === 6)) return null;
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return null;
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+function relativeLuminance(hex: string) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 1;
+  const srgb = [rgb.r, rgb.g, rgb.b].map((v) => v / 255);
+  const lin = srgb.map((c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  );
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+function isTheme(v: unknown): v is Theme {
+  return (
+    typeof v === "string" &&
+    Object.prototype.hasOwnProperty.call(THEME_COLORS_MAP, v)
+  );
+}
+
 /* ----------------------- Difficulty ----------------------- */
 
 const DIFFICULTY_OPTIONS = [
@@ -91,6 +139,76 @@ export default function EditMissionScreen() {
   const router = useRouter();
   const { members, loading: famLoading } = useFamily();
   const params = useLocalSearchParams<{ date?: string; missionId?: string }>();
+
+  // ✅ to działa wszędzie, ale u Ciebie potrafi się rozjechać między providerami:
+  const { colors: ctxColors } = useThemeColors();
+
+  // ✅ twarde źródło prawdy na WEB (dokładnie jak ThemeProvider zapisuje)
+  const LS_THEME_KEY = "missionhome_theme";
+  const [lsTheme, setLsTheme] = useState<Theme | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (typeof window === "undefined") return;
+
+    const read = () => {
+      const t = window.localStorage.getItem(LS_THEME_KEY);
+      if (isTheme(t)) setLsTheme(t);
+      else setLsTheme(null);
+    };
+
+    read();
+
+    // storage event nie odpala w tej samej karcie -> polling (lekki i pewny)
+    const id = window.setInterval(read, 250);
+
+    // w innych kartach zadziała też event
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LS_THEME_KEY) read();
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  // ✅ finalne kolory: jeśli web+localStorage ma theme -> używamy go, inaczej bierzemy z contextu
+  const colors = useMemo(() => {
+    if (lsTheme) return THEME_COLORS_MAP[lsTheme];
+    return ctxColors;
+  }, [lsTheme, ctxColors]);
+
+  // ✅ isDark liczone zawsze z finalnego bg
+  const isDark = useMemo(() => {
+    const L = clamp01(relativeLuminance(colors.bg));
+    return L < 0.42;
+  }, [colors.bg]);
+
+  const C = useMemo(() => {
+    // delikatne “panele” robimy z tekstu jako overlay, żeby brały tint z tła/karty
+    const surface = isDark ? withAlpha(colors.text, 0.055) : withAlpha(colors.text, 0.08);
+    const inputBg = isDark ? withAlpha(colors.text, 0.07) : withAlpha(colors.text, 0.1);
+
+    const accentSoft = withAlpha(colors.accent, 0.14);
+    const placeholder = isDark ? withAlpha(colors.text, 0.35) : withAlpha(colors.text, 0.45);
+
+    const onAccent = "#041b11";
+
+    const disabledBg = isDark ? withAlpha(colors.text, 0.04) : withAlpha(colors.text, 0.06);
+    const disabledText = isDark ? withAlpha(colors.text, 0.35) : withAlpha(colors.text, 0.45);
+
+    return {
+      surface,
+      inputBg,
+      accentSoft,
+      placeholder,
+      onAccent,
+      disabledBg,
+      disabledText,
+    };
+  }, [colors, isDark]);
 
   const missionId = params.missionId ? String(params.missionId) : null;
 
@@ -173,7 +291,7 @@ export default function EditMissionScreen() {
       });
     }
 
-    // ✅ fallback chip (gdy assignedTo nie ma w members) + użyj avataru z misji jeśli jest
+    // fallback chip (gdy assignedTo nie ma w members)
     const assignedToUserId = loadedMission?.assignedToUserId
       ? String(loadedMission.assignedToUserId)
       : null;
@@ -182,8 +300,9 @@ export default function EditMissionScreen() {
       ? String(loadedMission.assignedToName)
       : null;
 
-    const assignedToAvatarUrl =
-      loadedMission?.assignedToAvatarUrl ? String(loadedMission.assignedToAvatarUrl) : null;
+    const assignedToAvatarUrl = loadedMission?.assignedToAvatarUrl
+      ? String(loadedMission.assignedToAvatarUrl)
+      : null;
 
     if (assignedToUserId && (!myUid || assignedToUserId !== myUid)) {
       const exists = chips.some((c) => c.id === assignedToUserId);
@@ -202,8 +321,7 @@ export default function EditMissionScreen() {
     return chips;
   }, [members, myUid, myMemberEntry, myPhotoURL, loadedMission]);
 
-  const selected =
-    memberChips.find((m) => m.id === assignedToId) || memberChips[0];
+  const selected = memberChips.find((m) => m.id === assignedToId) || memberChips[0];
 
   /* ---------- LOAD MISSION ---------- */
 
@@ -295,8 +413,7 @@ export default function EditMissionScreen() {
       return;
     }
 
-    const expValue =
-      DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
+    const expValue = DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
 
     const assignee = selected;
 
@@ -311,16 +428,12 @@ export default function EditMissionScreen() {
     try {
       setSaving(true);
 
-      // ✅ UPDATE
       if (missionId) {
         await updateDoc(doc(db, "missions", missionId), {
           title: title.trim(),
           assignedToUserId,
           assignedToName,
-
-          // ✅ NOWE: utrzymuj avatar przypisanej osoby w dokumencie misji
           assignedToAvatarUrl: assignee.avatarUrl ?? null,
-
           dueDate: chosenDate,
           repeat: { type: repeatType },
           expValue,
@@ -332,19 +445,14 @@ export default function EditMissionScreen() {
         return;
       }
 
-      // ✅ CREATE (fallback)
       await createMission({
         title: title.trim(),
         assignedToUserId,
         assignedToName,
-
         assignedByUserId: myUid,
         assignedByName: myDisplayName || "Ty",
-
-        // ✅ NOWE: avatary na create
         assignedByAvatarUrl: myPhotoURL,
         assignedToAvatarUrl: assignee.avatarUrl,
-
         dueDate: chosenDate,
         repeat: { type: repeatType },
         expValue,
@@ -367,12 +475,12 @@ export default function EditMissionScreen() {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#020617",
+          backgroundColor: colors.bg,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#22d3ee" />
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
@@ -383,7 +491,7 @@ export default function EditMissionScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{
         padding: 16,
         maxWidth: 900,
@@ -393,34 +501,25 @@ export default function EditMissionScreen() {
     >
       <View
         style={{
-          backgroundColor: "rgba(15,23,42,0.95)",
+          backgroundColor: colors.card,
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: "rgba(148,163,184,0.4)",
+          borderColor: colors.border,
           padding: 16,
         }}
       >
         {/* HEADER */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ marginRight: 8 }}
-          >
-            <Ionicons name="chevron-back" size={22} color="#e5e7eb" />
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
-          <Text style={{ color: "#e5e7eb", fontSize: 18, fontWeight: "700" }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
             {headerTitle}
           </Text>
         </View>
 
         {/* ASSIGNED TO */}
-        <Text style={{ color: "#9ca3af", fontSize: 13, marginBottom: 6 }}>
+        <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 6 }}>
           Przypisane do
         </Text>
 
@@ -431,8 +530,8 @@ export default function EditMissionScreen() {
             padding: 12,
             borderRadius: 12,
             borderWidth: 1,
-            borderColor: "rgba(75,85,99,0.9)",
-            backgroundColor: "#020617",
+            borderColor: colors.border,
+            backgroundColor: C.surface,
             marginBottom: 12,
             gap: 12,
           }}
@@ -448,42 +547,29 @@ export default function EditMissionScreen() {
                 width: 42,
                 height: 42,
                 borderRadius: 999,
-                backgroundColor: "#22d3ee33",
+                backgroundColor: C.accentSoft,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
+              <Text style={{ color: colors.accent, fontWeight: "700" }}>
                 {selected.label?.[0] ?? "?"}
               </Text>
             </View>
           )}
 
           <View>
-            <Text
-              style={{
-                color: "#e5e7eb",
-                fontSize: 15,
-                fontWeight: "700",
-              }}
-            >
+            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>
               {selected.label}
             </Text>
-            <Text style={{ color: "#64748b", fontSize: 12 }}>
+            <Text style={{ color: colors.textMuted, fontSize: 12 }}>
               Poziom {selected.level}
             </Text>
           </View>
         </View>
 
         {/* MEMBER CHIPS */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {memberChips.map((m) => {
             const active = m.id === selected.id;
             return (
@@ -495,18 +581,11 @@ export default function EditMissionScreen() {
                   paddingVertical: 6,
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
+                  borderColor: active ? colors.accent : colors.border,
+                  backgroundColor: active ? C.accentSoft : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
+                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
                   {m.label}
                 </Text>
               </TouchableOpacity>
@@ -515,18 +594,11 @@ export default function EditMissionScreen() {
         </View>
 
         {/* TRUDNOŚĆ */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
+        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
           Trudność zadania
         </Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {DIFFICULTY_OPTIONS.map((opt) => {
             const active = difficulty === opt.type;
             return (
@@ -538,18 +610,11 @@ export default function EditMissionScreen() {
                   paddingVertical: 6,
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
+                  borderColor: active ? colors.accent : colors.border,
+                  backgroundColor: active ? C.accentSoft : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
+                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
                   {opt.label} ({opt.exp} EXP)
                 </Text>
               </TouchableOpacity>
@@ -558,18 +623,11 @@ export default function EditMissionScreen() {
         </View>
 
         {/* REPEAT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
+        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
           Cykliczność
         </Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {REPEAT_OPTIONS.map((o) => {
             const active = o.type === repeatType;
             return (
@@ -581,18 +639,11 @@ export default function EditMissionScreen() {
                   paddingVertical: 6,
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.9)",
-                  backgroundColor: active
-                    ? "rgba(34,211,238,0.1)"
-                    : "transparent",
+                  borderColor: active ? colors.accent : colors.border,
+                  backgroundColor: active ? C.accentSoft : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? "#22d3ee" : "#e5e7eb",
-                    fontSize: 13,
-                  }}
-                >
+                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
                   {o.label}
                 </Text>
               </TouchableOpacity>
@@ -601,7 +652,7 @@ export default function EditMissionScreen() {
         </View>
 
         {/* TITLE INPUT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
+        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
           Nazwa zadania
         </Text>
 
@@ -609,20 +660,20 @@ export default function EditMissionScreen() {
           value={title}
           onChangeText={setTitle}
           placeholder="Np. Umyć naczynia"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={C.placeholder}
           style={{
             borderRadius: 10,
             borderWidth: 1,
-            borderColor: "rgba(55,65,81,0.9)",
+            borderColor: colors.border,
             padding: 10,
             marginBottom: 20,
-            backgroundColor: "#020617",
-            color: "#fff",
+            backgroundColor: C.inputBg,
+            color: colors.text,
           }}
         />
 
         {/* DATE INPUT */}
-        <Text style={{ color: "#9ca3af", marginBottom: 6, fontSize: 13 }}>
+        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
           Data (RRRR-MM-DD)
         </Text>
 
@@ -637,19 +688,19 @@ export default function EditMissionScreen() {
             }
           }}
           placeholder="2025-01-01"
-          placeholderTextColor="#6b7280"
+          placeholderTextColor={C.placeholder}
           style={{
             borderRadius: 10,
             borderWidth: 1,
-            borderColor: "rgba(55,65,81,0.9)",
+            borderColor: colors.border,
             padding: 10,
             marginBottom: 14,
-            backgroundColor: "#020617",
-            color: "#fff",
+            backgroundColor: C.inputBg,
+            color: colors.text,
           }}
         />
 
-        <Text style={{ color: "#e5e7eb", marginBottom: 10, fontSize: 15 }}>
+        <Text style={{ color: colors.text, marginBottom: 10, fontSize: 15 }}>
           {formatDayLong(chosenDate)}
         </Text>
 
@@ -657,10 +708,10 @@ export default function EditMissionScreen() {
         <View
           style={{
             borderWidth: 1,
-            borderColor: "rgba(75,85,99,0.9)",
+            borderColor: colors.border,
             padding: 12,
             borderRadius: 12,
-            backgroundColor: "#020617",
+            backgroundColor: C.surface,
             marginBottom: 24,
           }}
         >
@@ -685,23 +736,14 @@ export default function EditMissionScreen() {
                 padding: 6,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: "rgba(75,85,99,0.9)",
+                borderColor: colors.border,
               }}
             >
-              <Ionicons name="chevron-back" size={16} color="#e5e7eb" />
+              <Ionicons name="chevron-back" size={16} color={colors.text} />
             </TouchableOpacity>
 
-            <Text
-              style={{
-                color: "#e5e7eb",
-                fontSize: 14,
-                fontWeight: "600",
-              }}
-            >
-              {currentMonth.toLocaleDateString("pl-PL", {
-                month: "long",
-                year: "numeric",
-              })}
+            <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
+              {currentMonth.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
             </Text>
 
             <TouchableOpacity
@@ -716,10 +758,10 @@ export default function EditMissionScreen() {
                 padding: 6,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: "rgba(75,85,99,0.9)",
+                borderColor: colors.border,
               }}
             >
-              <Ionicons name="chevron-forward" size={16} color="#e5e7eb" />
+              <Ionicons name="chevron-forward" size={16} color={colors.text} />
             </TouchableOpacity>
           </View>
 
@@ -731,7 +773,7 @@ export default function EditMissionScreen() {
                 style={{
                   flex: 1,
                   textAlign: "center",
-                  color: "#6b7280",
+                  color: colors.textMuted,
                   fontSize: 11,
                 }}
               >
@@ -766,14 +808,14 @@ export default function EditMissionScreen() {
                       width: 28,
                       height: 28,
                       borderRadius: 999,
-                      backgroundColor: selectedDay ? "#22d3ee" : "transparent",
+                      backgroundColor: selectedDay ? colors.accent : "transparent",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
                     <Text
                       style={{
-                        color: selectedDay ? "#022c22" : "#e5e7eb",
+                        color: selectedDay ? C.onAccent : colors.text,
                         fontSize: 13,
                         fontWeight: selectedDay ? "700" : "400",
                       }}
@@ -796,10 +838,10 @@ export default function EditMissionScreen() {
               paddingVertical: 8,
               borderRadius: 999,
               borderWidth: 1,
-              borderColor: "rgba(148,163,184,0.5)",
+              borderColor: colors.border,
             }}
           >
-            <Text style={{ color: "#9ca3af", fontSize: 14 }}>Anuluj</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 14 }}>Anuluj</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -809,13 +851,13 @@ export default function EditMissionScreen() {
               paddingHorizontal: 16,
               paddingVertical: 8,
               borderRadius: 999,
-              backgroundColor: title.trim() && !saving ? "#22d3ee" : "#1e293b",
+              backgroundColor: title.trim() && !saving ? colors.accent : C.disabledBg,
               opacity: saving ? 0.7 : 1,
             }}
           >
             <Text
               style={{
-                color: title.trim() && !saving ? "#022c22" : "#6b7280",
+                color: title.trim() && !saving ? C.onAccent : C.disabledText,
                 fontSize: 14,
                 fontWeight: "700",
               }}

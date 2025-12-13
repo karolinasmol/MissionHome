@@ -117,31 +117,6 @@ const Bullet = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-const LinkLike = ({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) => {
-  const { colors } = useThemeColors();
-
-  return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
-      <Text
-        style={{
-          color: colors.accent,
-          fontSize: 13,
-          fontWeight: "700",
-          textDecorationLine: "underline",
-        }}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-};
-
 const PrivacyScreen = () => {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -155,6 +130,7 @@ const PrivacyScreen = () => {
           paddingBottom: 32,
         }}
       >
+        {/* HEADER */}
         <View
           style={{
             flexDirection: "row",
@@ -196,12 +172,12 @@ const PrivacyScreen = () => {
                 marginTop: 2,
               }}
             >
-              Jak MissionHome na iOS i Android dba o Twoje dane i bezpieczeństwo
-              korzystania z aplikacji.
+              Jak MissionHome dba o Twoje dane i bezpieczeństwo korzystania.
             </Text>
           </View>
         </View>
 
+        {/* 1. OGÓLNE INFORMACJE */}
         <SectionCard>
           <SectionTitle
             icon="shield-checkmark-outline"
@@ -210,29 +186,38 @@ const PrivacyScreen = () => {
           />
 
           <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
-            Niniejsza Polityka Prywatności opisuje zasady przetwarzania danych
-            osobowych użytkowników aplikacji MissionHome („Aplikacja”) dostępnej
-            na urządzeniach z systemem iOS (Apple) oraz Android (Google).
-            {"\n\n"}
-            Przetwarzamy wyłącznie takie dane, które są niezbędne do:
+            Niniejsza Polityka Prywatności i Cookies („Polityka”) określa zasady
+            przetwarzania danych osobowych użytkowników systemu MissionHome
+            („System”), dostępnego w formie aplikacji internetowej (webowej)
+            oraz aplikacji mobilnej na urządzenia z systemem iOS i Android
+            („Aplikacja”).
             {"\n"}
-            – świadczenia usług w ramach Aplikacji,{"\n"}
-            – zapewnienia synchronizacji danych między urządzeniami,{"\n"}
-            – rozwoju funkcjonalności oraz{"\n"}
-            – zapewnienia bezpieczeństwa korzystania.
+            Administratorem danych osobowych jest przedsiębiorca prowadzący
+            jednoosobową działalność gospodarczą pod nazwą MissionHome, z
+            siedzibą w Gdańsku (adres do uzupełnienia), NIP xxx, adres e-mail do
+            kontaktu w sprawach ochrony danych osobowych: xxx („Administrator”).
             {"\n\n"}
-            Korzystanie z Aplikacji na iOS lub Android jest równoznaczne z
-            akceptacją zasad opisanych w niniejszym dokumencie. Polityka ma
-            charakter kompleksowy i jest zgodna z RODO oraz wymaganiami Apple
-            App Store i Google Play.
+            Administrator przetwarza dane osobowe zgodnie z Rozporządzeniem
+            Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO), przepisami
+            dotyczącymi ochrony prywatności w łączności elektronicznej
+            (cookies) oraz wytycznymi Apple App Store i Google Play.
+            {"\n"}
+            Korzystanie z Aplikacji jest równoznaczne z akceptacją zasad
+            opisanych w niniejszym dokumencie.
           </Text>
         </SectionCard>
 
+        {/* 2. ZAKRES */}
         <SectionCard>
           <SectionTitle
             icon="person-circle-outline"
-            title="2. Jakie dane przetwarzamy?"
+            title="2. Zakres przetwarzanych danych osobowych"
           />
+
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Administrator może przetwarzać następujące kategorie danych
+            osobowych:
+          </Text>
 
           <Bullet>
             <Text style={{ fontWeight: "700" }}>Dane konta użytkownika:</Text>{" "}
@@ -242,25 +227,22 @@ const PrivacyScreen = () => {
 
           <Bullet>
             <Text style={{ fontWeight: "700" }}>Dane profilowe:</Text> nazwa
-            profilu, avatar, konfiguracja rodziny/domowników, role i
-            uprawnienia w ramach rodziny.
+            profilu, avatar, konfiguracja rodziny lub domowników, role i
+            uprawnienia.
           </Bullet>
 
           <Bullet>
-            <Text style={{ fontWeight: "700" }}>
-              Treści zapisane w Aplikacji:
-            </Text>{" "}
-            stworzone zadania, ustawienia, kategorie, punkty EXP, poziomy,
-            statystyki aktywności, historia wykonanych czynności i inne dane
-            konieczne do działania funkcji MissionHome.
+            <Text style={{ fontWeight: "700" }}>Treści użytkownika:</Text>{" "}
+            zadania, cele, opisy, ustawienia, kategorie, punkty EXP, poziomy,
+            statystyki aktywności, historia wykonanych czynności.
           </Bullet>
 
           <Bullet>
-            <Text style={{ fontWeight: "700" }}>Dane techniczne urządzenia:</Text>{" "}
-            typ urządzenia (np. iPhone, iPad, telefon z Androidem), system
-            operacyjny (wersja iOS/Android), wersja Aplikacji, identyfikator
-            instalacji, strefa czasowa, język urządzenia, informacje o błędach
-            oraz dane diagnostyczne.
+            <Text style={{ fontWeight: "700" }}>Dane techniczne:</Text> typ
+            urządzenia, system operacyjny, wersja aplikacji lub przeglądarki,
+            identyfikator instalacji, identyfikatory aplikacyjne, strefa
+            czasowa, język urządzenia, dane diagnostyczne oraz informacje o
+            błędach.
           </Bullet>
 
           <Bullet>
@@ -268,233 +250,256 @@ const PrivacyScreen = () => {
               Dane logowania i bezpieczeństwa:
             </Text>{" "}
             adres IP (w logach bezpieczeństwa), informacje o próbach logowania,
-            tokeny autoryzacyjne oraz informacje pozwalające wykrywać nadużycia.
+            tokeny autoryzacyjne.
           </Bullet>
 
           <Bullet>
-            <Text style={{ fontWeight: "700" }}>Dane płatności Premium:</Text>{" "}
+            <Text style={{ fontWeight: "700" }}>
+              Dane dotyczące Subskrypcji Premium:
+            </Text>{" "}
             identyfikator transakcji, status subskrypcji, historia odnowień,
-            daty ważności, typ planu oraz informacje przekazane przez Apple App
-            Store lub Google Play Store. Nie przetwarzamy pełnych danych
-            płatniczych (np. numeru karty).
+            daty obowiązywania, typ planu.
           </Bullet>
 
           <Bullet>
-            <Text style={{ fontWeight: "700" }}>Dane komunikacji:</Text> treść
-            zgłoszeń wysłanych do obsługi oraz treść odpowiedzi udzielonych
-            użytkownikowi.
+            <Text style={{ fontWeight: "700" }}>Dane komunikacyjne:</Text> treść
+            zgłoszeń do obsługi użytkownika oraz prowadzona korespondencja.
           </Bullet>
         </SectionCard>
 
+        {/* 3. CELE */}
         <SectionCard>
           <SectionTitle
             icon="sparkles-outline"
-            title="3. W jakich celach przetwarzamy dane?"
+            title="3. Cele przetwarzania danych osobowych"
           />
 
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Dane osobowe przetwarzane są w następujących celach:
+          </Text>
+
+          <Bullet>założenie i prowadzenie konta użytkownika.</Bullet>
           <Bullet>
-            Umożliwienie założenia konta i logowania do Aplikacji na iOS i
-            Android.
+            świadczenie usług drogą elektroniczną i zapewnienie pełnej
+            funkcjonalności Systemu.
+          </Bullet>
+          <Bullet>synchronizacja danych pomiędzy urządzeniami.</Bullet>
+          <Bullet>realizacja, obsługa i weryfikacja Subskrypcji Premium.</Bullet>
+          <Bullet>
+            zapewnienie bezpieczeństwa Systemu oraz zapobieganie nadużyciom.
           </Bullet>
           <Bullet>
-            Zapewnienie pełnej funkcjonalności Aplikacji, w tym synchronizacji
-            danych pomiędzy urządzeniami i członkami rodziny.
+            analiza błędów i poprawa wydajności oraz stabilności Systemu.
           </Bullet>
           <Bullet>
-            Obsługa i weryfikacja subskrypcji Premium oraz wykrywanie
-            nieautoryzowanych prób korzystania z płatnych funkcji.
+            realizacja obowiązków prawnych, w szczególności księgowych i
+            podatkowych.
           </Bullet>
+          <Bullet>kontakt z użytkownikiem i obsługa zgłoszeń.</Bullet>
           <Bullet>
-            Analiza błędów, ulepszanie wydajności i stabilności Aplikacji na
-            obu platformach.
-          </Bullet>
-          <Bullet>
-            Zapewnianie bezpieczeństwa, identyfikacja nadużyć, ochrona kont
-            użytkowników przed nieautoryzowanym dostępem.
-          </Bullet>
-          <Bullet>
-            Realizacja obowiązków podatkowych i rozliczeniowych związanych z
-            subskrypcjami Premium.
-          </Bullet>
-          <Bullet>
-            Kontakt z użytkownikiem, w tym odpowiadanie na zgłoszenia i
-            prośby o wsparcie.
-          </Bullet>
-          <Bullet>
-            Jeśli użytkownik wyrazi wyraźną zgodę – przesyłanie informacji o
-            nowych funkcjach, zmianach w Aplikacji lub materiałach
-            edukacyjnych.
+            przesyłanie informacji o nowych funkcjach lub materiałach
+            edukacyjnych - wyłącznie po uzyskaniu odrębnej zgody.
           </Bullet>
         </SectionCard>
 
+        {/* 4. PODSTAWA */}
         <SectionCard>
-          <SectionTitle
-            icon="scale-outline"
-            title="4. Podstawy prawne przetwarzania"
-          />
+          <SectionTitle icon="scale-outline" title="4. Podstawy prawne przetwarzania" />
+
+          <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
+            Dane osobowe przetwarzane są na podstawie:
+          </Text>
 
           <Bullet>
-            Art. 6 ust. 1 lit. b RODO – wykonanie umowy polegającej na
-            umożliwieniu korzystania z Aplikacji MissionHome.
+            art. 6 ust. 1 lit. b RODO – wykonanie umowy o świadczenie usług drogą
+            elektroniczną,
           </Bullet>
           <Bullet>
-            Art. 6 ust. 1 lit. f RODO – prawnie uzasadniony interes
-            administratora (bezpieczeństwo, rozwój, analiza błędów).
+            art. 6 ust. 1 lit. f RODO – prawnie uzasadniony interes Administratora
+            (bezpieczeństwo, rozwój Systemu, obsługa błędów),
           </Bullet>
           <Bullet>
-            Art. 6 ust. 1 lit. c RODO – obowiązki prawne (np. podatkowe związane
-            z subskrypcją Premium).
+            art. 6 ust. 1 lit. c RODO – wypełnienie obowiązków prawnych,
           </Bullet>
-          <Bullet>
-            Art. 6 ust. 1 lit. a RODO – zgoda (np. na komunikację o nowościach).
-          </Bullet>
+          <Bullet>art. 6 ust. 1 lit. a RODO – zgoda użytkownika.</Bullet>
         </SectionCard>
 
+        {/* 5. Subskrypcje Premium i płatności */}
         <SectionCard>
           <SectionTitle
             icon="star-outline"
-            title="5. Subskrypcje Premium (iOS i Android)"
-            subtitle="Jak przetwarzamy dane związane z płatnościami mobilnymi?"
+            title="5. Subskrypcje Premium i płatności"
+            subtitle="Jak przetwarzamy dane związane z płatnościami?"
           />
 
           <Bullet>
-            Płatności są realizowane wyłącznie przez Apple App Store oraz Google
-            Play Store.
+            Płatności są realizowane wyłącznie przez Apple App Store i Google
+            Play Store – zgodnie z ich regulaminami.
           </Bullet>
           <Bullet>
-            MissionHome otrzymuje tylko dane niezbędne do potwierdzenia zakupu:
-            identyfikator transakcji, status subskrypcji, daty obowiązywania.
+            MissionHome otrzymuje wyłącznie informacje niezbędne do
+            potwierdzenia zakupu: identyfikator transakcji, status subskrypcji,
+            daty obowiązywania.
           </Bullet>
           <Bullet>
-            Nie przetwarzamy numerów kart płatniczych ani danych bankowych – te
-            informacje pozostają po stronie Apple/Google.
+            Operatorzy płatności przetwarzą dane płatnicze jako niezależni
+            administratorzy danych. Administrator otrzymuje wyłącznie informacje
+            niezbędne do potwierdzenia zakupu oraz statusu Subskrypcji Premium.
           </Bullet>
           <Bullet>
-            Problemy z płatnością lub odnowieniem podlegają procedurom Apple lub
-            Google.
+            W przypadku problemów z płatnością obowiązują procedury Apple/Google.
           </Bullet>
           <Bullet>
-            Dane Premium przechowywane są również dla celów księgowych, zgodnie
-            z prawem.
+            Dane dotyczące Premium mogą być przechowywane dla celów rozliczeniowych
+            przez okres wymagany prawem.
           </Bullet>
         </SectionCard>
 
+        {/* 6. COOKIES */}
         <SectionCard>
-          <SectionTitle
-            icon="cloud-outline"
-            title="6. Komu udostępniamy dane?"
-          />
+          <SectionTitle icon="globe-outline" title="6. Cookies i podobne technologie" />
 
           <Bullet>
-            Dostawcom usług chmurowych (np. Firebase/Google Cloud) – na podstawie
-            umowy powierzenia.
+            System MissionHome wykorzystuje pliki cookies oraz podobne technologie,
+            w szczególności localStorage i sessionStorage, głównie w wersji webowej.
           </Bullet>
+
+          <Bullet>Stosowane są następujące kategorie cookies:</Bullet>
+
           <Bullet>
-            Apple i Google – w zakresie obsługi płatności i aktualizacji.
+            <Text style={{ fontWeight: "700" }}>Cookies niezbędne:</Text>{" "}
+            zapewniające prawidłowe funkcjonowanie Systemu.
           </Bullet>
+
           <Bullet>
-            Narzędziom analitycznym – wyłącznie anonimowo.
+            <Text style={{ fontWeight: "700" }}>Cookies funkcjonalne:</Text>{" "}
+            zapamiętujące preferencje i ustawienia użytkownika.
           </Bullet>
+
           <Bullet>
-            Organom publicznym – tylko w sytuacjach wymaganych prawem.
+            <Text style={{ fontWeight: "700" }}>Cookies analityczne:</Text>{" "}
+            umożliwiające analizę korzystania z Systemu (np. Firebase Analytics).
+          </Bullet>
+
+          <Bullet>
+            Cookies analityczne są wykorzystywane wyłącznie po uzyskaniu zgody
+            użytkownika. Zgoda może zostać cofnięta w dowolnym momencie za pomocą
+            banera cookies lub ustawień przeglądarki.
+          </Bullet>
+
+          <Bullet>
+            Aplikacje mobilne mogą wykorzystywać identyfikatory aplikacyjne oraz
+            dane diagnostyczne zgodnie z zasadami iOS i Android.
           </Bullet>
         </SectionCard>
 
+        {/* 7. KOMU */}
+        <SectionCard>
+          <SectionTitle icon="cloud-outline" title="7. Odbiorcy danych osobowych" />
+
+          <Bullet>
+            Dostawcom usług chmurowych i infrastrukturalnych (Firebase / Google Cloud).
+          </Bullet>
+          <Bullet>Operatorom płatności (Apple, Google, Stripe).</Bullet>
+          <Bullet>
+            Podmiotom świadczącym usługi analityczne w formie anonimowej lub
+            zanonimizowanej.
+          </Bullet>
+          <Bullet>
+            Organom publicznym – wyłącznie w zakresie wymaganym przepisami prawa.
+          </Bullet>
+          <Bullet>
+            Wszyscy odbiorcy danych przetwarzają je na podstawie odpowiednich umów
+            lub obowiązujących przepisów prawa.
+          </Bullet>
+        </SectionCard>
+
+        {/* 8. TRANSFER */}
         <SectionCard>
           <SectionTitle
             icon="earth-outline"
-            title="7. Gdzie przetwarzane są dane?"
+            title="8. Transfer danych poza Europejski Obszar Gospodarczy"
           />
 
           <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
-            Dane mogą być przetwarzane w EOG oraz poza nim, z zachowaniem
-            odpowiednich zabezpieczeń zgodnych z RODO, np. standardowych klauzul
-            umownych.
+            Dane osobowe mogą być przetwarzane poza Europejskim Obszarem Gospodarczym.
+            W takich przypadkach Administrator stosuje odpowiednie zabezpieczenia,
+            w szczególności standardowe klauzule umowne zatwierdzone przez Komisję
+            Europejską.
           </Text>
         </SectionCard>
 
+        {/* 9. OKRES */}
         <SectionCard>
-          <SectionTitle
-            icon="time-outline"
-            title="8. Jak długo przechowujemy dane?"
-          />
+          <SectionTitle icon="time-outline" title="9. Okres przechowywania danych" />
 
-          <Bullet>Dane konta – przez cały okres korzystania z Aplikacji.</Bullet>
+          <Bullet>Dane konta użytkownika – przez okres korzystania z Systemu.</Bullet>
           <Bullet>
-            Po usunięciu konta dane są kasowane lub anonimizowane; kopie
-            zapasowe mogą istnieć do 30 dni.
+            Dane po usunięciu konta – usuwane lub anonimizowane; kopie zapasowe mogą
+            być przechowywane do 30 dni.
           </Bullet>
           <Bullet>
-            Dane księgowe – zgodnie z prawem (np. 5 lat dla celów podatkowych).
+            Dane rozliczeniowe – przez okres wymagany przepisami prawa.
           </Bullet>
           <Bullet>
-            Dane techniczne – przez czas wymagany do zapewnienia bezpieczeństwa.
+            Dane techniczne i bezpieczeństwa – przez okres niezbędny do zapewnienia
+            bezpieczeństwa Systemu.
           </Bullet>
         </SectionCard>
 
+        {/* 10. PRAWA */}
         <SectionCard>
-          <SectionTitle icon="key-outline" title="9. Twoje prawa" />
+          <SectionTitle icon="key-outline" title="10. Prawa użytkownika" />
 
-          <Bullet>Dostęp do danych i otrzymanie ich kopii.</Bullet>
-          <Bullet>Poprawianie danych.</Bullet>
-          <Bullet>
-            Usunięcie danych („prawo do bycia zapomnianym”) – jeśli przepisy na
-            to pozwalają.
-          </Bullet>
-          <Bullet>Ograniczenie przetwarzania danych.</Bullet>
-          <Bullet>Przenoszenie danych.</Bullet>
-          <Bullet>Sprzeciw wobec przetwarzania danych.</Bullet>
+          <Bullet>Prawo dostępu do danych osobowych.</Bullet>
+          <Bullet>Prawo do ich sprostowania.</Bullet>
+          <Bullet>Prawo do usunięcia danych.</Bullet>
+          <Bullet>Prawo do ograniczenia przetwarzania.</Bullet>
+          <Bullet>Prawo do przenoszenia danych.</Bullet>
+          <Bullet>Prawo do wniesienia sprzeciwu.</Bullet>
+          <Bullet>Prawo do cofnięcia zgody w dowolnym momencie.</Bullet>
 
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              marginTop: 10,
-            }}
-          >
-            Aby skorzystać ze swoich praw, przejdź do sekcji{" "}
-            <LinkLike label="Kontakt" onPress={() => router.push("/contact")} />.
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10 }}>
+            Użytkownik ma również prawo wniesienia skargi do Prezesa Urzędu Ochrony
+            Danych Osobowych.
           </Text>
         </SectionCard>
 
+        {/* 11. BEZPIECZEŃSTWO */}
         <SectionCard>
-          <SectionTitle
-            icon="lock-closed-outline"
-            title="10. Jak chronimy Twoje dane?"
-          />
+          <SectionTitle icon="lock-closed-outline" title="11. Bezpieczeństwo danych osobowych" />
 
           <Bullet>Szyfrowanie transmisji danych.</Bullet>
-          <Bullet>Regularne kopie zapasowe.</Bullet>
-          <Bullet>Dostęp tylko dla uprawnionych osób.</Bullet>
-          <Bullet>Systemy wykrywania nadużyć.</Bullet>
-          <Bullet>Monitorowanie prób logowania.</Bullet>
+          <Bullet>Mechanizmy uwierzytelniania Firebase Authentication.</Bullet>
+          <Bullet>Ograniczenie dostępu do danych wyłącznie do upoważnionych osób.</Bullet>
+          <Bullet>Monitorowanie logowań i prób naruszeń bezpieczeństwa.</Bullet>
+          <Bullet>Regularne tworzenie kopii zapasowych.</Bullet>
         </SectionCard>
 
+        {/* 12. DZIECI */}
         <SectionCard>
-          <SectionTitle
-            icon="happy-outline"
-            title="11. Korzystanie przez dzieci"
-          />
+          <SectionTitle icon="happy-outline" title="12. Korzystanie z Systemu przez dzieci" />
 
           <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
-            MissionHome nie jest przeznaczone dla dzieci poniżej 13 roku życia.
-            Nie zbieramy świadomie danych takich osób. Jeśli takie dane zostaną
-            wykryte – zostaną usunięte.
+            System MissionHome nie jest przeznaczony dla dzieci poniżej 13 roku życia.
+            Administrator nie przetwarza świadomie danych takich osób. W przypadku
+            uzyskania informacji o przetwarzaniu danych dziecka poniżej 13 roku życia
+            dane zostaną niezwłocznie usunięte.
           </Text>
         </SectionCard>
 
+        {/* 13. ZMIANY */}
         <SectionCard>
-          <SectionTitle
-            icon="refresh-outline"
-            title="12. Zmiany w polityce prywatności"
-          />
+          <SectionTitle icon="refresh-outline" title="13. Zmiany Polityki Prywatności i Cookies" />
 
           <Text style={{ color: colors.text, fontSize: 13, lineHeight: 19 }}>
-            Polityka może ulec zmianie wraz z rozwojem Aplikacji oraz zmianami
-            prawa. O istotnych aktualizacjach poinformujemy w Aplikacji.
+            Administrator może aktualizować niniejszą Politykę w związku z rozwojem
+            Systemu lub zmianami przepisów prawa. O istotnych zmianach użytkownicy
+            zostaną poinformowani w Systemie.
           </Text>
         </SectionCard>
 
+        {/* FOOTER */}
         <View style={{ marginTop: 4, alignItems: "center" }}>
           <Text
             style={{
@@ -504,12 +509,11 @@ const PrivacyScreen = () => {
             }}
           >
             Ostatnia aktualizacja:{" "}
-            <Text style={{ fontWeight: "700", color: colors.text }}>
-              2025-12-05
-            </Text>
+            <Text style={{ fontWeight: "700", color: colors.text }}>2025-12-13</Text>
             .
             {"\n"}
-            Pełna wersja polityki prywatności przekazana do weryfikacji prawnej.
+            Pełna, rozszerzona wersja polityki prywatności przekazana do weryfikacji
+            prawnej.
           </Text>
         </View>
       </ScrollView>
@@ -518,3 +522,5 @@ const PrivacyScreen = () => {
 };
 
 export default PrivacyScreen;
+
+// app/privacy.tsx

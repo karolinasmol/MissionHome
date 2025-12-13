@@ -134,9 +134,12 @@ const RulesScreen = () => {
 
           <P>
             3. System dostępny jest w szczególności:
-               a) jako aplikacja internetowa dostępna za pośrednictwem przeglądarki internetowej,
-          <P>
           </P>
+          <P>
+               a) jako aplikacja internetowa dostępna za pośrednictwem przeglądarki internetowej,
+          </P>
+
+          <P>
                b) jako aplikacja mobilna na urządzenia z systemem Android oraz iOS, dystrybuowana m.in. poprzez Google Play oraz Apple App Store.
           </P>
 
@@ -154,8 +157,8 @@ const RulesScreen = () => {
           <SectionTitle title="§2. Definicje" />
 
           <P>
-            <Text style={{ fontWeight: "700" }}>1. Aplikacja</Text> - oprogramowanie
-            mobilne MissionHome udostępniane Użytkownikom.
+            <Text style={{ fontWeight: "700" }}>1. Aplikacja</Text> - system MissionHome dostępny
+            w formie aplikacji mobilnej oraz aplikacji internetowej (webowej).
           </P>
 
           <P>
@@ -208,8 +211,8 @@ const RulesScreen = () => {
           <SectionTitle title="§3. Warunki techniczne korzystania" />
 
           <P>
-            1. Do korzystania z Aplikacji wymagane jest urządzenie mobilne z
-            systemem Android lub iOS oraz aktywne połączenie z Internetem.
+            1. Do korzystania z Systemu wymagane jest urządzenie z dostępem do Internetu oraz
+            aktualna wersja przeglądarki internetowej lub urządzenie mobilne z systemem Android albo iOS.
           </P>
 
           <P>
@@ -390,6 +393,12 @@ const RulesScreen = () => {
 
           <P>
              10. Zmiana ceny Subskrypcji jest komunikowana zgodnie z zasadami Google, Apple lub Stripe.
+          </P>
+
+          <P>
+              11. Zakup Subskrypcji Premium jest przypisany do Konta Użytkownika i obowiązuje
+              wyłącznie w ramach platformy, za pośrednictwem której został dokonany zakup, zgodnie
+              z zasadami Google Play, Apple App Store lub Stripe.
           </P>
 
         </SectionCard>

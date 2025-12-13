@@ -14,9 +14,6 @@ import {
   useWindowDimensions,
   TextInput,
   Modal,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../src/context/ThemeContext";
@@ -115,7 +112,6 @@ const LAYOUT_FILE_NAME = "stats_dashboard_tiles_v2.json";
 async function loadLayout(): Promise<TileConfig[] | null> {
   try {
     if (Platform.OS === "web") {
-      // @ts-ignore
       const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
@@ -140,7 +136,6 @@ async function saveLayout(layout: TileConfig[]) {
   try {
     const raw = JSON.stringify(layout);
     if (Platform.OS === "web") {
-      // @ts-ignore
       localStorage.setItem(LAYOUT_STORAGE_KEY, raw);
       return;
     }
@@ -182,12 +177,7 @@ function Chip({
       ]}
     >
       {!!icon && (
-        <Ionicons
-          name={icon}
-          size={14}
-          color={colors.textMuted}
-          style={{ marginRight: 6 }}
-        />
+        <Ionicons name={icon} size={14} color={colors.textMuted} style={{ marginRight: 6 }} />
       )}
       <Text style={[styles.chipText, { color: colors.textMuted }]} numberOfLines={1}>
         {text}
@@ -223,9 +213,9 @@ function PrimaryButton({
 }
 
 /**
- * ✅ Card z opcją scrollowania środka (bez nachodzenia na inne elementy).
- * - scroll=true => środek w ScrollView, a karta ma stałą wysokość.
- * - minHeight:0 + overflow hidden => działa na iOS/Android stabilnie.
+ * ✅ Card z opcją scrollowania środka.
+ * - scroll=true => zawartość w ScrollView, nic nie wyjeżdża poza kafelek.
+ * - overflow hidden + minHeight:0 => działa poprawnie na web i mobile.
  */
 function Card({
   colors,
@@ -279,7 +269,6 @@ function Card({
           <ScrollView
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 2 }}
           >
             {children}
@@ -334,51 +323,17 @@ function KpiCard({
 
 /* ----------------------- Screen ----------------------- */
 
-const TILE_H = Platform.OS === "web" ? 320 : 340;
-
-function buildRows(tiles: TileConfig[], columns: number) {
-  const rows: TileConfig[][] = [];
-  let current: TileConfig[] = [];
-
-  const flush = () => {
-    if (current.length) rows.push(current);
-    current = [];
-  };
-
-  for (const t of tiles) {
-    if (columns <= 1) {
-      rows.push([t]);
-      continue;
-    }
-
-    if (t.wide) {
-      flush();
-      rows.push([t]);
-      continue;
-    }
-
-    current.push(t);
-    if (current.length >= columns) flush();
-  }
-
-  flush();
-  return rows;
-}
+const TILE_H = 320;
 
 export default function StatsScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
   const { members } = useFamily();
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
 
-  // ✅ Native-first: telefony mają 1 kolumnę (bez kombinowania z flex-basis/calc)
-  const isWeb = Platform.OS === "web";
-  const columns = useMemo(() => {
-    if (isWeb) return width >= 1220 ? 3 : width >= 860 ? 2 : 1;
-    // native
-    if (width >= 900) return 2; // tablet / duży ekran
-    return 1; // telefony
-  }, [isWeb, width]);
+  const is2Col = width >= 860;
+  const is3Col = width >= 1220;
+  const columns = is3Col ? 3 : is2Col ? 2 : 1;
 
   const now = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => startOfWeek(now), [now]);
@@ -671,7 +626,7 @@ export default function StatsScreen() {
     hard: "#ef4444",
   };
 
-  /* -------------------- Customizable tiles -------------------- */
+  /* -------------------- Customizable tiles (stable) -------------------- */
 
   const DEFAULT_TILES: TileConfig[] = useMemo(
     () => [
@@ -750,7 +705,12 @@ export default function StatsScreen() {
   };
 
   const visibleTiles = useMemo(() => tiles.filter((t) => !t.hidden), [tiles]);
-  const tileRows = useMemo(() => buildRows(visibleTiles, columns), [visibleTiles, columns]);
+
+  const itemBasis = useMemo(() => {
+    if (columns === 1) return "100%";
+    if (columns === 2) return "50%";
+    return "33.333%";
+  }, [columns]);
 
   /* -------------------- Mission search tile (with modal) -------------------- */
 
@@ -857,7 +817,7 @@ export default function StatsScreen() {
     );
 
     if (tile.id === "mission-search") {
-      const top = filteredStats.slice(0, 8);
+      const top = filteredStats.slice(0, 8); // może być dużo -> teraz scroll w kafelku ogarnia
       return (
         <Card
           colors={colors}
@@ -868,12 +828,7 @@ export default function StatsScreen() {
           scroll
         >
           <View style={{ marginTop: 8 }}>
-            <View
-              style={[
-                styles.searchWrap,
-                { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` },
-              ]}
-            >
+            <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
               <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
               <TextInput
                 value={missionQuery}
@@ -883,14 +838,9 @@ export default function StatsScreen() {
                 style={[styles.searchInput, { color: colors.text }]}
                 autoCorrect={false}
                 autoCapitalize="none"
-                returnKeyType="search"
               />
               {!!missionQuery && (
-                <Pressable
-                  onPress={() => setMissionQuery("")}
-                  hitSlop={10}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
-                >
+                <Pressable onPress={() => setMissionQuery("")} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
                   <Ionicons name="close-circle" size={18} color={colors.textMuted} />
                 </Pressable>
               )}
@@ -902,59 +852,51 @@ export default function StatsScreen() {
               <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Brak pasujących misji.</Text>
             ) : (
               <View style={{ marginTop: 10 }}>
-                {top.map((t) => (
-                  <Pressable
-                    key={t.key}
-                    onPress={() => {
-                      setSelectedKey(t.key);
-                      setDetailsOpen(true);
-                    }}
-                    style={({ pressed }) => [
-                      styles.searchRow,
-                      {
-                        borderColor: colors.border,
-                        backgroundColor: `${colors.textMuted}08`,
-                        opacity: pressed ? 0.9 : 1,
-                        marginBottom: 8,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.searchDot, { borderColor: colors.border }]}>
-                      <Ionicons
-                        name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
-                        size={14}
-                        color={t.completed > 0 ? colors.accent : colors.textMuted}
-                      />
-                    </View>
+                {top.map((t) => {
+                  return (
+                    <Pressable
+                      key={t.key}
+                      onPress={() => {
+                        setSelectedKey(t.key);
+                        setDetailsOpen(true);
+                      }}
+                      style={({ pressed }) => [
+                        styles.searchRow,
+                        {
+                          borderColor: colors.border,
+                          backgroundColor: `${colors.textMuted}08`,
+                          opacity: pressed ? 0.9 : 1,
+                          marginBottom: 8,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.searchDot, { borderColor: colors.border }]}>
+                        <Ionicons name={t.completed > 0 ? "checkmark" : "ellipse-outline"} size={14} color={t.completed > 0 ? colors.accent : colors.textMuted} />
+                      </View>
 
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
-                        {t.label}
-                      </Text>
-                      <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
-                      </Text>
-                    </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
+                          {t.label}
+                        </Text>
+                        <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                          {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
+                        </Text>
+                      </View>
 
-                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                  </Pressable>
-                ))}
+                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    </Pressable>
+                  );
+                })}
 
                 <Pressable
                   onPress={() => setDetailsOpen(true)}
                   style={({ pressed }) => [
                     styles.linkBtn,
-                    {
-                      borderColor: colors.border,
-                      backgroundColor: `${colors.textMuted}08`,
-                      opacity: pressed ? 0.85 : 1,
-                    },
+                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
                   <Ionicons name="list-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                  <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>
-                    Pokaż listę ({filteredStats.length})
-                  </Text>
+                  <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>Pokaż listę ({filteredStats.length})</Text>
                 </Pressable>
               </View>
             )}
@@ -976,17 +918,9 @@ export default function StatsScreen() {
           {loading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
           ) : (
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: 10, gap: 10 }}>
               <View style={styles.achRow}>
-                <View
-                  style={[
-                    styles.achIcon,
-                    {
-                      backgroundColor: "rgba(250,204,21,0.14)",
-                      borderColor: "rgba(250,204,21,0.35)",
-                    },
-                  ]}
-                >
+                <View style={[styles.achIcon, { backgroundColor: "rgba(250,204,21,0.14)", borderColor: "rgba(250,204,21,0.35)" }]}>
                   <Ionicons name="medal-outline" size={16} color="#facc15" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>
@@ -1001,15 +935,7 @@ export default function StatsScreen() {
               </View>
 
               <View style={styles.achRow}>
-                <View
-                  style={[
-                    styles.achIcon,
-                    {
-                      backgroundColor: "rgba(34,197,94,0.14)",
-                      borderColor: "rgba(34,197,94,0.35)",
-                    },
-                  ]}
-                >
+                <View style={[styles.achIcon, { backgroundColor: "rgba(34,197,94,0.14)", borderColor: "rgba(34,197,94,0.35)" }]}>
                   <Ionicons name="flash-outline" size={16} color="#22c55e" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>
@@ -1024,15 +950,7 @@ export default function StatsScreen() {
               </View>
 
               <View style={styles.achRow}>
-                <View
-                  style={[
-                    styles.achIcon,
-                    {
-                      backgroundColor: "rgba(239,68,68,0.14)",
-                      borderColor: "rgba(239,68,68,0.35)",
-                    },
-                  ]}
-                >
+                <View style={[styles.achIcon, { backgroundColor: "rgba(239,68,68,0.14)", borderColor: "rgba(239,68,68,0.35)" }]}>
                   <Ionicons name="flame-outline" size={16} color="#ef4444" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>{dominantDifficultyLabel}</Text>
@@ -1061,18 +979,12 @@ export default function StatsScreen() {
           ) : (
             <View style={{ marginTop: 10 }}>
               {list.map((row, idx) => {
-                const tint =
-                  idx === 0 ? "#facc15" : idx === 1 ? "#a5b4fc" : idx === 2 ? "#f97316" : colors.accent;
+                const tint = idx === 0 ? "#facc15" : idx === 1 ? "#a5b4fc" : idx === 2 ? "#f97316" : colors.accent;
                 const pct = Math.min(100, Math.round((row.weekCount / (list[0]?.weekCount || 1)) * 100));
                 return (
                   <View key={row.id} style={{ marginBottom: 10 }}>
                     <View style={styles.memberTop}>
-                      <View
-                        style={[
-                          styles.avatar,
-                          { borderColor: colors.border, backgroundColor: `${tint}14` },
-                        ]}
-                      >
+                      <View style={[styles.avatar, { borderColor: colors.border, backgroundColor: `${tint}14` }]}>
                         <Text style={[styles.avatarText, { color: tint }]}>{row.avatarInitial}</Text>
                       </View>
 
@@ -1086,15 +998,7 @@ export default function StatsScreen() {
                       </View>
 
                       <Ionicons
-                        name={
-                          idx === 0
-                            ? "trophy"
-                            : idx === 1
-                            ? "trophy-outline"
-                            : idx === 2
-                            ? "ribbon-outline"
-                            : "chevron-forward"
-                        }
+                        name={idx === 0 ? "trophy" : idx === 1 ? "trophy-outline" : idx === 2 ? "ribbon-outline" : "chevron-forward"}
                         size={18}
                         color={idx < 3 ? tint : colors.textMuted}
                       />
@@ -1142,9 +1046,7 @@ export default function StatsScreen() {
                           <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
                         </View>
                         <View style={[styles.miniTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                          <View
-                            style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }}
-                          />
+                          <View style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }} />
                         </View>
                       </View>
                     );
@@ -1172,9 +1074,7 @@ export default function StatsScreen() {
                           <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
                         </View>
                         <View style={[styles.miniTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                          <View
-                            style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }}
-                          />
+                          <View style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }} />
                         </View>
                       </View>
                     );
@@ -1214,9 +1114,7 @@ export default function StatsScreen() {
                     <Ionicons name={row.icon} size={16} color={row.color} style={{ marginRight: 8 }} />
                     <Text style={[styles.diffLabel, { color: colors.text }]}>{row.label}</Text>
                   </View>
-                  <Text style={[styles.diffMeta, { color: colors.textMuted }]}>
-                    {row.count} • {row.pct}%
-                  </Text>
+                  <Text style={[styles.diffMeta, { color: colors.textMuted }]}>{row.count} • {row.pct}%</Text>
                 </View>
 
                 <View style={[styles.diffTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
@@ -1230,22 +1128,7 @@ export default function StatsScreen() {
     );
   };
 
-  const kpiCols = useMemo(() => {
-    if (isWeb) return width >= 1220 ? 3 : width >= 860 ? 2 : 1;
-    return width >= 900 ? 3 : width >= 600 ? 2 : 1;
-  }, [isWeb, width]);
-
-  const kpiRows = useMemo(() => {
-    const items = [
-      { key: "week", node: null },
-      { key: "month", node: null },
-      { key: "total", node: null },
-    ];
-    // render na żywo niżej
-    return items.length;
-  }, []);
-
-  const listMaxHeight = Math.min(380, Math.round(height * 0.38));
+  const kpiBasis = is3Col ? "32%" : is2Col ? "48%" : "100%";
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -1253,7 +1136,6 @@ export default function StatsScreen() {
         style={{ flex: 1, backgroundColor: colors.bg }}
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingVertical: 14, alignItems: "center" }}
       >
         <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 16 }}>
@@ -1310,16 +1192,7 @@ export default function StatsScreen() {
                   </Text>
                 </Pressable>
 
-                <View
-                  style={[
-                    styles.heroBadge,
-                    {
-                      backgroundColor: `${colors.accent}14`,
-                      borderColor: `${colors.accent}33`,
-                      marginTop: 10,
-                    },
-                  ]}
-                >
+                <View style={[styles.heroBadge, { backgroundColor: `${colors.accent}14`, borderColor: `${colors.accent}33`, marginTop: 10 }]}>
                   <Text style={[styles.heroBadgeText, { color: colors.accent }]}>
                     Skuteczność: {completionRate}%
                   </Text>
@@ -1346,70 +1219,33 @@ export default function StatsScreen() {
           </View>
 
           {/* KPI row (fixed) */}
-          <View style={{ marginTop: 12 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
-              {[
-                <KpiCard
-                  key="kpi-week"
-                  colors={colors}
-                  label="Ten tydzień"
-                  value={loading ? "—" : weekCompleted.length}
-                  hint="ukończone zadania"
-                  icon="calendar-outline"
-                  tint={colors.accent}
-                />,
-                <KpiCard
-                  key="kpi-month"
-                  colors={colors}
-                  label="Ten miesiąc"
-                  value={loading ? "—" : monthCompleted.length}
-                  hint="ukończone zadania"
-                  icon="stats-chart-outline"
-                  tint={colors.accent}
-                />,
-                <KpiCard
-                  key="kpi-total"
-                  colors={colors}
-                  label="Wykonane łącznie"
-                  value={loading ? "—" : totalCompleted}
-                  hint="od początku"
-                  icon="checkmark-done-outline"
-                  tint="#22c55e"
-                />,
-              ].map((node, idx) => {
-                const basis = `${100 / kpiCols}%` as any;
-                return (
-                  <View
-                    key={`kpi-wrap-${idx}`}
-                    style={{ flexBasis: basis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}
-                  >
-                    {node}
-                  </View>
-                );
-              })}
+          <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
+            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
+              <KpiCard colors={colors} label="Ten tydzień" value={loading ? "—" : weekCompleted.length} hint="ukończone zadania" icon="calendar-outline" tint={colors.accent} />
+            </View>
+
+            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
+              <KpiCard colors={colors} label="Ten miesiąc" value={loading ? "—" : monthCompleted.length} hint="ukończone zadania" icon="stats-chart-outline" tint={colors.accent} />
+            </View>
+
+            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
+              <KpiCard colors={colors} label="Wykonane łącznie" value={loading ? "—" : totalCompleted} hint="od początku" icon="checkmark-done-outline" tint="#22c55e" />
             </View>
           </View>
 
-          {/* Custom tiles (native-safe rows) */}
-          <View style={{ marginTop: 0 }}>
-            {tileRows.map((row, rIdx) => (
-              <View key={`row-${rIdx}`} style={{ flexDirection: "row", marginHorizontal: -6 }}>
-                {row.map((t, iIdx) => {
-                  const isWide = !!t.wide || columns === 1;
-                  return (
-                    <View
-                      key={t.id}
-                      style={{
-                        paddingHorizontal: 6,
-                        marginBottom: 12,
-                        flex: isWide ? 1 : 1,
-                        width: isWide ? "100%" : undefined,
-                      }}
-                    >
-                      {renderTile(t)}
-                    </View>
-                  );
-                })}
+          {/* Custom tiles */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
+            {visibleTiles.map((t) => (
+              <View
+                key={t.id}
+                style={{
+                  paddingHorizontal: 6,
+                  marginBottom: 12,
+                  flexBasis: t.wide ? "100%" : itemBasis,
+                  flexGrow: t.wide ? 0 : 1,
+                }}
+              >
+                {renderTile(t)}
               </View>
             ))}
           </View>
@@ -1464,8 +1300,7 @@ export default function StatsScreen() {
                             </Text>
 
                             <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                              Ostatnio wykonane:{" "}
-                              <Text style={{ color: colors.text }}>{formatDateTimeShort(lastDone)}</Text>
+                              Ostatnio wykonane: <Text style={{ color: colors.text }}>{formatDateTimeShort(lastDone)}</Text>
                             </Text>
 
                             <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
@@ -1487,227 +1322,202 @@ export default function StatsScreen() {
 
       {/* Edit modal */}
       <Modal visible={editOpen} animationType="slide" transparent onRequestClose={() => setEditOpen(false)}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.modalBackdrop}>
-            <Pressable style={{ flex: 1 }} onPress={() => setEditOpen(false)} />
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.modalTitle, { color: colors.text }]}>Dostosuj kafelki</Text>
-                  <Pressable onPress={() => setEditOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                    <Ionicons name="close" size={22} color={colors.textMuted} />
-                  </Pressable>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Dostosuj kafelki</Text>
+              <Pressable onPress={() => setEditOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+                <Ionicons name="close" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ padding: 14 }} showsVerticalScrollIndicator={false}>
+              {tiles.map((t) => (
+                <View
+                  key={t.id}
+                  style={[
+                    styles.editRow,
+                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
+                  ]}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                      {t.id === "mission-search"
+                        ? "Wyszukaj misję"
+                        : t.id === "achievements"
+                        ? "Osiągnięcia"
+                        : t.id === "leaderboard"
+                        ? "Leaderboard"
+                        : t.id === "freq"
+                        ? "Najczęstsze zadania"
+                        : "Trudność"}
+                    </Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                      {t.hidden ? "Ukryty" : t.wide ? "Szeroki (pełny rząd)" : "Normalny"}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <Pressable onPress={() => moveTile(t.id, -1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                      <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
+                    </Pressable>
+                    <Pressable onPress={() => moveTile(t.id, 1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                      <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                    </Pressable>
+
+                    <Pressable onPress={() => toggleWide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                      <Ionicons name={t.wide ? "contract-outline" : "expand-outline"} size={18} color={colors.textMuted} />
+                    </Pressable>
+
+                    <Pressable onPress={() => toggleHide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                      <Ionicons name={t.hidden ? "eye-outline" : "eye-off-outline"} size={18} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
                 </View>
+              ))}
 
-                <ScrollView style={{ padding: 14 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  {tiles.map((t) => (
-                    <View
-                      key={t.id}
-                      style={[
-                        styles.editRow,
-                        { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
-                      ]}
-                    >
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                          {t.id === "mission-search"
-                            ? "Wyszukaj misję"
-                            : t.id === "achievements"
-                            ? "Osiągnięcia"
-                            : t.id === "leaderboard"
-                            ? "Leaderboard"
-                            : t.id === "freq"
-                            ? "Najczęstsze zadania"
-                            : "Trudność"}
-                        </Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
-                          {t.hidden ? "Ukryty" : t.wide ? "Szeroki (pełny rząd)" : "Normalny"}
-                        </Text>
-                      </View>
+              <Pressable
+                onPress={resetTiles}
+                style={({ pressed }) => [
+                  styles.resetBtn,
+                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="refresh-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Reset układu</Text>
+              </Pressable>
+            </ScrollView>
 
-                      <View style={styles.editRowBtns}>
-                        <Pressable onPress={() => moveTile(t.id, -1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                          <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
-                        </Pressable>
-                        <Pressable onPress={() => moveTile(t.id, 1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                          <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                        </Pressable>
-
-                        <Pressable onPress={() => toggleWide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                          <Ionicons name={t.wide ? "contract-outline" : "expand-outline"} size={18} color={colors.textMuted} />
-                        </Pressable>
-
-                        <Pressable onPress={() => toggleHide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                          <Ionicons name={t.hidden ? "eye-outline" : "eye-off-outline"} size={18} color={colors.textMuted} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))}
-
-                  <Pressable
-                    onPress={resetTiles}
-                    style={({ pressed }) => [
-                      styles.resetBtn,
-                      { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                    ]}
-                  >
-                    <Ionicons name="refresh-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                    <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Reset układu</Text>
-                  </Pressable>
-                </ScrollView>
-
-                <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
-                  <Pressable
-                    onPress={() => setEditOpen(false)}
-                    style={({ pressed }) => [
-                      styles.modalCloseBtn,
-                      { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                    ]}
-                  >
-                    <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
+            <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+              <Pressable
+                onPress={() => setEditOpen(false)}
+                style={({ pressed }) => [
+                  styles.modalCloseBtn,
+                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
+              </Pressable>
+            </View>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
       </Modal>
 
       {/* Mission details modal */}
       <Modal visible={detailsOpen} animationType="slide" transparent onRequestClose={() => setDetailsOpen(false)}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.modalBackdrop}>
-            <Pressable style={{ flex: 1 }} onPress={() => setDetailsOpen(false)} />
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.modalTitle, { color: colors.text }]}>Misje — szczegóły</Text>
-                  <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                    <Ionicons name="close" size={22} color={colors.textMuted} />
-                  </Pressable>
-                </View>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Misje — szczegóły</Text>
+              <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+                <Ionicons name="close" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
 
-                <View style={{ padding: 14 }}>
-                  <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
-                    <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                    <TextInput
-                      value={missionQuery}
-                      onChangeText={setMissionQuery}
-                      placeholder="Szukaj misji…"
-                      placeholderTextColor={colors.textMuted}
-                      style={[styles.searchInput, { color: colors.text }]}
-                      autoCorrect={false}
-                      autoCapitalize="none"
-                      returnKeyType="search"
-                    />
-                    {!!missionQuery && (
-                      <Pressable onPress={() => setMissionQuery("")} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-                        <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                      </Pressable>
-                    )}
-                  </View>
-
-                  <View style={{ height: 12 }} />
-
-                  <ScrollView style={{ maxHeight: listMaxHeight }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                    {filteredStats.slice(0, 40).map((t) => {
-                      const isActive = selectedKey === t.key;
-                      return (
-                        <Pressable
-                          key={t.key}
-                          onPress={() => setSelectedKey(t.key)}
-                          style={({ pressed }) => [
-                            styles.searchRow,
-                            {
-                              borderColor: colors.border,
-                              backgroundColor: isActive ? `${colors.accent}14` : `${colors.textMuted}08`,
-                              opacity: pressed ? 0.9 : 1,
-                              marginBottom: 8,
-                            },
-                          ]}
-                        >
-                          <View style={[styles.searchDot, { borderColor: colors.border }]}>
-                            <Ionicons
-                              name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
-                              size={14}
-                              color={t.completed > 0 ? colors.accent : colors.textMuted}
-                            />
-                          </View>
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
-                              {t.label}
-                            </Text>
-                            <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                              {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
-                            </Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <View style={{ marginTop: 12 }}>
-                    <Divider colors={colors} />
-                  </View>
-
-                  {!selected ? (
-                    <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 12 }]}>
-                      Wybierz misję z listy, żeby zobaczyć: ile razy, kto i kiedy.
-                    </Text>
-                  ) : (
-                    <View style={{ marginTop: 12 }}>
-                      <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }} numberOfLines={2}>
-                        {selected.label}
-                      </Text>
-                      <Text style={{ color: colors.textMuted, marginTop: 6, fontWeight: "800" }}>
-                        Wykonano: <Text style={{ color: colors.text }}>{selected.completed}×</Text> • Ostatnio:{" "}
-                        <Text style={{ color: colors.text }}>{formatDateTimeShort(selected.lastDone)}</Text>
-                      </Text>
-
-                      <View style={{ marginTop: 10 }}>
-                        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Historia (ostatnie 12)</Text>
-                        <View style={{ marginTop: 8 }}>
-                          {selected.events.slice(0, 12).map((e: any) => (
-                            <View
-                              key={e.id}
-                              style={[
-                                styles.eventRow,
-                                { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
-                              ]}
-                            >
-                              <View style={{ flex: 1, minWidth: 0 }}>
-                                <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                                  {e.userName}
-                                </Text>
-                                <Text style={{ color: colors.textMuted, marginTop: 2, fontSize: 11 }} numberOfLines={1}>
-                                  {formatDateTimeShort(e.date)}
-                                </Text>
-                              </View>
-                              <Text style={{ color: colors.textMuted, fontWeight: "900" }}>+{e.exp}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-                    </View>
-                  )}
-                </View>
-
-                <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
-                  <Pressable
-                    onPress={() => setDetailsOpen(false)}
-                    style={({ pressed }) => [
-                      styles.modalCloseBtn,
-                      { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                    ]}
-                  >
-                    <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
-                  </Pressable>
-                </View>
+            <View style={{ padding: 14 }}>
+              <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
+                <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                <TextInput
+                  value={missionQuery}
+                  onChangeText={setMissionQuery}
+                  placeholder="Szukaj misji…"
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.searchInput, { color: colors.text }]}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
               </View>
-            </KeyboardAvoidingView>
+
+              <View style={{ height: 12 }} />
+
+              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                {filteredStats.slice(0, 30).map((t) => {
+                  const isActive = selectedKey === t.key;
+                  return (
+                    <Pressable
+                      key={t.key}
+                      onPress={() => setSelectedKey(t.key)}
+                      style={({ pressed }) => [
+                        styles.searchRow,
+                        {
+                          borderColor: colors.border,
+                          backgroundColor: isActive ? `${colors.accent}14` : `${colors.textMuted}08`,
+                          opacity: pressed ? 0.9 : 1,
+                          marginBottom: 8,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.searchDot, { borderColor: colors.border }]}>
+                        <Ionicons name={t.completed > 0 ? "checkmark" : "ellipse-outline"} size={14} color={t.completed > 0 ? colors.accent : colors.textMuted} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>{t.label}</Text>
+                        <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                          {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              <View style={{ marginTop: 12 }}>
+                <Divider colors={colors} />
+              </View>
+
+              {!selected ? (
+                <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 12 }]}>
+                  Wybierz misję z listy, żeby zobaczyć: ile razy, kto i kiedy.
+                </Text>
+              ) : (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }} numberOfLines={2}>
+                    {selected.label}
+                  </Text>
+                  <Text style={{ color: colors.textMuted, marginTop: 6, fontWeight: "800" }}>
+                    Wykonano: <Text style={{ color: colors.text }}>{selected.completed}×</Text> • Ostatnio:{" "}
+                    <Text style={{ color: colors.text }}>{formatDateTimeShort(selected.lastDone)}</Text>
+                  </Text>
+
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Historia (ostatnie 12)</Text>
+                    <View style={{ marginTop: 8 }}>
+                      {selected.events.slice(0, 12).map((e: any) => (
+                        <View
+                          key={e.id}
+                          style={[styles.eventRow, { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` }]}
+                        >
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                              {e.userName}
+                            </Text>
+                            <Text style={{ color: colors.textMuted, marginTop: 2, fontSize: 11 }} numberOfLines={1}>
+                              {formatDateTimeShort(e.date)}
+                            </Text>
+                          </View>
+                          <Text style={{ color: colors.textMuted, fontWeight: "900" }}>+{e.exp}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+              <Pressable
+                onPress={() => setDetailsOpen(false)}
+                style={({ pressed }) => [
+                  styles.modalCloseBtn,
+                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
+              </Pressable>
+            </View>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1727,6 +1537,7 @@ const styles = StyleSheet.create({
   heroTop: {
     flexDirection: "row",
     alignItems: "flex-start",
+    gap: 14,
   },
   heroTitle: {
     fontSize: 28,
@@ -1818,7 +1629,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderRadius: 22,
-    overflow: "hidden",
+    overflow: "hidden", // ✅ ważne: nic nie wyjeżdża poza kartę
     ...(Platform.OS === "ios"
       ? { shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 2 }),
@@ -1887,7 +1698,7 @@ const styles = StyleSheet.create({
   achRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
+    gap: 10,
   },
   achIcon: {
     width: 34,
@@ -1896,7 +1707,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
   },
   achText: {
     fontSize: 13,
@@ -1920,6 +1730,8 @@ const styles = StyleSheet.create({
   memberTop: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
   memberName: {
     fontSize: 13,
@@ -1941,12 +1753,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
   },
   freqLabel: {
     fontSize: 13,
     fontWeight: "800",
     flex: 1,
-    marginRight: 10,
   },
   freqCount: {
     fontSize: 12,
@@ -1989,6 +1801,7 @@ const styles = StyleSheet.create({
   historyRow: {
     flexDirection: "row",
     alignItems: "flex-start",
+    gap: 10,
   },
   statusDot: {
     width: 28,
@@ -1998,7 +1811,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     marginTop: 2,
-    marginRight: 10,
   },
   historyTitle: {
     fontSize: 14,
@@ -2107,11 +1919,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
-  },
-  editRowBtns: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginLeft: 12,
   },
   resetBtn: {
     borderWidth: 1,

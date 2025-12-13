@@ -346,7 +346,6 @@ export default function HomeScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
   const { members } = useFamily();
-  const isWeb = Platform.OS === "web";
 
   const { particles: fireworkParticles, shoot: triggerFirework } =
     useFireworkManager();
@@ -983,7 +982,13 @@ export default function HomeScreen() {
         }}
       >
         {/* LOGO + NAZWA */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
           <View
             style={{
               width: 34,
@@ -999,7 +1004,9 @@ export default function HomeScreen() {
           </View>
 
           <View>
-            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}>
+            <Text
+              style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
+            >
               MissionHome
             </Text>
             <Text
@@ -1017,17 +1024,23 @@ export default function HomeScreen() {
 
         {/* SOCIAL IKONY */}
         <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          {(["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const).map(
-            (icon) => (
-              <TouchableOpacity key={icon} activeOpacity={0.9} style={{ marginHorizontal: 8 }}>
-                <Ionicons name={icon as any} size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            )
-          )}
+          {(
+            ["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const
+          ).map((icon) => (
+            <TouchableOpacity
+              key={icon}
+              activeOpacity={0.9}
+              style={{ marginHorizontal: 8 }}
+            >
+              <Ionicons name={icon as any} size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* LINKI LINIA 1 */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
+        <View
+          style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}
+        >
           <FooterLink label="O aplikacji" to="/about-app" />
           <FooterLink label="Regulamin" to="/rules" />
           <FooterLink label="Polityka prywatności" to="/privacy" />
@@ -1063,9 +1076,6 @@ export default function HomeScreen() {
       </View>
     );
   };
-
-
-
 
   /* --------------------------------------------------------------------- */
   /* ------------------------------- UI ---------------------------------- */
@@ -1231,14 +1241,18 @@ export default function HomeScreen() {
                   >
                     <Text style={{ color: colors.textMuted, fontSize: 11 }}>
                       Dziś zgarnięte:{" "}
-                      <Text style={{ color: colors.text, fontWeight: "800" }}>
+                      <Text
+                        style={{ color: colors.text, fontWeight: "800" }}
+                      >
                         {dayEarned}
                       </Text>{" "}
                       / {dayPossible} EXP
                     </Text>
                     <Text style={{ color: colors.textMuted, fontSize: 11 }}>
                       Próg LVL {hudLevel + 1}:{" "}
-                      <Text style={{ color: colors.text, fontWeight: "800" }}>
+                      <Text
+                        style={{ color: colors.text, fontWeight: "800" }}
+                      >
                         {nextReq}
                       </Text>
                     </Text>
@@ -1632,7 +1646,9 @@ export default function HomeScreen() {
                     }}
                   >
                     {/* Top row: checkbox + tytuł + akcje */}
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
                       {/* Wrapper na guzik */}
                       <View
                         ref={(el) => {
@@ -1681,7 +1697,9 @@ export default function HomeScreen() {
                             alignItems: "center",
                             borderWidth: 1,
                             borderColor: isDone ? "#22c55e88" : colors.border,
-                            backgroundColor: isDone ? "#22c55e22" : "transparent",
+                            backgroundColor: isDone
+                              ? "#22c55e22"
+                              : "transparent",
                           }}
                           hitSlop={{
                             top: 10,
@@ -1704,7 +1722,9 @@ export default function HomeScreen() {
                             color: isDone ? colors.textMuted : colors.text,
                             fontSize: 15,
                             fontWeight: "800",
-                            textDecorationLine: isDone ? "line-through" : "none",
+                            textDecorationLine: isDone
+                              ? "line-through"
+                              : "none",
                           }}
                         >
                           {m.title}
@@ -2016,7 +2036,9 @@ export default function HomeScreen() {
                           marginBottom: 2,
                         }}
                       >
-                        <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                        <Text
+                          style={{ color: colors.textMuted, fontSize: 11 }}
+                        >
                           EXP za misję
                         </Text>
                         <Text

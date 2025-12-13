@@ -17,7 +17,21 @@ import { RepeatType } from "../src/context/TasksContext";
 import { useFamily } from "../src/hooks/useFamily";
 import { createMission } from "../src/services/missions";
 import { auth, db } from "../src/firebase/firebase";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  serverTimestamp,
+  collection,
+  getDocs,
+  query,
+  where,
+  limit as fsLimit,
+  startAfter,
+  QueryDocumentSnapshot,
+  DocumentData,
+} from "firebase/firestore";
 
 /* ============================================================
    Helpers
@@ -65,6 +79,19 @@ function toSafeDate(v: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function normalizeText(input: string) {
+  const s = (input ?? "").trim().toLowerCase();
+  try {
+    return s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return s.replace(/\s+/g, " ").trim();
+  }
+}
+
 /* ============================================================
    Config
 ============================================================ */
@@ -104,10 +131,31 @@ export default function EditMissionScreen() {
   const missionId = params.missionId ? String(params.missionId) : null;
 
   const { members, loading: membersLoading } = useFamily();
-  const currentUser = auth.currentUser;
-  const myUid = currentUser?.uid ?? null;
-  const myName = currentUser?.displayName || "Ty";
-  const myPhoto = currentUser?.photoURL || null;
+
+  // ✅ Auth state reaktywnie
+  const [me, setMe] = useState(() => {
+    const u = auth.currentUser;
+    return {
+      uid: u?.uid ?? null,
+      name: u?.displayName || "Ty",
+      photo: u?.photoURL || null,
+    };
+  });
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setMe({
+        uid: u?.uid ?? null,
+        name: u?.displayName || "Ty",
+        photo: u?.photoURL || null,
+      });
+    });
+    return unsub;
+  }, []);
+
+  const myUid = me.uid;
+  const myName = me.name;
+  const myPhoto = me.photo;
 
   const initialDate = params.date ? new Date(params.date) : new Date();
 
@@ -126,6 +174,11 @@ export default function EditMissionScreen() {
   const [loadedMission, setLoadedMission] = useState<any>(null);
 
   const hydratedOnce = useRef(false);
+
+  // AUTOCOMPLETE
+  const [knownTitles, setKnownTitles] = useState<string[]>([]);
+  const titleInputRef = useRef<TextInput>(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
 
   /* ============================================================
      MEMBERS — DOMOWNICY
@@ -271,6 +324,149 @@ export default function EditMissionScreen() {
   }, [missionId, router, myUid]);
 
   /* ============================================================
+     AUTOCOMPLETE — paginacja po missions, żeby nie uciąć tytułów
+  ============================================================ */
+
+  useEffect(() => {
+    if (!myUid) return;
+
+    let alive = true;
+
+    const pickTs = (data: any) => {
+      const d =
+        toSafeDate(data?.updatedAt) ||
+        toSafeDate(data?.completedAt) ||
+        toSafeDate(data?.createdAt) ||
+        toSafeDate(data?.dueDate) ||
+        null;
+      return d ? d.getTime() : 0;
+    };
+
+    const buildTitlesFromDocs = (docs: any[]) => {
+      const map = new Map<string, { title: string; count: number; last: number }>();
+
+      docs.forEach((data) => {
+        const tRaw = String(data?.title ?? "").trim();
+        if (!tRaw) return;
+
+        const key = normalizeText(tRaw);
+        if (!key) return;
+
+        const ts = pickTs(data);
+        const prev = map.get(key);
+
+        if (!prev) {
+          map.set(key, { title: tRaw, count: 1, last: ts });
+          return;
+        }
+
+        const nextLast = Math.max(prev.last, ts);
+        const preferThis = ts >= prev.last; // kanon = najnowsza pisownia
+        map.set(key, {
+          title: preferThis ? tRaw : prev.title,
+          count: prev.count + 1,
+          last: nextLast,
+        });
+      });
+
+      return Array.from(map.values())
+        .sort((a, b) => {
+          if (b.last !== a.last) return b.last - a.last;
+          if (b.count !== a.count) return b.count - a.count;
+          return a.title.localeCompare(b.title, "pl");
+        })
+        .map((x) => x.title);
+    };
+
+    const fetchPaged = async (field: string) => {
+      const col = collection(db, "missions");
+
+      const pageSize = 500;
+      const maxPages = 10; // max 5000 dokumentów na pole
+      const maxUniqueTitles = 400;
+
+      let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
+      let page = 0;
+
+      const docsData: any[] = [];
+      const uniqueSet = new Set<string>();
+
+      while (page < maxPages) {
+        const qx = lastDoc
+          ? query(col, where(field, "==", myUid), fsLimit(pageSize), startAfter(lastDoc))
+          : query(col, where(field, "==", myUid), fsLimit(pageSize));
+
+        const snap = await getDocs(qx);
+        if (snap.empty) break;
+
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          docsData.push(data);
+
+          const t = String(data?.title ?? "").trim();
+          if (t) uniqueSet.add(normalizeText(t));
+        });
+
+        lastDoc = snap.docs[snap.docs.length - 1];
+        page += 1;
+
+        if (uniqueSet.size >= maxUniqueTitles) break;
+        if (snap.size < pageSize) break;
+      }
+
+      return docsData;
+    };
+
+    (async () => {
+      try {
+        // bierzemy oba przypadki: jesteś wykonawcą + twórcą (żeby objąć też misje dla kogoś)
+        const [toDocs, byDocs] = await Promise.all([
+          fetchPaged("assignedToUserId"),
+          fetchPaged("assignedByUserId"),
+        ]);
+
+        const merged = [...toDocs, ...byDocs];
+        if (!alive) return;
+
+        setKnownTitles(buildTitlesFromDocs(merged));
+      } catch (e) {
+        console.warn("Autocomplete: pobieranie tytułów nie wyszło", e);
+        if (!alive) return;
+        setKnownTitles([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [myUid]);
+
+  const titleSuggestions = useMemo(() => {
+    const q = normalizeText(title);
+    if (!q || q.length < 2) return [];
+
+    const starts: string[] = [];
+    const contains: string[] = [];
+
+    for (const t of knownTitles) {
+      const nt = normalizeText(t);
+      if (!nt) continue;
+      if (nt === q) continue;
+
+      if (nt.startsWith(q)) starts.push(t);
+      else if (nt.includes(q)) contains.push(t);
+
+      if (starts.length >= 8) break;
+    }
+
+    const out = Array.from(new Set([...starts, ...contains])).slice(0, 8);
+    return out;
+  }, [title, knownTitles]);
+
+  const showSuggestions =
+    suggestOpen && titleSuggestions.length > 0 && normalizeText(title).length >= 2;
+
+  /* ============================================================
      CALENDAR LOGIC
   ============================================================ */
 
@@ -386,6 +582,7 @@ export default function EditMissionScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#020617" }}>
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           padding: 16,
           paddingBottom: 40,
@@ -618,8 +815,17 @@ export default function EditMissionScreen() {
           </Text>
 
           <TextInput
+            ref={titleInputRef}
             value={title}
-            onChangeText={setTitle}
+            onChangeText={(t) => {
+              setTitle(t);
+              setSuggestOpen(true);
+            }}
+            onFocus={() => setSuggestOpen(true)}
+            onBlur={() => {
+              // dajemy czas na ensure klik w sugestię
+              setTimeout(() => setSuggestOpen(false), 120);
+            }}
             placeholder="Np. Umyć naczynia"
             placeholderTextColor="#64748b"
             style={{
@@ -627,12 +833,49 @@ export default function EditMissionScreen() {
               borderWidth: 1,
               borderColor: "rgba(75,85,99,0.7)",
               padding: 12,
-              marginBottom: 20,
+              marginBottom: showSuggestions ? 8 : 20,
               backgroundColor: "#020617",
               color: "#f1f5f9",
               fontSize: 15,
             }}
           />
+
+          {/* SUGGESTIONS */}
+          {showSuggestions && (
+            <View
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "rgba(75,85,99,0.7)",
+                backgroundColor: "#020617",
+                overflow: "hidden",
+                marginBottom: 20,
+              }}
+            >
+              {titleSuggestions.map((s, idx) => (
+                <TouchableOpacity
+                  key={`${s}-${idx}`}
+                  onPress={() => {
+                    setTitle(s);
+                    setSuggestOpen(false);
+                    titleInputRef.current?.blur();
+                  }}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderTopWidth: idx === 0 ? 0 : 1,
+                    borderTopColor: "rgba(75,85,99,0.35)",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Ionicons name="time-outline" size={16} color="#94a3b8" />
+                  <Text style={{ color: "#e5e7eb", fontSize: 14 }}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {/* DATE INPUT */}
           <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
@@ -767,10 +1010,7 @@ export default function EditMissionScreen() {
               {daysGrid.map((d, index) => {
                 if (!d)
                   return (
-                    <View
-                      key={index}
-                      style={{ width: "14.28%", height: 40 }}
-                    />
+                    <View key={index} style={{ width: "14.28%", height: 40 }} />
                   );
 
                 const selected = d.getTime() === chosenDate.getTime();

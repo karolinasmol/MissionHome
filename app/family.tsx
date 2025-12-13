@@ -1,4 +1,4 @@
-// src/screens/FamilyScreen.tsx
+// app/family.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -17,9 +17,21 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import Constants from "expo-constants";
+
+// ✅ TU JEST KLUCZ: theme z Twojego ThemeContext (jak w stats.tsx)
 import { useThemeColors } from "../src/context/ThemeContext";
-import { auth, db } from "../src/firebase/firebase";
+
 import {
+  initializeApp,
+  getApp,
+  getApps,
+  type FirebaseOptions,
+} from "firebase/app";
+import { getAuth, type Auth } from "firebase/auth";
+import {
+  getFirestore,
+  type Firestore,
   Timestamp,
   collection,
   doc,
@@ -34,7 +46,149 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { useFamily } from "../src/hooks/useFamily";
+
+/**
+ * Firebase init – bezpiecznie:
+ * - jeśli Firebase już jest zainicjalizowany w apce -> używamy getApp()
+ * - jeśli nie -> próbujemy wziąć config z EXPO_PUBLIC_* albo expo.extra
+ */
+function pickFirebaseConfig(): FirebaseOptions {
+  const expoConfig: any = (Constants as any)?.expoConfig ?? {};
+  const manifest: any = (Constants as any)?.manifest ?? {};
+  const manifest2: any = (Constants as any)?.manifest2 ?? {};
+
+  const extra: any =
+    expoConfig?.extra ??
+    manifest2?.extra ??
+    manifest?.extra ??
+    (Constants as any)?.manifest?.extra ??
+    {};
+
+  const extraFirebase: any =
+    extra?.firebase ??
+    extra?.FIREBASE ??
+    extra?.Firebase ??
+    extra?.FIREBASE_CONFIG ??
+    extra?.firebaseConfig ??
+    {};
+
+  const read = (...vals: any[]) => {
+    for (const v of vals) {
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return "";
+  };
+
+  return {
+    apiKey: read(
+      process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+      (process.env as any).FIREBASE_API_KEY,
+      extraFirebase.apiKey,
+      extraFirebase.FIREBASE_API_KEY,
+      extra.FIREBASE_API_KEY
+    ),
+    authDomain: read(
+      process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+      (process.env as any).FIREBASE_AUTH_DOMAIN,
+      extraFirebase.authDomain,
+      extraFirebase.FIREBASE_AUTH_DOMAIN,
+      extra.FIREBASE_AUTH_DOMAIN
+    ),
+    projectId: read(
+      process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+      (process.env as any).FIREBASE_PROJECT_ID,
+      extraFirebase.projectId,
+      extraFirebase.FIREBASE_PROJECT_ID,
+      extra.FIREBASE_PROJECT_ID
+    ),
+    storageBucket: read(
+      process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+      (process.env as any).FIREBASE_STORAGE_BUCKET,
+      extraFirebase.storageBucket,
+      extraFirebase.FIREBASE_STORAGE_BUCKET,
+      extra.FIREBASE_STORAGE_BUCKET
+    ),
+    messagingSenderId: read(
+      process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+      (process.env as any).FIREBASE_MESSAGING_SENDER_ID,
+      extraFirebase.messagingSenderId,
+      extraFirebase.FIREBASE_MESSAGING_SENDER_ID,
+      extra.FIREBASE_MESSAGING_SENDER_ID
+    ),
+    appId: read(
+      process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+      (process.env as any).FIREBASE_APP_ID,
+      extraFirebase.appId,
+      extraFirebase.FIREBASE_APP_ID,
+      extra.FIREBASE_APP_ID
+    ),
+  };
+}
+
+function isConfigValid(cfg: FirebaseOptions) {
+  return !!cfg.apiKey && !!cfg.projectId && !!cfg.appId;
+}
+
+let auth: Auth | null = null;
+let db: Firestore | null = null;
+let firebaseInitError: string | null = null;
+
+try {
+  if (getApps().length) {
+    const app = getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
+    firebaseInitError = null;
+  } else {
+    const cfg = pickFirebaseConfig();
+    if (!isConfigValid(cfg)) {
+      firebaseInitError =
+        "Brak konfiguracji Firebase. Ustaw EXPO_PUBLIC_FIREBASE_* albo expo.extra.firebase w app.json.";
+    } else {
+      const app = initializeApp(cfg);
+      auth = getAuth(app);
+      db = getFirestore(app);
+      firebaseInitError = null;
+    }
+  }
+} catch (e: any) {
+  firebaseInitError = e?.message || String(e);
+  auth = null;
+  db = null;
+}
+
+class ScreenErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; message?: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(err: any) {
+    return { hasError: true, message: String(err?.message || err || "Błąd") };
+  }
+  componentDidCatch(err: any) {
+    console.warn("Family screen error:", err);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0b1220" }}>
+          <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+            <Text style={{ color: "#e2e8f0", fontWeight: "900", fontSize: 18 }}>
+              Ups… ekran „Rodzina” padł, ale aplikacja żyje ✅
+            </Text>
+            <Text style={{ color: "#94a3b8", marginTop: 10, lineHeight: 18 }}>
+              {this.state.message || "Wystąpił błąd renderowania."}
+            </Text>
+          </View>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children as any;
+  }
+}
 
 type UserLite = {
   uid: string;
@@ -87,15 +241,6 @@ type FamilyInviteDoc = {
 const MAX_FAMILY = 6;
 const ERROR_COLOR = "#dc2626";
 
-// SUPER delikatny, premiumowy cień kart
-const CARD_ELEVATION = {
-  shadowColor: "#000",
-  shadowOpacity: 0.18,
-  shadowRadius: 18,
-  shadowOffset: { width: 0, height: 14 },
-  elevation: 10,
-};
-
 const isProbablyEmail = (val: string) => /@/.test(val);
 const safeInitial = (name?: string) =>
   name?.trim()?.[0] ? name.trim()[0].toUpperCase() : "?";
@@ -111,16 +256,6 @@ const displayNameOf = (
   if (em) return em.split("@")[0] || "Użytkownik";
   return "Użytkownik";
 };
-
-async function userExists(uid: string): Promise<boolean> {
-  try {
-    const snap = await getDoc(doc(db, "users", uid));
-    return snap.exists();
-  } catch {
-    // jeśli rules / sieć blokuje: nie ukrywaj w UI "na siłę"
-    return true;
-  }
-}
 
 function normalizeUserDoc(docId: string, data: any): UserLite {
   const uid = String(data?.uid || docId || "");
@@ -159,9 +294,21 @@ function toDateSafe(v: any): Date | null {
   }
 }
 
+async function userExists(uid: string): Promise<boolean> {
+  if (!db) return true;
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists();
+  } catch {
+    return true;
+  }
+}
+
 async function resolveUserByEmailOrNick(
   identifierRaw: string
 ): Promise<UserLite | null> {
+  if (!db) return null;
+
   const identifier = (identifierRaw || "").trim();
   if (!identifier) return null;
 
@@ -177,7 +324,6 @@ async function resolveUserByEmailOrNick(
     if (!sLower.empty)
       return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
 
-    // fallback: jeśli ktoś ma w bazie email nie znormalizowany
     const qEmailRaw = query(
       collection(db, "users"),
       where("email", "==", identifier),
@@ -210,7 +356,162 @@ const familyInviteId = (familyId: string, fromUid: string, toUid: string) => {
   return `${familyId}__${fromUid}__${toUid}`.replace(/[^\w-]/g, "_");
 };
 
-// ======= Modal feedback (web+native) =======
+/**
+ * useFamily – zgodnie z Twoją strukturą:
+ * users/{uid}.familyId -> families/{familyId}
+ * families/{familyId}.ownerId = ID dokumentu
+ * members subkolekcja: families/{familyId}/members
+ */
+function useFamilyData() {
+  const myUid = auth?.currentUser?.uid ?? null;
+
+  const [loading, setLoading] = useState(true);
+  const [familyId, setFamilyId] = useState<string | null>(null);
+  const [family, setFamily] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
+
+  const profileCacheRef = useRef<Map<string, any>>(new Map());
+
+  useEffect(() => {
+    if (!myUid || !db) {
+      setFamilyId(null);
+      setFamily(null);
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const meRef = doc(db, "users", myUid);
+
+    const unsub = onSnapshot(
+      meRef,
+      (snap) => {
+        try {
+          const data: any = snap.data() || {};
+          const fid = String(data?.familyId || "");
+          setFamilyId(fid || null);
+        } catch (e) {
+          console.warn("useFamily /users snapshot parse error:", e);
+          setFamilyId(null);
+        } finally {
+          setLoading(false);
+        }
+      },
+      (err) => {
+        console.warn("useFamily /users snapshot error:", err);
+        setFamilyId(null);
+        setFamily(null);
+        setMembers([]);
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [myUid]);
+
+  useEffect(() => {
+    if (!myUid || !db) return;
+
+    if (!familyId) {
+      setFamily(null);
+      setMembers([]);
+      return;
+    }
+
+    const fid = String(familyId);
+
+    const unsubFam = onSnapshot(
+      doc(db, "families", fid),
+      (snap) => {
+        try {
+          setFamily({ id: snap.id, ...(snap.data() || {}) });
+        } catch (e) {
+          console.warn("useFamily families snapshot parse error:", e);
+          setFamily({ id: fid });
+        }
+      },
+      (err) => {
+        console.warn("useFamily families snapshot error:", err);
+        setFamily({ id: fid });
+      }
+    );
+
+    const unsubMembers = onSnapshot(
+      query(collection(db, "families", fid, "members"), limit(60)),
+      async (snap) => {
+        try {
+          const base = snap.docs.map((d) => {
+            const data: any = d.data() || {};
+            const uid = String(data?.userId || data?.uid || d.id || "");
+            return {
+              id: d.id,
+              uid,
+              userId: uid,
+              role: String(data?.role || "member"),
+              ...data,
+            };
+          });
+
+          const need = base
+            .map((m) => String(m.userId || m.uid || ""))
+            .filter(Boolean)
+            .filter((uid) => {
+              const cached = profileCacheRef.current.get(uid);
+              if (cached) return false;
+              const hasSome =
+                !!mFrom(base, uid)?.displayName ||
+                !!mFrom(base, uid)?.email ||
+                !!mFrom(base, uid)?.photoURL;
+              return !hasSome;
+            });
+
+          for (const uid of need.slice(0, 12)) {
+            try {
+              const us = await getDoc(doc(db, "users", uid));
+              if (us.exists()) profileCacheRef.current.set(uid, us.data() || {});
+            } catch {}
+          }
+
+          const enriched = base.map((m) => {
+            const uid = String(m.userId || m.uid || "");
+            const cached = uid ? profileCacheRef.current.get(uid) : null;
+            if (!cached) return m;
+            return {
+              ...m,
+              displayName: m.displayName || cached.displayName || "",
+              email: m.email || cached.email || "",
+              photoURL: m.photoURL || cached.photoURL || null,
+              city: m.city || cached.city || cached.locationCity || "",
+              username: m.username || cached.username || "",
+            };
+          });
+
+          setMembers(enriched);
+        } catch (e) {
+          console.warn("useFamily members snapshot parse error:", e);
+          setMembers([]);
+        }
+      },
+      (err) => {
+        console.warn("useFamily members snapshot error:", err);
+        setMembers([]);
+      }
+    );
+
+    return () => {
+      unsubFam();
+      unsubMembers();
+    };
+
+    function mFrom(arr: any[], uid: string) {
+      return arr.find((x) => String(x.userId || x.uid || "") === uid) || null;
+    }
+  }, [myUid, familyId]);
+
+  return { family, members, loading };
+}
+
 type FeedbackModalState =
   | { visible: false }
   | {
@@ -250,7 +551,7 @@ function FeedbackModal({
         onPress={onClose}
         style={{
           flex: 1,
-          backgroundColor: "rgba(15,23,42,0.85)",
+          backgroundColor: "rgba(0,0,0,0.55)",
           padding: 16,
           justifyContent: "center",
           alignItems: "center",
@@ -266,12 +567,9 @@ function FeedbackModal({
             borderWidth: 1,
             borderColor: colors.border,
             padding: 18,
-            ...CARD_ELEVATION,
           }}
         >
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Ionicons name={icon as any} size={26} color={iconColor} />
             <Text
               style={{
@@ -279,6 +577,7 @@ function FeedbackModal({
                 fontWeight: "900",
                 fontSize: 16,
                 flex: 1,
+                marginLeft: 10,
               }}
             >
               {state.title}
@@ -311,7 +610,7 @@ function FeedbackModal({
             }}
             activeOpacity={0.9}
           >
-            <Text style={{ fontWeight: "900", color: "#022c22" }}>OK</Text>
+            <Text style={{ fontWeight: "900", color: "#fff" }}>OK</Text>
           </TouchableOpacity>
         </Pressable>
       </Pressable>
@@ -319,7 +618,6 @@ function FeedbackModal({
   );
 }
 
-// ======= Confirm modal (web+native, ładny) =======
 type ConfirmModalState =
   | { visible: false }
   | {
@@ -354,7 +652,7 @@ function ConfirmModal({
         onPress={onCancel}
         style={{
           flex: 1,
-          backgroundColor: "rgba(15,23,42,0.85)",
+          backgroundColor: "rgba(0,0,0,0.55)",
           padding: 16,
           justifyContent: "center",
           alignItems: "center",
@@ -370,12 +668,9 @@ function ConfirmModal({
             borderWidth: 1,
             borderColor: colors.border,
             padding: 18,
-            ...CARD_ELEVATION,
           }}
         >
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Ionicons
               name={"alert-circle" as any}
               size={26}
@@ -387,6 +682,7 @@ function ConfirmModal({
                 fontWeight: "900",
                 fontSize: 16,
                 flex: 1,
+                marginLeft: 10,
               }}
             >
               {state.title}
@@ -412,7 +708,6 @@ function ConfirmModal({
             style={{
               flexDirection: "row",
               justifyContent: "flex-end",
-              gap: 10,
               marginTop: 16,
             }}
           >
@@ -424,6 +719,7 @@ function ConfirmModal({
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
+                marginRight: 10,
               }}
               activeOpacity={0.9}
             >
@@ -444,7 +740,7 @@ function ConfirmModal({
             >
               <Text
                 style={{
-                  color: destructive ? "#fef2f2" : "#022c22",
+                  color: "#fff",
                   fontWeight: "900",
                 }}
               >
@@ -458,13 +754,47 @@ function ConfirmModal({
   );
 }
 
-export default function FamilyScreen() {
+function FamilyScreenInner() {
   const router = useRouter();
   const { colors } = useThemeColors();
 
-  // FAMILY (MAX) from hook
-  const { family, members: rawMembers, loading: familyLoading } = useFamily();
+  const isDarkish = useMemo(() => {
+    // heurystyka: jak masz w ThemeContext coś lepszego (np. colors.isDark), podepnij tutaj
+    const bg = String(colors?.bg || "").toLowerCase();
+    return bg.includes("#0") || bg.includes("rgb(0") || bg.includes("black");
+  }, [colors]);
 
+  if (!auth || !db) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+        <StatusBar barStyle={isDarkish ? "light-content" : "dark-content"} />
+        <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 18 }}>
+            Rodzina: brak Firebase
+          </Text>
+          <Text style={{ color: colors.textMuted, marginTop: 10, lineHeight: 18 }}>
+            {firebaseInitError ||
+              "Nie udało się zainicjalizować Firebase. Dodaj konfigurację."}
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              marginTop: 16,
+              backgroundColor: colors.accent,
+              borderRadius: 999,
+              paddingVertical: 10,
+              alignItems: "center",
+            }}
+            activeOpacity={0.9}
+          >
+            <Text style={{ fontWeight: "900", color: "#fff" }}>Wróć</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const { family, members: rawMembers, loading: familyLoading } = useFamilyData();
   const myUid = auth.currentUser?.uid ?? null;
 
   const [modal, setModal] = useState<FeedbackModalState>({ visible: false });
@@ -474,10 +804,7 @@ export default function FamilyScreen() {
     variant: "success" | "error" | "info" = "info"
   ) => setModal({ visible: true, title, message, variant });
 
-  // confirm modal state (usuń / opuść)
-  const [confirmState, setConfirmState] = useState<ConfirmModalState>({
-    visible: false,
-  });
+  const [confirmState, setConfirmState] = useState<ConfirmModalState>({ visible: false });
   const confirmActionRef = useRef<null | (() => void)>(null);
 
   const openConfirm = (
@@ -506,12 +833,10 @@ export default function FamilyScreen() {
     if (fn) fn();
   };
 
-  // my profile (/users) + premium
   const [myUserDocId, setMyUserDocId] = useState<string | null>(null);
   const [myProfile, setMyProfile] = useState<UserProfileSnap | null>(null);
   const [isPremium, setIsPremium] = useState(false);
 
-  // fallback familyId if hook doesn’t see it immediately
   const [localFamilyId, setLocalFamilyId] = useState<string | null>(null);
   const familyId = useMemo(() => {
     const fid = (family as any)?.id ? String((family as any).id) : null;
@@ -519,65 +844,6 @@ export default function FamilyScreen() {
   }, [family, localFamilyId]);
 
   const members = useMemo<any[]>(() => (rawMembers ?? []) as any, [rawMembers]);
-
-  // ===== ownerId źródło prawdy (families/{familyId}.ownerId), z fallbackiem na ID dokumentu rodziny =====
-  const [familyOwnerId, setFamilyOwnerId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!familyId) {
-      setFamilyOwnerId(null);
-      return;
-    }
-
-    const famRef = doc(db, "families", String(familyId));
-    const unsub = onSnapshot(
-      famRef,
-      (snap) => {
-        const data: any = snap.data() || {};
-        // jeśli nie ma ownerId, a u Was familyId == uid ownera -> fallback na ID dokumentu
-        const owner = String(
-          data?.ownerId || data?.ownerUid || data?.createdBy || snap.id || ""
-        );
-        setFamilyOwnerId(owner || null);
-      },
-      () => {
-        // jeśli nie da się odczytać families (rules), nadal zakładamy, że owner == familyId (u Was)
-        setFamilyOwnerId(String(familyId));
-      }
-    );
-
-    return () => unsub();
-  }, [familyId]);
-
-  const effectiveOwnerId = useMemo(() => {
-    if (familyOwnerId) return familyOwnerId;
-    return familyId ? String(familyId) : null;
-  }, [familyOwnerId, familyId]);
-
-  // ===== “samoleczenie” danych: jeśli ja jestem ownerem, a w members mam role=member -> napraw =====
-  useEffect(() => {
-    const fid = familyId ? String(familyId) : "";
-    const ownerUid = effectiveOwnerId ? String(effectiveOwnerId) : "";
-    if (!fid || !myUid || !ownerUid) return;
-    if (myUid !== ownerUid) return;
-
-    // owner powinien mieć role=owner (to naprawia istniejące rodziny z błędnymi rolami)
-    setDoc(
-      doc(db, "families", fid, "members", ownerUid),
-      { userId: ownerUid, role: "owner", updatedAt: serverTimestamp() },
-      { merge: true }
-    ).catch(() => {});
-  }, [familyId, effectiveOwnerId, myUid]);
-
-  const memberIds = useMemo(() => {
-    const s = new Set<string>();
-    members.forEach((m: any) => {
-      const id = String(m?.uid || m?.userId || m?.id || "");
-      if (id) s.add(id);
-    });
-    if (myUid) s.add(myUid);
-    return s;
-  }, [members, myUid]);
 
   const myFamilyMember = useMemo(() => {
     if (!myUid) return null;
@@ -589,15 +855,19 @@ export default function FamilyScreen() {
     );
   }, [members, myUid]);
 
-  // ✅ owner rozpoznajemy po families.ownerId (fallback: familyId), a nie tylko po members.role
   const iAmOwner = useMemo(() => {
-    if (!myUid) return false;
-    if (effectiveOwnerId && String(effectiveOwnerId) === myUid) return true;
-    if (myFamilyMember?.role === "owner") return true;
-    // ostateczny fallback (u Was zwykle działa): owner == familyId
-    if (familyId && String(familyId) === myUid) return true;
-    return false;
-  }, [myUid, effectiveOwnerId, myFamilyMember, familyId]);
+    return !!myUid && String(myFamilyMember?.role || "") === "owner";
+  }, [myUid, myFamilyMember]);
+
+  const memberIds = useMemo(() => {
+    const s = new Set<string>();
+    members.forEach((m: any) => {
+      const id = String(m?.uid || m?.userId || m?.id || "");
+      if (id) s.add(id);
+    });
+    if (myUid) s.add(myUid);
+    return s;
+  }, [members, myUid]);
 
   const familyCount = useMemo(() => {
     const base = members.length;
@@ -606,30 +876,9 @@ export default function FamilyScreen() {
 
   const canAddFamilyMore = !!familyId && familyCount < MAX_FAMILY;
 
-  // ✅ NOWA ZASADA: zapraszać może tylko OWNER (i musi mieć Premium i aktywną rodzinę)
-  const canInviteByPremium = !!myUid && !!familyId && isPremium && iAmOwner;
-
-  const myProfileReady = !!myUid && !!myProfile && !!myUserDocId;
-
-  // członek może wyjść; owner nie ma w UI opcji wyjścia
-  const iBelongToFamily =
-    !!familyId &&
-    !!myUid &&
-    (memberIds.has(myUid) ||
-      String(localFamilyId || "") === String(familyId));
-  const canLeaveFamily =
-    !!familyId && !!myUid && !!myUserDocId && iBelongToFamily;
-
-  // ==========================
-  // FRIENDS state
-  // ==========================
   const [friendsAccepted, setFriendsAccepted] = useState<FriendshipDoc[]>([]);
-  const [friendReqIncoming, setFriendReqIncoming] = useState<FriendshipDoc[]>(
-    []
-  );
-  const [friendReqOutgoing, setFriendReqOutgoing] = useState<FriendshipDoc[]>(
-    []
-  );
+  const [friendReqIncoming, setFriendReqIncoming] = useState<FriendshipDoc[]>([]);
+  const [friendReqOutgoing, setFriendReqOutgoing] = useState<FriendshipDoc[]>([]);
   const [friendActionId, setFriendActionId] = useState<string | null>(null);
 
   const friendUidSet = useMemo(() => {
@@ -643,38 +892,22 @@ export default function FamilyScreen() {
 
   const findBetween = (uidA: string, uidB: string) => {
     const id = friendshipId(uidA, uidB);
-    const all = [
-      ...friendsAccepted,
-      ...friendReqIncoming,
-      ...friendReqOutgoing,
-    ];
+    const all = [...friendsAccepted, ...friendReqIncoming, ...friendReqOutgoing];
     return all.find((x) => x.id === id) || null;
   };
 
-  const otherProfileFromFriendship = (
-    f: FriendshipDoc
-  ): UserProfileSnap | null => {
+  const otherProfileFromFriendship = (f: FriendshipDoc): UserProfileSnap | null => {
     if (!myUid) return null;
     if (f.aUid === myUid) return (f.bProfile as any) || null;
     if (f.bUid === myUid) return (f.aProfile as any) || null;
     return null;
   };
 
-  // ==========================
-  // FAMILY invites (MAX)
-  // ==========================
-  const [familyInvIncoming, setFamilyInvIncoming] = useState<FamilyInviteDoc[]>(
-    []
-  );
-  const [familyInvOutgoing, setFamilyInvOutgoing] = useState<FamilyInviteDoc[]>(
-    []
-  );
-  const [familyInvActionId, setFamilyInvActionId] = useState<string | null>(
-    null
-  );
+  const [familyInvIncoming, setFamilyInvIncoming] = useState<FamilyInviteDoc[]>([]);
+  const [familyInvOutgoing, setFamilyInvOutgoing] = useState<FamilyInviteDoc[]>([]);
+  const [familyInvActionId, setFamilyInvActionId] = useState<string | null>(null);
 
-  const [familyMemberActionUid, setFamilyMemberActionUid] =
-    useState<string | null>(null);
+  const [familyMemberActionUid, setFamilyMemberActionUid] = useState<string | null>(null);
   const [familySelfActionBusy, setFamilySelfActionBusy] = useState(false);
 
   const pendingFamilyTo = useMemo(() => {
@@ -683,7 +916,6 @@ export default function FamilyScreen() {
     return s;
   }, [familyInvOutgoing]);
 
-  // ====== realtime my /users doc (premium + familyId always fresh) ======
   const didAutoCreateMeRef = useRef(false);
 
   useEffect(() => {
@@ -696,18 +928,17 @@ export default function FamilyScreen() {
       return;
     }
 
-    const meRef = doc(db, "users", myUid);
+    const meRef = doc(db!, "users", myUid);
     const unsub = onSnapshot(
       meRef,
       async (snap) => {
         if (!snap.exists()) {
-          // OPTIONAL: auto-create minimal profile if missing (rules may block)
           if (!didAutoCreateMeRef.current) {
             didAutoCreateMeRef.current = true;
             try {
-              const emailRaw = auth.currentUser?.email || "";
-              const displayNameRaw = auth.currentUser?.displayName || "";
-              const photoURLRaw = auth.currentUser?.photoURL || null;
+              const emailRaw = auth!.currentUser?.email || "";
+              const displayNameRaw = auth!.currentUser?.displayName || "";
+              const photoURLRaw = auth!.currentUser?.photoURL || null;
 
               await setDoc(
                 meRef,
@@ -727,10 +958,7 @@ export default function FamilyScreen() {
               );
               return;
             } catch (e: any) {
-              console.warn(
-                "auto-create /users/{uid} failed:",
-                e?.message || e
-              );
+              console.warn("auto-create /users/{uid} failed:", e?.message || e);
             }
           }
 
@@ -747,7 +975,6 @@ export default function FamilyScreen() {
         const fid = String(data?.familyId || "");
         setLocalFamilyId(fid || null);
 
-        // premium can be time-limited
         const until = toDateSafe(data?.premiumUntil);
         const now = new Date();
         const premiumActive = !!data?.isPremium && (!until || until > now);
@@ -757,11 +984,10 @@ export default function FamilyScreen() {
         setMyProfile({
           uid: myUid,
           docId: snap.id,
-          displayName: me.displayName || auth.currentUser?.displayName || "",
+          displayName: me.displayName || auth!.currentUser?.displayName || "",
           username: me.username || "",
-          email: me.email || auth.currentUser?.email || "",
-          photoURL:
-            me.photoURL || (auth.currentUser?.photoURL as any) || null,
+          email: me.email || auth!.currentUser?.email || "",
+          photoURL: me.photoURL || (auth!.currentUser?.photoURL as any) || null,
           city: me.city || "",
         });
       },
@@ -774,7 +1000,6 @@ export default function FamilyScreen() {
     return () => unsub();
   }, [myUid]);
 
-  // ====== realtime friendships (bez indeksów: single where) ======
   const acceptedMapRef = useRef<Map<string, FriendshipDoc>>(new Map());
   const acceptedRefreshTokenRef = useRef(0);
 
@@ -798,8 +1023,7 @@ export default function FamilyScreen() {
 
     const filtered = checked.filter(Boolean) as FriendshipDoc[];
     filtered.sort(
-      (a: any, b: any) =>
-        (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
+      (a: any, b: any) => (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
     );
     setFriendsAccepted(filtered);
   };
@@ -807,9 +1031,8 @@ export default function FamilyScreen() {
   useEffect(() => {
     if (!myUid) return;
 
-    // --- INCOMING FRIEND REQUESTS ---
     const qIn = query(
-      collection(db, "friendships"),
+      collection(db!, "friendships"),
       where("requestedTo", "==", myUid),
       limit(200)
     );
@@ -829,20 +1052,11 @@ export default function FamilyScreen() {
             )
         );
       },
-      (err) => {
-        console.warn("friend incoming snapshot error:", err);
-        showModal(
-          "Błąd subskrypcji",
-          err?.message || "Nie mogę odczytać zaproszeń (rules).",
-          "error"
-        );
-        setFriendReqIncoming([]);
-      }
+      () => setFriendReqIncoming([])
     );
 
-    // --- OUTGOING FRIEND REQUESTS ---
     const qOut = query(
-      collection(db, "friendships"),
+      collection(db!, "friendships"),
       where("requestedBy", "==", myUid),
       limit(200)
     );
@@ -862,28 +1076,11 @@ export default function FamilyScreen() {
             )
         );
       },
-      (err) => {
-        console.warn("friend outgoing snapshot error:", err);
-        showModal(
-          "Błąd subskrypcji",
-          err?.message || "Nie mogę odczytać wysłanych (rules).",
-          "error"
-        );
-        setFriendReqOutgoing([]);
-      }
+      () => setFriendReqOutgoing([])
     );
 
-    // --- ACCEPTED FRIENDSHIPS ---
-    const qAccA = query(
-      collection(db, "friendships"),
-      where("aUid", "==", myUid),
-      limit(400)
-    );
-    const qAccB = query(
-      collection(db, "friendships"),
-      where("bUid", "==", myUid),
-      limit(400)
-    );
+    const qAccA = query(collection(db!, "friendships"), where("aUid", "==", myUid), limit(400));
+    const qAccB = query(collection(db!, "friendships"), where("bUid", "==", myUid), limit(400));
 
     const mergeAccepted = (arr: FriendshipDoc[]) => {
       arr.forEach((x) => acceptedMapRef.current.set(x.id, x));
@@ -899,15 +1096,7 @@ export default function FamilyScreen() {
         })) as FriendshipDoc[];
         mergeAccepted(arr);
       },
-      (err) => {
-        console.warn("friend accepted A snapshot error:", err);
-        showModal(
-          "Błąd subskrypcji",
-          err?.message || "Nie mogę odczytać znajomych (rules).",
-          "error"
-        );
-        setFriendsAccepted([]);
-      }
+      () => setFriendsAccepted([])
     );
 
     const unsubB = onSnapshot(
@@ -919,15 +1108,7 @@ export default function FamilyScreen() {
         })) as FriendshipDoc[];
         mergeAccepted(arr);
       },
-      (err) => {
-        console.warn("friend accepted B snapshot error:", err);
-        showModal(
-          "Błąd subskrypcji",
-          err?.message || "Nie mogę odczytać znajomych (rules).",
-          "error"
-        );
-        setFriendsAccepted([]);
-      }
+      () => setFriendsAccepted([])
     );
 
     return () => {
@@ -941,7 +1122,6 @@ export default function FamilyScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myUid]);
 
-  // ====== realtime family invites (bez indeksów: single where, filtr w kliencie) ======
   useEffect(() => {
     if (!myUid) {
       setFamilyInvIncoming([]);
@@ -950,11 +1130,7 @@ export default function FamilyScreen() {
     }
 
     const unsubIn = onSnapshot(
-      query(
-        collection(db, "family_invites"),
-        where("toUserId", "==", myUid),
-        limit(200)
-      ),
+      query(collection(db!, "family_invites"), where("toUserId", "==", myUid), limit(200)),
       (snap) => {
         const all = snap.docs.map((d) => ({
           id: d.id,
@@ -969,19 +1145,11 @@ export default function FamilyScreen() {
             )
         );
       },
-      (err) => {
-        console.warn("family invites incoming snapshot error:", err);
-        setFamilyInvIncoming([]);
-      }
+      () => setFamilyInvIncoming([])
     );
 
-    // outgoing: tylko moje (czyli ownera, bo owner tylko może wysyłać)
     const unsubOut = onSnapshot(
-      query(
-        collection(db, "family_invites"),
-        where("fromUserId", "==", myUid),
-        limit(200)
-      ),
+      query(collection(db!, "family_invites"), where("fromUserId", "==", myUid), limit(200)),
       (snap) => {
         const all = snap.docs.map((d) => ({
           id: d.id,
@@ -996,10 +1164,7 @@ export default function FamilyScreen() {
             )
         );
       },
-      (err) => {
-        console.warn("family invites outgoing snapshot error:", err);
-        setFamilyInvOutgoing([]);
-      }
+      () => setFamilyInvOutgoing([])
     );
 
     return () => {
@@ -1008,16 +1173,13 @@ export default function FamilyScreen() {
     };
   }, [myUid]);
 
-  // ====== Typeahead/search ======
   const [qText, setQText] = useState("");
   const [qError, setQError] = useState("");
   const [qLoading, setQLoading] = useState(false);
   const [qPicked, setQPicked] = useState<UserLite | null>(null);
 
   const [typeahead, setTypeahead] = useState<UserLite[]>([]);
-  const [typeaheadStatus, setTypeaheadStatus] = useState<
-    "idle" | "loading" | "done" | "error"
-  >("idle");
+  const [typeaheadStatus, setTypeaheadStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [typeaheadErr, setTypeaheadErr] = useState("");
 
   const [inputFocused, setInputFocused] = useState(false);
@@ -1053,37 +1215,30 @@ export default function FamilyScreen() {
           out.push(u);
         };
 
-        // usernameLower prefix
         try {
           const q1 = query(
-            collection(db, "users"),
+            collection(db!, "users"),
             where("usernameLower", ">=", prefix),
             where("usernameLower", "<=", prefix + "\uf8ff"),
             limit(10)
           );
           const s1 = await getDocs(q1);
           s1.forEach((d) => push(normalizeUserDoc(d.id, d.data())));
-        } catch (err: any) {
-          console.warn("typeahead usernameLower error:", err?.message || err);
-        }
+        } catch {}
 
-        // email prefix (opcjonalnie)
         if (isProbablyEmail(prefix)) {
           try {
             const q2 = query(
-              collection(db, "users"),
+              collection(db!, "users"),
               where("email", ">=", prefix),
               where("email", "<=", prefix + "\uf8ff"),
               limit(10)
             );
             const s2 = await getDocs(q2);
             s2.forEach((d) => push(normalizeUserDoc(d.id, d.data())));
-          } catch (err: any) {
-            console.warn("typeahead email error:", err?.message || err);
-          }
+          } catch {}
         }
 
-        // fallback: exact resolve
         if (out.length === 0 && text.length >= 3) {
           try {
             const exact = await resolveUserByEmailOrNick(text);
@@ -1143,15 +1298,12 @@ export default function FamilyScreen() {
     }
   };
 
-  // ====== friend actions ======
+  const myProfileReady = !!myUid && !!myProfile && !!myUserDocId;
+
+  // friend actions
   const sendFriendRequest = async (u: UserLite) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myProfile)
-      return showModal(
-        "Brak profilu",
-        "Brakuje Twojego profilu z /users.",
-        "error"
-      );
+    if (!myProfile) return showModal("Brak profilu", "Brakuje Twojego profilu z /users.", "error");
 
     const toUid = String(u.uid || "");
     if (!toUid) return;
@@ -1164,10 +1316,8 @@ export default function FamilyScreen() {
         "info"
       );
     }
-    if (existing?.status === "accepted")
-      return showModal("Info", "Jesteście już znajomymi.", "info");
-    if (existing?.status === "pending")
-      return showModal("Info", "Zaproszenie już jest w toku.", "info");
+    if (existing?.status === "accepted") return showModal("Info", "Jesteście już znajomymi.", "info");
+    if (existing?.status === "pending") return showModal("Info", "Zaproszenie już jest w toku.", "info");
 
     const id = friendshipId(myUid, toUid);
     const [a, b] = [myUid, toUid].sort();
@@ -1189,7 +1339,7 @@ export default function FamilyScreen() {
     setFriendActionId(id);
     try {
       await setDoc(
-        doc(db, "friendships", id),
+        doc(db!, "friendships", id),
         {
           aUid: a,
           bUid: b,
@@ -1203,17 +1353,9 @@ export default function FamilyScreen() {
         },
         { merge: true }
       );
-      showModal(
-        "Wysłano ✅",
-        "Zaproszenie do znajomych zostało wysłane.",
-        "success"
-      );
+      showModal("Wysłano ✅", "Zaproszenie do znajomych zostało wysłane.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się wysłać zaproszenia.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się wysłać zaproszenia.", "error");
     } finally {
       setFriendActionId(null);
     }
@@ -1222,17 +1364,13 @@ export default function FamilyScreen() {
   const acceptFriendRequest = async (f: FriendshipDoc) => {
     setFriendActionId(f.id);
     try {
-      await updateDoc(doc(db, "friendships", f.id), {
+      await updateDoc(doc(db!, "friendships", f.id), {
         status: "accepted",
         updatedAt: serverTimestamp(),
       });
       showModal("Dodano ✅", "Jesteście znajomymi.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się zaakceptować.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
     } finally {
       setFriendActionId(null);
     }
@@ -1241,16 +1379,12 @@ export default function FamilyScreen() {
   const declineFriendRequest = async (f: FriendshipDoc) => {
     setFriendActionId(f.id);
     try {
-      await updateDoc(doc(db, "friendships", f.id), {
+      await updateDoc(doc(db!, "friendships", f.id), {
         status: "declined",
         updatedAt: serverTimestamp(),
       });
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się odrzucić.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się odrzucić.", "error");
     } finally {
       setFriendActionId(null);
     }
@@ -1259,17 +1393,13 @@ export default function FamilyScreen() {
   const cancelFriendRequest = async (f: FriendshipDoc) => {
     setFriendActionId(f.id);
     try {
-      await updateDoc(doc(db, "friendships", f.id), {
+      await updateDoc(doc(db!, "friendships", f.id), {
         status: "cancelled",
         updatedAt: serverTimestamp(),
       });
       showModal("OK", "Cofnięto zaproszenie.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się cofnąć.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się cofnąć.", "error");
     } finally {
       setFriendActionId(null);
     }
@@ -1278,17 +1408,13 @@ export default function FamilyScreen() {
   const removeFriend = async (f: FriendshipDoc) => {
     setFriendActionId(f.id);
     try {
-      await updateDoc(doc(db, "friendships", f.id), {
+      await updateDoc(doc(db!, "friendships", f.id), {
         status: "cancelled",
         updatedAt: serverTimestamp(),
       });
       showModal("Usunięto ✅", "Usunięto znajomego.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się usunąć znajomego.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się usunąć znajomego.", "error");
     } finally {
       setFriendActionId(null);
     }
@@ -1299,9 +1425,7 @@ export default function FamilyScreen() {
     openConfirm(
       {
         title: "Usunąć znajomego?",
-        message: `Na pewno chcesz usunąć ${displayNameOf(
-          other
-        )} ze znajomych?`,
+        message: `Na pewno chcesz usunąć ${displayNameOf(other)} ze znajomych?`,
         confirmLabel: "Tak, usuń",
         cancelLabel: "Nie",
         destructive: true,
@@ -1310,15 +1434,10 @@ export default function FamilyScreen() {
     );
   };
 
-  // ====== Family MAX actions ======
+  // family create/leave/remove + invites
   const createFamilyMax = async () => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId)
-      return showModal(
-        "Brak profilu",
-        "Nie znaleźliśmy dokumentu w /users.",
-        "error"
-      );
+    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy dokumentu w /users.", "error");
     if (!isPremium) return router.push("/premium");
 
     try {
@@ -1327,27 +1446,31 @@ export default function FamilyScreen() {
         return showModal("Info", "Masz już rodzinę MAX.", "info");
       }
 
-      // u Was familyId == uid ownera
-      const fid = myUid;
-      const batch = writeBatch(db);
+      const famRef = doc(collection(db!, "families"));
+      const fid = famRef.id;
+
+      const batch = writeBatch(db!);
 
       batch.set(
-        doc(db, "families", fid),
+        famRef,
         {
-          ownerId: myUid,
+          ownerId: fid,
+          plan: "max",
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          plan: "max",
         },
         { merge: true }
       );
 
-      // ✅ owner zawsze "owner"
       batch.set(
-        doc(db, "families", fid, "members", myUid),
+        doc(db!, "families", fid, "members", myUid),
         {
           userId: myUid,
           role: "owner",
+          displayName: displayNameOf(myProfile),
+          email: myProfile?.email || auth!.currentUser?.email || "",
+          photoURL: myProfile?.photoURL || auth!.currentUser?.photoURL || null,
+          city: (myProfile as any)?.city || "",
           joinedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
@@ -1355,151 +1478,38 @@ export default function FamilyScreen() {
       );
 
       batch.set(
-        doc(db, "users", myUserDocId),
+        doc(db!, "users", myUserDocId),
         { familyId: fid, updatedAt: serverTimestamp() },
         { merge: true }
       );
 
       await batch.commit();
       setLocalFamilyId(fid);
-      showModal(
-        "Gotowe ✅",
-        "Utworzono rodzinę MAX. Możesz zapraszać znajomych.",
-        "success"
-      );
+      showModal("Gotowe ✅", "Utworzono rodzinę MAX. Możesz zapraszać znajomych.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się utworzyć rodziny.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się utworzyć rodziny.", "error");
     }
   };
 
-  // ✅ PROSTA LOGIKA invitation: Premium + familyId + limit + friend + not member + not pending + OWNER ONLY
-  const familyInviteDisabledReason = (toUid: string) => {
-    if (!myUid) return "Brak sesji.";
-    if (!isPremium) return "Rodzina MAX jest w Premium.";
-    if (!familyId) return "Najpierw utwórz rodzinę MAX.";
-    if (!iAmOwner) return "Tylko właściciel rodziny może zapraszać.";
-    if (!canAddFamilyMore) return `Limit ${MAX_FAMILY} osób w rodzinie.`;
-    if (!friendUidSet.has(toUid))
-      return "Możesz zapraszać do rodziny tylko znajomych.";
-    if (memberIds.has(toUid)) return "Ta osoba już jest w Twojej rodzinie.";
-    if (pendingFamilyTo.has(toUid))
-      return "Zaproszenie do rodziny już wysłane.";
-    return null;
-  };
-
-  const sendFamilyInvite = async (f: FriendshipDoc) => {
-    if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myProfile)
-      return showModal(
-        "Brak profilu",
-        "Brakuje Twojego profilu z /users.",
-        "error"
-      );
-    if (!familyId)
-      return showModal(
-        "Brak rodziny",
-        "Najpierw utwórz rodzinę MAX.",
-        "info"
-      );
-    if (!iAmOwner)
-      return showModal(
-        "Brak uprawnień",
-        "Tylko właściciel rodziny może zapraszać.",
-        "info"
-      );
-
-    const other = otherProfileFromFriendship(f);
-    const toUid = String(other?.uid || "");
-    if (!toUid) return;
-
-    const reason = familyInviteDisabledReason(toUid);
-    if (reason) {
-      if (reason.includes("Premium")) router.push("/premium");
-      return showModal("Nie można", reason, "info");
-    }
-
-    setFamilyInvActionId(toUid);
-    try {
-      const memSnap = await getDocs(
-        query(
-          collection(db, "families", String(familyId), "members"),
-          limit(MAX_FAMILY + 1)
-        )
-      );
-      if (memSnap.size >= MAX_FAMILY) {
-        showModal("Limit", `Rodzina ma już ${MAX_FAMILY} osób.`, "info");
-        return;
-      }
-
-      const invId = familyInviteId(String(familyId), myUid, toUid);
-
-      await setDoc(
-        doc(db, "family_invites", invId),
-        {
-          familyId: String(familyId),
-          fromUserId: myUid,
-          fromDisplayName: displayNameOf(myProfile),
-          fromEmail: myProfile.email || auth.currentUser?.email || "",
-          toUserId: toUid,
-          toDisplayName: displayNameOf(other),
-          toEmail: other?.email || "",
-          status: "pending",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      showModal(
-        "Wysłano ✅",
-        "Zaproszenie do rodziny MAX zostało wysłane.",
-        "success"
-      );
-    } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się wysłać zaproszenia do rodziny.",
-        "error"
-      );
-    } finally {
-      setFamilyInvActionId(null);
-    }
-  };
+  const iBelongToFamily = !!familyId && !!myUid && memberIds.has(myUid);
+  const canLeaveFamily = !!familyId && !!myUid && !!myUserDocId && iBelongToFamily;
 
   const leaveFamily = async () => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId)
-      return showModal(
-        "Brak profilu",
-        "Nie znaleźliśmy dokumentu w /users.",
-        "error"
-      );
-    if (!familyId)
-      return showModal(
-        "Brak rodziny",
-        "Nie należysz do rodziny MAX.",
-        "info"
-      );
+    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy dokumentu w /users.", "error");
+    if (!familyId) return showModal("Brak rodziny", "Nie należysz do rodziny MAX.", "info");
 
     if (iAmOwner) {
-      return showModal(
-        "Nie można",
-        "Założyciel rodziny nie może w ten sposób opuścić rodziny.",
-        "info"
-      );
+      return showModal("Nie można", "Właściciel nie może opuścić rodziny w ten sposób.", "info");
     }
 
     setFamilySelfActionBusy(true);
     try {
-      const batch = writeBatch(db);
+      const batch = writeBatch(db!);
 
-      batch.delete(doc(db, "families", String(familyId), "members", myUid));
+      batch.delete(doc(db!, "families", String(familyId), "members", myUid));
       batch.set(
-        doc(db, "users", myUserDocId),
+        doc(db!, "users", myUserDocId),
         { familyId: null, updatedAt: serverTimestamp() },
         { merge: true }
       );
@@ -1508,11 +1518,7 @@ export default function FamilyScreen() {
       setLocalFamilyId(null);
       showModal("Gotowe ✅", "Opuściłeś rodzinę MAX.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się opuścić rodziny.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się opuścić rodziny.", "error");
     } finally {
       setFamilySelfActionBusy(false);
     }
@@ -1520,58 +1526,33 @@ export default function FamilyScreen() {
 
   const removeFamilyMember = async (targetUid: string) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!familyId)
-      return showModal(
-        "Brak rodziny",
-        "Brak aktywnej rodziny MAX.",
-        "error"
-      );
+    if (!familyId) return showModal("Brak rodziny", "Brak aktywnej rodziny MAX.", "error");
     if (!iAmOwner) {
-      return showModal(
-        "Brak uprawnień",
-        "Tylko właściciel rodziny może usuwać członków.",
-        "error"
-      );
+      return showModal("Brak uprawnień", "Tylko właściciel rodziny może usuwać członków.", "error");
     }
 
-    const ownerUid = String(effectiveOwnerId || "");
     if (!targetUid || targetUid === myUid) return;
-    if (ownerUid && targetUid === ownerUid) {
-      return showModal(
-        "Nie można",
-        "Nie można usunąć właściciela rodziny.",
-        "info"
-      );
+
+    const target = members.find((m: any) => String(m.userId || m.uid || "") === String(targetUid));
+    if (String(target?.role || "") === "owner") {
+      return showModal("Nie można", "Nie można usunąć właściciela rodziny.", "info");
     }
 
     setFamilyMemberActionUid(targetUid);
     try {
-      const batch = writeBatch(db);
+      const batch = writeBatch(db!);
 
-      // usuń z members
-      batch.delete(
-        doc(db, "families", String(familyId), "members", targetUid)
-      );
-
-      // wyczyść familyId u usera (zakładamy /users/{uid})
+      batch.delete(doc(db!, "families", String(familyId), "members", targetUid));
       batch.set(
-        doc(db, "users", targetUid),
+        doc(db!, "users", targetUid),
         { familyId: null, updatedAt: serverTimestamp() },
         { merge: true }
       );
 
       await batch.commit();
-      showModal(
-        "Usunięto ✅",
-        "Członek został usunięty z rodziny.",
-        "success"
-      );
+      showModal("Usunięto ✅", "Członek został usunięty z rodziny.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się usunąć członka rodziny.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się usunąć członka rodziny.", "error");
     } finally {
       setFamilyMemberActionUid(null);
     }
@@ -1581,8 +1562,7 @@ export default function FamilyScreen() {
     openConfirm(
       {
         title: "Opuścić rodzinę?",
-        message:
-          "Na pewno chcesz opuścić tę rodzinę MAX? Utracisz powiązanie z członkami rodziny.",
+        message: "Na pewno chcesz opuścić tę rodzinę MAX?",
         confirmLabel: "Tak, opuść",
         cancelLabel: "Nie",
         destructive: true,
@@ -1604,121 +1584,126 @@ export default function FamilyScreen() {
     );
   };
 
-  // ✅ Akceptacja: dołączający zawsze dostaje role=member (tylko owner zaprasza i tylko owner usuwa)
+  const canInviteByPremium = !!myUid && !!familyId && isPremium && iAmOwner;
+
+  const familyInviteDisabledReason = (toUid: string) => {
+    if (!myUid) return "Brak sesji.";
+    if (!isPremium) return "Rodzina MAX jest w Premium.";
+    if (!familyId) return "Najpierw utwórz rodzinę MAX.";
+    if (!iAmOwner) return "Tylko właściciel rodziny może zapraszać.";
+    if (!canAddFamilyMore) return `Limit ${MAX_FAMILY} osób w rodzinie.`;
+    if (!friendUidSet.has(toUid)) return "Możesz zapraszać do rodziny tylko znajomych.";
+    if (memberIds.has(toUid)) return "Ta osoba już jest w Twojej rodzinie.";
+    if (pendingFamilyTo.has(toUid)) return "Zaproszenie do rodziny już wysłane.";
+    return null;
+  };
+
+  const sendFamilyInvite = async (f: FriendshipDoc) => {
+    if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
+    if (!myProfile) return showModal("Brak profilu", "Brakuje Twojego profilu z /users.", "error");
+    if (!familyId) return showModal("Brak rodziny", "Najpierw utwórz rodzinę MAX.", "info");
+    if (!iAmOwner) return showModal("Brak uprawnień", "Tylko właściciel rodziny może zapraszać.", "info");
+
+    const other = otherProfileFromFriendship(f);
+    const toUid = String(other?.uid || "");
+    if (!toUid) return;
+
+    const reason = familyInviteDisabledReason(toUid);
+    if (reason) {
+      if (reason.includes("Premium")) router.push("/premium");
+      return showModal("Nie można", reason, "info");
+    }
+
+    setFamilyInvActionId(toUid);
+    try {
+      const memSnap = await getDocs(
+        query(collection(db!, "families", String(familyId), "members"), limit(MAX_FAMILY + 1))
+      );
+      if (memSnap.size >= MAX_FAMILY) {
+        showModal("Limit", `Rodzina ma już ${MAX_FAMILY} osób.`, "info");
+        return;
+      }
+
+      const invId = familyInviteId(String(familyId), myUid, toUid);
+
+      await setDoc(
+        doc(db!, "family_invites", invId),
+        {
+          familyId: String(familyId),
+          fromUserId: myUid,
+          fromDisplayName: displayNameOf(myProfile),
+          fromEmail: myProfile.email || auth!.currentUser?.email || "",
+          toUserId: toUid,
+          toDisplayName: displayNameOf(other),
+          toEmail: other?.email || "",
+          status: "pending",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      showModal("Wysłano ✅", "Zaproszenie do rodziny MAX zostało wysłane.", "success");
+    } catch (e: any) {
+      showModal("Błąd", e?.message || "Nie udało się wysłać zaproszenia do rodziny.", "error");
+    } finally {
+      setFamilyInvActionId(null);
+    }
+  };
+
   const acceptFamilyInvite = async (inv: FamilyInviteDoc) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myUserDocId)
-      return showModal("Brak profilu", "Nie znaleźliśmy /users.", "error");
+    if (!myUserDocId) return showModal("Brak profilu", "Nie znaleźliśmy /users.", "error");
 
     const fid = String(inv.familyId || "");
     if (!fid) return showModal("Błąd", "Zaproszenie bez familyId.", "error");
 
     setFamilyInvActionId(inv.id);
     try {
-      // limit target family
       const memTargetSnap = await getDocs(
-        query(collection(db, "families", fid, "members"), limit(MAX_FAMILY + 1))
+        query(collection(db!, "families", fid, "members"), limit(MAX_FAMILY + 1))
       );
       if (memTargetSnap.size >= MAX_FAMILY) {
-        showModal(
-          "Limit",
-          `Ta rodzina ma już limit ${MAX_FAMILY} osób.`,
-          "info"
-        );
+        showModal("Limit", `Ta rodzina ma już limit ${MAX_FAMILY} osób.`, "info");
         return;
       }
 
-      const meRef = doc(db, "users", myUserDocId);
+      const meRef = doc(db!, "users", myUserDocId);
       const myFam: string | null = localFamilyId || null;
 
-      // already in this family -> just accept invite
-      if (myFam && myFam === fid) {
-        await updateDoc(doc(db, "family_invites", inv.id), {
-          status: "accepted",
-          updatedAt: serverTimestamp(),
-        });
-        setLocalFamilyId(fid);
-        showModal("OK ✅", "Już jesteś w tej rodzinie.", "success");
-        return;
-      }
+      const batch = writeBatch(db!);
 
-      // if has other family: allow switch only when old family is SOLO (<=1 member)
-      if (myFam && myFam !== fid) {
-        const memOldSnap = await getDocs(
-          query(collection(db, "families", myFam, "members"), limit(2))
-        );
-        if (memOldSnap.size > 1) {
-          showModal(
-            "Masz już rodzinę",
-            "Najpierw opuść obecną rodzinę (jeśli ma innych członków).",
-            "info"
-          );
-          return;
-        }
-
-        const batch = writeBatch(db);
-        batch.update(doc(db, "family_invites", inv.id), {
-          status: "accepted",
-          updatedAt: serverTimestamp(),
-        });
-        batch.delete(doc(db, "families", myFam, "members", myUid));
-        batch.set(
-          doc(db, "families", fid, "members", myUid),
-          {
-            userId: myUid,
-            role: "member",
-            joinedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-        batch.set(
-          meRef,
-          { familyId: fid, updatedAt: serverTimestamp() },
-          { merge: true }
-        );
-
-        await batch.commit();
-        setLocalFamilyId(fid);
-        showModal(
-          "Dołączono ✅",
-          "Przeniesiono Cię do nowej rodziny MAX.",
-          "success"
-        );
-        return;
-      }
-
-      // no family -> normal join
-      const batch = writeBatch(db);
-      batch.update(doc(db, "family_invites", inv.id), {
+      batch.update(doc(db!, "family_invites", inv.id), {
         status: "accepted",
         updatedAt: serverTimestamp(),
       });
+
+      if (myFam && myFam !== fid) {
+        batch.delete(doc(db!, "families", myFam, "members", myUid));
+      }
+
       batch.set(
-        doc(db, "families", fid, "members", myUid),
+        doc(db!, "families", fid, "members", myUid),
         {
           userId: myUid,
           role: "member",
+          displayName: displayNameOf(myProfile),
+          email: myProfile?.email || auth!.currentUser?.email || "",
+          photoURL: myProfile?.photoURL || auth!.currentUser?.photoURL || null,
+          city: (myProfile as any)?.city || "",
           joinedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
-      batch.set(
-        meRef,
-        { familyId: fid, updatedAt: serverTimestamp() },
-        { merge: true }
-      );
+
+      batch.set(meRef, { familyId: fid, updatedAt: serverTimestamp() }, { merge: true });
 
       await batch.commit();
       setLocalFamilyId(fid);
       showModal("Dołączono ✅", "Jesteś w rodzinie MAX.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się zaakceptować.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1727,16 +1712,12 @@ export default function FamilyScreen() {
   const declineFamilyInvite = async (inv: FamilyInviteDoc) => {
     setFamilyInvActionId(inv.id);
     try {
-      await updateDoc(doc(db, "family_invites", inv.id), {
+      await updateDoc(doc(db!, "family_invites", inv.id), {
         status: "declined",
         updatedAt: serverTimestamp(),
       });
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się odrzucić.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się odrzucić.", "error");
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1746,25 +1727,22 @@ export default function FamilyScreen() {
     const go = async () => {
       setFamilyInvActionId(inv.id);
       try {
-        await updateDoc(doc(db, "family_invites", inv.id), {
+        await updateDoc(doc(db!, "family_invites", inv.id), {
           status: "cancelled",
           updatedAt: serverTimestamp(),
         });
         showModal("OK", "Cofnięto zaproszenie do rodziny.", "success");
       } catch (e: any) {
-        showModal(
-          "Błąd",
-          e?.message || "Nie udało się cofnąć.",
-          "error"
-        );
+        showModal("Błąd", e?.message || "Nie udało się cofnąć.", "error");
       } finally {
         setFamilyInvActionId(null);
       }
     };
 
     if (Platform.OS === "web") {
-      // eslint-disable-next-line no-alert
-      if (window.confirm("Cofnąć zaproszenie do rodziny?")) go();
+      const w: any = globalThis as any;
+      const ok = typeof w?.confirm === "function" ? w.confirm("Cofnąć zaproszenie do rodziny?") : true;
+      if (ok) go();
       return;
     }
 
@@ -1774,14 +1752,12 @@ export default function FamilyScreen() {
     ]);
   };
 
-  // ====== UI helpers (settings vibe, Crystal Cards) ======
   const cardStyle = {
     backgroundColor: colors.card,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 22,
     padding: 16,
-    ...CARD_ELEVATION,
   };
 
   const labelStyle = {
@@ -1816,6 +1792,7 @@ export default function FamilyScreen() {
     justifyContent: "center" as const,
     flexDirection: "row" as const,
     opacity: disabled ? 0.6 : 1,
+    backgroundColor: "transparent",
   });
 
   const renderUserRow = (
@@ -1832,71 +1809,48 @@ export default function FamilyScreen() {
   ) => {
     const photo = u.photoURL ? String(u.photoURL) : null;
 
-    const goToProfile = () => {
-      if (!u.uid) return;
-      router.push(`/Profile?uid=${u.uid}`);
-    };
-
-    const Wrapper: any = u.uid ? TouchableOpacity : View;
+    const Wrapper: any = View;
 
     return (
       <Wrapper
-        onPress={u.uid ? goToProfile : undefined}
-        activeOpacity={0.9}
         style={{
           marginTop: 10,
           borderWidth: 1,
           borderColor: colors.border,
-          backgroundColor: colors.bg,
+          backgroundColor: `${colors.textMuted}08`,
           borderRadius: 18,
           paddingVertical: 10,
           paddingHorizontal: 12,
           flexDirection: "row",
           alignItems: "center",
-          gap: 12,
         }}
       >
         {photo ? (
-          <Image
-            source={{ uri: photo }}
-            style={{ width: 42, height: 42, borderRadius: 999 }}
-          />
+          <Image source={{ uri: photo }} style={{ width: 42, height: 42, borderRadius: 999 }} />
         ) : (
           <View
             style={{
               width: 42,
               height: 42,
               borderRadius: 999,
-              backgroundColor: colors.accent,
+              backgroundColor: `${colors.accent}22`,
+              borderWidth: 1,
+              borderColor: `${colors.accent}40`,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: "#022c22", fontWeight: "900" }}>
+            <Text style={{ color: colors.accent, fontWeight: "900" }}>
               {safeInitial(displayNameOf(u))}
             </Text>
           </View>
         )}
 
-        <View style={{ flex: 1 }}>
-          <Text
-            style={{
-              color: colors.text,
-              fontWeight: "900",
-              fontSize: 15,
-            }}
-            numberOfLines={1}
-          >
+        <View style={{ flex: 1, marginLeft: 12, minWidth: 0 }}>
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }} numberOfLines={1}>
             {displayNameOf(u)}
           </Text>
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              marginTop: 2,
-            }}
-            numberOfLines={1}
-          >
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
             {subtitle || u.email || "—"}
             {u.city ? ` • ${u.city}` : ""}
           </Text>
@@ -1907,34 +1861,22 @@ export default function FamilyScreen() {
     );
   };
 
-  // ====== Derived picked state
-  const pickedBetween =
-    qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
+  const pickedBetween = qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
   const pickedIsFriend = !!qPicked && friendUidSet.has(qPicked.uid);
   const pickedIncoming =
-    !!pickedBetween &&
-    pickedBetween.status === "pending" &&
-    pickedBetween.requestedTo === myUid;
+    !!pickedBetween && pickedBetween.status === "pending" && pickedBetween.requestedTo === myUid;
   const pickedOutgoing =
-    !!pickedBetween &&
-    pickedBetween.status === "pending" &&
-    pickedBetween.requestedBy === myUid;
+    !!pickedBetween && pickedBetween.status === "pending" && pickedBetween.requestedBy === myUid;
 
-  const familyInvIncomingForMy = useMemo(
-    () => familyInvIncoming,
-    [familyInvIncoming]
-  );
   const familyInvOutgoingForMyFamily = useMemo(() => {
     if (!familyId) return [];
-    return familyInvOutgoing.filter(
-      (x) => String(x.familyId) === String(familyId)
-    );
+    return familyInvOutgoing.filter((x) => String(x.familyId) === String(familyId));
   }, [familyInvOutgoing, familyId]);
 
   if (familyLoading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={isDarkish ? "light-content" : "dark-content"} />
         <View style={{ flex: 1, justifyContent: "center" }}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
@@ -1942,16 +1884,10 @@ export default function FamilyScreen() {
     );
   }
 
-  const headerTitle = "Znajomi & Rodzina";
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar barStyle="light-content" />
-      <FeedbackModal
-        state={modal}
-        onClose={() => setModal({ visible: false })}
-        colors={colors}
-      />
+      <StatusBar barStyle={isDarkish ? "light-content" : "dark-content"} />
+      <FeedbackModal state={modal} onClose={() => setModal({ visible: false })} colors={colors} />
       <ConfirmModal
         state={confirmState}
         onCancel={handleConfirmCancel}
@@ -1967,55 +1903,27 @@ export default function FamilyScreen() {
           width: "100%",
           maxWidth: 960,
           alignSelf: Platform.OS === "web" ? "center" : "stretch",
-          gap: 14,
         }}
+        keyboardShouldPersistTaps="handled"
       >
         {/* HEADER */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 4,
-          }}
-        >
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={{
-              paddingRight: 8,
-              paddingVertical: 6,
-              borderRadius: 999,
-            }}
+            style={{ paddingRight: 8, paddingVertical: 6, borderRadius: 999 }}
           >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 20,
-              fontWeight: "900",
-            }}
-          >
-            {headerTitle}
+          <Text style={{ color: colors.text, fontSize: 20, fontWeight: "900" }}>
+            Znajomi & Rodzina
           </Text>
         </View>
 
-        {/* ============ RODZINA MAX (TOP) ============ */}
+        {/* RODZINA MAX */}
         <View style={cardStyle}>
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
             <Text style={labelStyle}>Rodzina MAX</Text>
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 12,
-                fontWeight: "900",
-              }}
-            >
+            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "900" }}>
               {familyId ? `${familyCount}/${MAX_FAMILY}` : `0/${MAX_FAMILY}`}
             </Text>
           </View>
@@ -2023,136 +1931,71 @@ export default function FamilyScreen() {
           <Text style={[mutedStyle, { marginTop: 4 }]}>
             Premium: {isPremium ? "aktywny ✅" : "brak"} •{" "}
             {familyId ? "rodzina: aktywna" : "brak rodziny"} •{" "}
-            {familyId
-              ? iAmOwner
-                ? "rola: właściciel"
-                : "rola: członek"
-              : "rola: —"}
+            {familyId ? (iAmOwner ? "rola: właściciel" : "rola: członek") : "rola: —"}
           </Text>
 
-          {/* CREATE FAMILY MAX (Premium) */}
           {!familyId ? (
             <View style={{ marginTop: 14 }}>
-              <TouchableOpacity
-                onPress={createFamilyMax}
-                style={buttonStyle(false)}
-                activeOpacity={0.9}
-              >
-                <Text style={{ fontWeight: "900", color: "#022c22" }}>
-                  Utwórz rodzinę MAX
-                </Text>
+              <TouchableOpacity onPress={createFamilyMax} style={buttonStyle(false)} activeOpacity={0.9}>
+                <Text style={{ fontWeight: "900", color: "#fff" }}>Utwórz rodzinę MAX</Text>
               </TouchableOpacity>
               {!isPremium ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Rodzina MAX jest dostępna w Premium.
-                </Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>Rodzina MAX jest dostępna w Premium.</Text>
               ) : null}
             </View>
           ) : null}
 
-          {/* ============ LISTA CZŁONKÓW RODZINY ============ */}
-          <Text
-            style={{
-              marginTop: 16,
-              color: colors.text,
-              fontWeight: "900",
-              fontSize: 15,
-            }}
-          >
+          <Text style={{ marginTop: 16, color: colors.text, fontWeight: "900", fontSize: 15 }}>
             Członkowie rodziny
           </Text>
 
           {!familyId || members.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>
-              Brak członków rodziny.
-            </Text>
+            <Text style={[mutedStyle, { marginTop: 8 }]}>Brak członków rodziny.</Text>
           ) : (
             members
               .slice()
               .sort((a: any, b: any) => {
-                const auid = String(a?.uid || a?.userId || a?.id || "");
-                const buid = String(b?.uid || b?.userId || b?.id || "");
-                const aIsOwner =
-                  effectiveOwnerId && auid === String(effectiveOwnerId);
-                const bIsOwner =
-                  effectiveOwnerId && buid === String(effectiveOwnerId);
-                if (aIsOwner) return -1;
-                if (bIsOwner) return 1;
-                return String(a?.displayName || "").localeCompare(
-                  String(b?.displayName || "")
-                );
+                const aOwner = String(a?.role || "") === "owner";
+                const bOwner = String(b?.role || "") === "owner";
+                if (aOwner) return -1;
+                if (bOwner) return 1;
+                return String(a?.displayName || "").localeCompare(String(b?.displayName || ""));
               })
               .map((m: any) => {
-                const memUid = String(m.uid || m.userId || "");
+                const memUid = String(m.userId || m.uid || "");
                 const isMe = myUid && memUid === myUid;
-
-                const isOwnerRow =
-                  !!effectiveOwnerId &&
-                  memUid === String(effectiveOwnerId);
-                const roleLabel = isOwnerRow
-                  ? "owner"
-                  : String(m?.role || "member");
+                const roleLabel = String(m?.role || "member");
 
                 let rightNode: React.ReactNode;
-                let subtitle =
-                  roleLabel === "owner"
-                    ? "Założyciel rodziny MAX"
-                    : "Członek rodziny";
+                let subtitle = roleLabel === "owner" ? "Założyciel rodziny MAX" : "Członek rodziny";
 
                 if (roleLabel === "owner") {
                   rightNode = (
-                    <Text
-                      style={{
-                        color: colors.textMuted,
-                        fontWeight: "900",
-                      }}
-                    >
+                    <Text style={{ color: colors.textMuted, fontWeight: "900" }}>
                       {isMe ? "Właściciel (Ty)" : "Właściciel"}
                     </Text>
                   );
                   if (isMe) subtitle = "Założyciel rodziny MAX (Ty)";
                 } else if (iAmOwner) {
                   const busy = familyMemberActionUid === memUid;
-                  const label =
-                    m.displayName ||
-                    m.email ||
-                    (isMe ? "Ciebie" : "tego członka rodziny");
+                  const label = m.displayName || m.email || "tego członka rodziny";
 
                   rightNode = (
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontWeight: "900",
-                        }}
-                      >
-                        Członek
-                      </Text>
+                      <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Członek</Text>
                       <TouchableOpacity
-                        onPress={() =>
-                          handleRemoveFamilyMember(memUid, label)
-                        }
+                        onPress={() => handleRemoveFamilyMember(memUid, label)}
                         disabled={busy}
                         style={[
                           ghostButtonStyle(busy),
-                          {
-                            marginTop: 6,
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                          },
+                          { marginTop: 6, paddingVertical: 6, paddingHorizontal: 10, borderColor: ERROR_COLOR },
                         ]}
                         activeOpacity={0.9}
                       >
                         {busy ? (
-                          <ActivityIndicator color={colors.textMuted} />
+                          <ActivityIndicator color={ERROR_COLOR} />
                         ) : (
-                          <Text
-                            style={{
-                              fontWeight: "900",
-                              color: ERROR_COLOR,
-                              fontSize: 12,
-                            }}
-                          >
+                          <Text style={{ fontWeight: "900", color: ERROR_COLOR, fontSize: 12 }}>
                             Usuń z rodziny
                           </Text>
                         )}
@@ -2160,54 +2003,39 @@ export default function FamilyScreen() {
                     </View>
                   );
                 } else {
-                  rightNode = (
-                    <Text
-                      style={{
-                        color: colors.textMuted,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Członek
-                    </Text>
-                  );
+                  rightNode = <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Członek</Text>;
                 }
 
-                return renderUserRow(
-                  {
-                    uid: m.uid || m.userId,
-                    displayName: m.displayName,
-                    email: m.email,
-                    photoURL: m.photoURL || null,
-                    city: m.city,
-                  },
-                  rightNode,
-                  subtitle
+                return (
+                  <View key={`fam-mem-${memUid || m.id}`}>
+                    {renderUserRow(
+                      {
+                        uid: memUid,
+                        displayName: m.displayName,
+                        email: m.email,
+                        photoURL: m.photoURL || null,
+                        city: m.city,
+                      },
+                      rightNode,
+                      subtitle
+                    )}
+                  </View>
                 );
               })
           )}
 
-          {/* OPUŚĆ RODZINĘ (dla zwykłego członka) — NIE pokazujemy jeśli owner */}
           {canLeaveFamily && !iAmOwner ? (
             <View style={{ marginTop: 16 }}>
               <TouchableOpacity
                 onPress={handleLeaveFamily}
                 disabled={familySelfActionBusy}
-                style={[
-                  ghostButtonStyle(familySelfActionBusy),
-                  { borderColor: ERROR_COLOR, paddingVertical: 9 },
-                ]}
+                style={[ghostButtonStyle(familySelfActionBusy), { borderColor: ERROR_COLOR, paddingVertical: 9 }]}
                 activeOpacity={0.9}
               >
                 {familySelfActionBusy ? (
                   <ActivityIndicator color={ERROR_COLOR} />
                 ) : (
-                  <Text
-                    style={{
-                      color: ERROR_COLOR,
-                      fontWeight: "900",
-                      textAlign: "center",
-                    }}
-                  >
+                  <Text style={{ color: ERROR_COLOR, fontWeight: "900", textAlign: "center" }}>
                     Opuść rodzinę
                   </Text>
                 )}
@@ -2215,132 +2043,86 @@ export default function FamilyScreen() {
             </View>
           ) : null}
 
-          {/* ⭐⭐⭐ ALWAYS VISIBLE INCOMING INVITES ⭐⭐⭐ */}
-          <Text
-            style={{
-              marginTop: 18,
-              color: colors.text,
-              fontWeight: "900",
-              fontSize: 15,
-            }}
-          >
+          <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900", fontSize: 15 }}>
             Zaproszenia do rodziny
           </Text>
 
-          {familyInvIncomingForMy.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>
-              Brak zaproszeń.
-            </Text>
+          {familyInvIncoming.length === 0 ? (
+            <Text style={[mutedStyle, { marginTop: 8 }]}>Brak zaproszeń.</Text>
           ) : (
-            familyInvIncomingForMy.map((inv) => {
+            familyInvIncoming.map((inv) => {
               const busy = familyInvActionId === inv.id;
-              return renderUserRow(
-                {
-                  uid: inv.fromUserId,
-                  displayName: inv.fromDisplayName,
-                  email: inv.fromEmail,
-                },
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TouchableOpacity
-                    onPress={() => acceptFamilyInvite(inv)}
-                    disabled={busy}
-                    style={buttonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    {busy ? (
-                      <ActivityIndicator color="#022c22" />
-                    ) : (
-                      <Text
-                        style={{
-                          fontWeight: "900",
-                          color: "#022c22",
-                        }}
+              return (
+                <View key={`fam-inv-in-${inv.id}`}>
+                  {renderUserRow(
+                    { uid: inv.fromUserId, displayName: inv.fromDisplayName, email: inv.fromEmail },
+                    <View style={{ flexDirection: "row" }}>
+                      <TouchableOpacity
+                        onPress={() => acceptFamilyInvite(inv)}
+                        disabled={busy}
+                        style={buttonStyle(busy)}
+                        activeOpacity={0.9}
                       >
-                        Akceptuj
-                      </Text>
-                    )}
-                  </TouchableOpacity>
+                        {busy ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={{ fontWeight: "900", color: "#fff" }}>Akceptuj</Text>
+                        )}
+                      </TouchableOpacity>
 
-                  <TouchableOpacity
-                    onPress={() => declineFamilyInvite(inv)}
-                    disabled={busy}
-                    style={ghostButtonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Odrzuć
-                    </Text>
-                  </TouchableOpacity>
-                </View>,
-                "Zaproszenie do rodziny MAX"
+                      <View style={{ width: 8 }} />
+
+                      <TouchableOpacity
+                        onPress={() => declineFamilyInvite(inv)}
+                        disabled={busy}
+                        style={ghostButtonStyle(busy)}
+                        activeOpacity={0.9}
+                      >
+                        <Text style={{ fontWeight: "900", color: colors.textMuted }}>Odrzuć</Text>
+                      </TouchableOpacity>
+                    </View>,
+                    "Zaproszenie do rodziny MAX"
+                  )}
+                </View>
               );
             })
           )}
 
-          {/* ================= ONLY OWNER+PREMIUM CAN SEE THIS BLOCK ================= */}
           {canInviteByPremium ? (
             <>
-              <Text
-                style={{
-                  marginTop: 18,
-                  color: colors.text,
-                  fontWeight: "900",
-                  fontSize: 15,
-                }}
-              >
+              <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900", fontSize: 15 }}>
                 Wysłane zaproszenia
               </Text>
 
               {familyInvOutgoingForMyFamily.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Brak wysłanych.
-                </Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>Brak wysłanych.</Text>
               ) : (
                 familyInvOutgoingForMyFamily.map((inv) => {
                   const busy = familyInvActionId === inv.id;
-                  return renderUserRow(
-                    {
-                      uid: inv.toUserId,
-                      displayName: inv.toDisplayName,
-                      email: inv.toEmail,
-                    },
-                    <TouchableOpacity
-                      onPress={() => cancelFamilyInvite(inv)}
-                      disabled={busy}
-                      style={ghostButtonStyle(busy)}
-                      activeOpacity={0.9}
-                    >
-                      {busy ? (
-                        <ActivityIndicator color={colors.textMuted} />
-                      ) : (
-                        <Text
-                          style={{
-                            fontWeight: "900",
-                            color: colors.textMuted,
-                          }}
+                  return (
+                    <View key={`fam-inv-out-${inv.id}`}>
+                      {renderUserRow(
+                        { uid: inv.toUserId, displayName: inv.toDisplayName, email: inv.toEmail },
+                        <TouchableOpacity
+                          onPress={() => cancelFamilyInvite(inv)}
+                          disabled={busy}
+                          style={ghostButtonStyle(busy)}
+                          activeOpacity={0.9}
                         >
-                          Cofnij
-                        </Text>
+                          {busy ? (
+                            <ActivityIndicator color={colors.textMuted} />
+                          ) : (
+                            <Text style={{ fontWeight: "900", color: colors.textMuted }}>Cofnij</Text>
+                          )}
+                        </TouchableOpacity>,
+                        "Oczekuje"
                       )}
-                    </TouchableOpacity>,
-                    "Oczekuje"
+                    </View>
                   );
                 })
               )}
 
-              <Text
-                style={{
-                  marginTop: 18,
-                  color: colors.text,
-                  fontWeight: "900",
-                  fontSize: 15,
-                }}
-              >
+              <Text style={{ marginTop: 18, color: colors.text, fontWeight: "900", fontSize: 15 }}>
                 Zaproś znajomego do rodziny
               </Text>
               <Text style={[mutedStyle, { marginTop: 4 }]}>
@@ -2348,59 +2130,49 @@ export default function FamilyScreen() {
               </Text>
 
               {friendsAccepted.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Najpierw dodaj znajomych.
-                </Text>
+                <Text style={[mutedStyle, { marginTop: 8 }]}>Najpierw dodaj znajomych.</Text>
               ) : (
                 friendsAccepted.slice(0, 30).map((fr) => {
                   const other = otherProfileFromFriendship(fr);
                   const toUid = String(other?.uid || "");
-                  const reason = toUid
-                    ? familyInviteDisabledReason(toUid)
-                    : "Brak uid.";
+                  const reason = toUid ? familyInviteDisabledReason(toUid) : "Brak uid.";
                   const disabled = !!reason;
                   const busy = familyInvActionId === toUid;
 
-                  return renderUserRow(
-                    {
-                      uid: toUid,
-                      displayName: other?.displayName,
-                      username: other?.username,
-                      email: other?.email,
-                      photoURL: other?.photoURL || null,
-                      city: other?.city,
-                    },
-                    <TouchableOpacity
-                      onPress={() => sendFamilyInvite(fr)}
-                      disabled={disabled || busy}
-                      style={buttonStyle(disabled || busy)}
-                      activeOpacity={0.9}
-                    >
-                      {busy ? (
-                        <ActivityIndicator color="#022c22" />
-                      ) : (
-                        <Text
-                          style={{
-                            fontWeight: "900",
-                            color: "#022c22",
-                          }}
+                  return (
+                    <View key={`fam-invite-friend-${fr.id}`}>
+                      {renderUserRow(
+                        {
+                          uid: toUid,
+                          displayName: other?.displayName,
+                          username: other?.username,
+                          email: other?.email,
+                          photoURL: other?.photoURL || null,
+                          city: other?.city,
+                        },
+                        <TouchableOpacity
+                          onPress={() => sendFamilyInvite(fr)}
+                          disabled={disabled || busy}
+                          style={buttonStyle(disabled || busy)}
+                          activeOpacity={0.9}
                         >
-                          {disabled ? "Już w rodzinie" : "Zaproś"}
-                        </Text>
+                          {busy ? (
+                            <ActivityIndicator color="#fff" />
+                          ) : (
+                            <Text style={{ fontWeight: "900", color: "#fff" }}>
+                              {disabled ? "Niedostępne" : "Zaproś"}
+                            </Text>
+                          )}
+                        </TouchableOpacity>,
+                        disabled ? reason || "—" : "Znajomy"
                       )}
-                    </TouchableOpacity>,
-                    disabled ? reason || "—" : "Znajomy"
+                    </View>
                   );
                 })
               )}
 
               {!canAddFamilyMore ? (
-                <Text
-                  style={[
-                    mutedStyle,
-                    { marginTop: 10, fontWeight: "900" },
-                  ]}
-                >
+                <Text style={[mutedStyle, { marginTop: 10, fontWeight: "900" }]}>
                   Osiągnięto limit {MAX_FAMILY} osób w rodzinie.
                 </Text>
               ) : null}
@@ -2408,12 +2180,10 @@ export default function FamilyScreen() {
           ) : null}
         </View>
 
-        {/* ===================== FRIENDS: ADD / REQUESTS / LIST ===================== */}
-        <View style={cardStyle}>
+        {/* FRIENDS: ADD */}
+        <View style={[cardStyle, { marginTop: 14 }]}>
           <Text style={labelStyle}>Dodaj znajomego</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Nick lub e-mail.
-          </Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>Nick lub e-mail.</Text>
 
           <View
             style={{
@@ -2425,8 +2195,7 @@ export default function FamilyScreen() {
               paddingVertical: 8,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
-              backgroundColor: colors.bg,
+              backgroundColor: `${colors.textMuted}10`,
             }}
           >
             <Ionicons name="search" size={18} color={colors.textMuted} />
@@ -2443,6 +2212,7 @@ export default function FamilyScreen() {
                 color: colors.text,
                 fontSize: 14,
                 fontWeight: "700",
+                marginLeft: 10,
               }}
               autoCapitalize="none"
               autoCorrect={false}
@@ -2453,10 +2223,7 @@ export default function FamilyScreen() {
                 setInputFocused(true);
               }}
               onBlur={() => {
-                blurHideTimer.current = setTimeout(
-                  () => setInputFocused(false),
-                  160
-                );
+                blurHideTimer.current = setTimeout(() => setInputFocused(false), 160);
               }}
             />
 
@@ -2467,34 +2234,19 @@ export default function FamilyScreen() {
               activeOpacity={0.9}
             >
               {qLoading ? (
-                <ActivityIndicator color="#022c22" />
+                <ActivityIndicator color="#fff" />
               ) : (
-                <Text
-                  style={{
-                    fontWeight: "900",
-                    color: "#022c22",
-                  }}
-                >
-                  Szukaj
-                </Text>
+                <Text style={{ fontWeight: "900", color: "#fff" }}>Szukaj</Text>
               )}
             </TouchableOpacity>
           </View>
 
           {qError ? (
-            <Text
-              style={{
-                color: ERROR_COLOR,
-                fontSize: 12,
-                fontWeight: "800",
-                marginTop: 8,
-              }}
-            >
+            <Text style={{ color: ERROR_COLOR, fontSize: 12, fontWeight: "800", marginTop: 8 }}>
               {qError}
             </Text>
           ) : null}
 
-          {/* TYPEAHEAD */}
           {inputFocused && qText.trim().length >= 2 ? (
             <View
               style={{
@@ -2502,7 +2254,7 @@ export default function FamilyScreen() {
                 borderRadius: 18,
                 borderWidth: 1,
                 borderColor: colors.border,
-                backgroundColor: colors.bg,
+                backgroundColor: `${colors.textMuted}08`,
                 overflow: "hidden",
               }}
             >
@@ -2512,25 +2264,13 @@ export default function FamilyScreen() {
                 </View>
               ) : typeaheadStatus === "error" ? (
                 <View style={{ padding: 12 }}>
-                  <Text
-                    style={{
-                      color: ERROR_COLOR,
-                      fontWeight: "900",
-                      fontSize: 12,
-                    }}
-                  >
+                  <Text style={{ color: ERROR_COLOR, fontWeight: "900", fontSize: 12 }}>
                     {typeaheadErr || "Błąd podpowiedzi."}
                   </Text>
                 </View>
               ) : typeahead.length === 0 ? (
                 <View style={{ padding: 12 }}>
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "800",
-                      fontSize: 12,
-                    }}
-                  >
+                  <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
                     Brak wyników dla “{qText.trim()}”.
                   </Text>
                 </View>
@@ -2538,6 +2278,7 @@ export default function FamilyScreen() {
                 typeahead.map((u) => {
                   const between = myUid ? findBetween(myUid, u.uid) : null;
                   const isFriend = friendUidSet.has(u.uid);
+
                   return (
                     <TouchableOpacity
                       key={`ta-${u.uid}`}
@@ -2545,7 +2286,6 @@ export default function FamilyScreen() {
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 10,
                         paddingHorizontal: 12,
                         paddingVertical: 10,
                         borderTopWidth: 1,
@@ -2558,53 +2298,30 @@ export default function FamilyScreen() {
                           width: 34,
                           height: 34,
                           borderRadius: 999,
-                          backgroundColor: colors.accent,
+                          backgroundColor: `${colors.accent}22`,
+                          borderWidth: 1,
+                          borderColor: `${colors.accent}40`,
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
-                        <Text
-                          style={{
-                            color: "#022c22",
-                            fontWeight: "900",
-                          }}
-                        >
+                        <Text style={{ color: colors.accent, fontWeight: "900" }}>
                           {safeInitial(displayNameOf(u))}
                         </Text>
                       </View>
 
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{ color: colors.text, fontWeight: "900" }}
-                          numberOfLines={1}
-                        >
+                      <View style={{ flex: 1, marginLeft: 10, minWidth: 0 }}>
+                        <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
                           {displayNameOf(u)}
                         </Text>
-                        <Text
-                          style={{
-                            color: colors.textMuted,
-                            fontSize: 12,
-                            marginTop: 2,
-                          }}
-                          numberOfLines={1}
-                        >
+                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
                           {u.email || "—"}
                           {u.city ? ` • ${u.city}` : ""}
                         </Text>
                       </View>
 
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontWeight: "900",
-                          fontSize: 11,
-                        }}
-                      >
-                        {isFriend
-                          ? "ZNAJOMY"
-                          : between?.status === "pending"
-                          ? "PENDING"
-                          : ""}
+                      <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 11 }}>
+                        {isFriend ? "ZNAJOMY" : between?.status === "pending" ? "PENDING" : ""}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -2613,38 +2330,16 @@ export default function FamilyScreen() {
             </View>
           ) : null}
 
-          {/* PICKED */}
           {qPicked ? (
             <View style={{ marginTop: 12 }}>
               {renderUserRow(
                 qPicked,
                 pickedIncoming ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    → „Przychodzące”
-                  </Text>
+                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>→ „Przychodzące”</Text>
                 ) : pickedOutgoing ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    Wysłane
-                  </Text>
+                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Wysłane</Text>
                 ) : pickedIsFriend ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    Znajomy
-                  </Text>
+                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Znajomy</Text>
                 ) : (
                   <TouchableOpacity
                     onPress={() => sendFriendRequest(qPicked)}
@@ -2652,12 +2347,7 @@ export default function FamilyScreen() {
                     style={buttonStyle(!myProfileReady)}
                     activeOpacity={0.9}
                   >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: "#022c22",
-                      }}
-                    >
+                    <Text style={{ fontWeight: "900", color: "#fff" }}>
                       {!myProfileReady ? "Ładuję..." : "Dodaj"}
                     </Text>
                   </TouchableOpacity>
@@ -2677,79 +2367,65 @@ export default function FamilyScreen() {
         </View>
 
         {/* Incoming friend requests */}
-        <View style={cardStyle}>
+        <View style={[cardStyle, { marginTop: 14 }]}>
           <Text style={labelStyle}>Przychodzące zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Kto chce Cię dodać do znajomych.
-          </Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>Kto chce Cię dodać do znajomych.</Text>
 
           {friendReqIncoming.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>
-              Brak zaproszeń.
-            </Text>
+            <Text style={[mutedStyle, { marginTop: 10 }]}>Brak zaproszeń.</Text>
           ) : (
             friendReqIncoming.map((f) => {
               const other = otherProfileFromFriendship(f);
               const busy = friendActionId === f.id;
 
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TouchableOpacity
-                    onPress={() => acceptFriendRequest(f)}
-                    disabled={busy}
-                    style={buttonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    {busy ? (
-                      <ActivityIndicator color="#022c22" />
-                    ) : (
-                      <Text
-                        style={{
-                          fontWeight: "900",
-                          color: "#022c22",
-                        }}
+              return (
+                <View key={`fr-in-${f.id}`}>
+                  {renderUserRow(
+                    {
+                      uid: other?.uid || "",
+                      displayName: other?.displayName,
+                      username: other?.username,
+                      email: other?.email,
+                      photoURL: other?.photoURL || null,
+                      city: other?.city,
+                    },
+                    <View style={{ flexDirection: "row" }}>
+                      <TouchableOpacity
+                        onPress={() => acceptFriendRequest(f)}
+                        disabled={busy}
+                        style={buttonStyle(busy)}
+                        activeOpacity={0.9}
                       >
-                        Akceptuj
-                      </Text>
-                    )}
-                  </TouchableOpacity>
+                        {busy ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={{ fontWeight: "900", color: "#fff" }}>Akceptuj</Text>
+                        )}
+                      </TouchableOpacity>
 
-                  <TouchableOpacity
-                    onPress={() => declineFriendRequest(f)}
-                    disabled={busy}
-                    style={ghostButtonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Odrzuć
-                    </Text>
-                  </TouchableOpacity>
-                </View>,
-                "Prośba o dodanie"
+                      <View style={{ width: 8 }} />
+
+                      <TouchableOpacity
+                        onPress={() => declineFriendRequest(f)}
+                        disabled={busy}
+                        style={ghostButtonStyle(busy)}
+                        activeOpacity={0.9}
+                      >
+                        <Text style={{ fontWeight: "900", color: colors.textMuted }}>Odrzuć</Text>
+                      </TouchableOpacity>
+                    </View>,
+                    "Prośba o dodanie"
+                  )}
+                </View>
               );
             })
           )}
         </View>
 
         {/* Outgoing friend requests */}
-        <View style={cardStyle}>
+        <View style={[cardStyle, { marginTop: 14 }]}>
           <Text style={labelStyle}>Wysłane zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Oczekują na akceptację.
-          </Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>Oczekują na akceptację.</Text>
 
           {friendReqOutgoing.length === 0 ? (
             <Text style={[mutedStyle, { marginTop: 10 }]}>Brak.</Text>
@@ -2758,89 +2434,77 @@ export default function FamilyScreen() {
               const other = otherProfileFromFriendship(f);
               const busy = friendActionId === f.id;
 
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <TouchableOpacity
-                  onPress={() => cancelFriendRequest(f)}
-                  disabled={busy}
-                  style={ghostButtonStyle(busy)}
-                  activeOpacity={0.9}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={colors.textMuted} />
-                  ) : (
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
+              return (
+                <View key={`fr-out-${f.id}`}>
+                  {renderUserRow(
+                    {
+                      uid: other?.uid || "",
+                      displayName: other?.displayName,
+                      username: other?.username,
+                      email: other?.email,
+                      photoURL: other?.photoURL || null,
+                      city: other?.city,
+                    },
+                    <TouchableOpacity
+                      onPress={() => cancelFriendRequest(f)}
+                      disabled={busy}
+                      style={ghostButtonStyle(busy)}
+                      activeOpacity={0.9}
                     >
-                      Cofnij
-                    </Text>
+                      {busy ? (
+                        <ActivityIndicator color={colors.textMuted} />
+                      ) : (
+                        <Text style={{ fontWeight: "900", color: colors.textMuted }}>Cofnij</Text>
+                      )}
+                    </TouchableOpacity>,
+                    "Oczekuje"
                   )}
-                </TouchableOpacity>,
-                "Oczekuje"
+                </View>
               );
             })
           )}
         </View>
 
         {/* Friends list */}
-        <View style={cardStyle}>
+        <View style={[cardStyle, { marginTop: 14 }]}>
           <Text style={labelStyle}>Znajomi</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Twoja lista znajomych.
-          </Text>
+          <Text style={[mutedStyle, { marginTop: 4 }]}>Twoja lista znajomych.</Text>
 
           {friendsAccepted.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>
-              Nie masz jeszcze znajomych.
-            </Text>
+            <Text style={[mutedStyle, { marginTop: 10 }]}>Nie masz jeszcze znajomych.</Text>
           ) : (
             friendsAccepted.map((f) => {
               const other = otherProfileFromFriendship(f);
               const busy = friendActionId === f.id;
 
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <TouchableOpacity
-                  onPress={() => handleRemoveFriend(f)}
-                  disabled={busy}
-                  style={[
-                    ghostButtonStyle(busy),
-                    { paddingVertical: 8, paddingHorizontal: 10 },
-                  ]}
-                  activeOpacity={0.9}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={ERROR_COLOR} />
-                  ) : (
-                    <Text
-                      style={{
-                        color: ERROR_COLOR,
-                        fontWeight: "900",
-                        fontSize: 12,
-                      }}
+              return (
+                <View key={`fr-acc-${f.id}`}>
+                  {renderUserRow(
+                    {
+                      uid: other?.uid || "",
+                      displayName: other?.displayName,
+                      username: other?.username,
+                      email: other?.email,
+                      photoURL: other?.photoURL || null,
+                      city: other?.city,
+                    },
+                    <TouchableOpacity
+                      onPress={() => handleRemoveFriend(f)}
+                      disabled={busy}
+                      style={[ghostButtonStyle(busy), { paddingVertical: 8, paddingHorizontal: 10, borderColor: ERROR_COLOR }]}
+                      activeOpacity={0.9}
                     >
-                      Usuń znajomego
-                    </Text>
+                      {busy ? (
+                        <ActivityIndicator color={ERROR_COLOR} />
+                      ) : (
+                        <Text style={{ color: ERROR_COLOR, fontWeight: "900", fontSize: 12 }}>
+                          Usuń znajomego
+                        </Text>
+                      )}
+                    </TouchableOpacity>,
+                    "Znajomy"
                   )}
-                </TouchableOpacity>,
-                "Znajomy"
+                </View>
               );
             })
           )}
@@ -2850,4 +2514,12 @@ export default function FamilyScreen() {
   );
 }
 
-// src/screens/FamilyScreen.tsx
+export default function FamilyRoute() {
+  return (
+    <ScreenErrorBoundary>
+      <FamilyScreenInner />
+    </ScreenErrorBoundary>
+  );
+}
+
+// app/family.tsx

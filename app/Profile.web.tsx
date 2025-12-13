@@ -1,6 +1,6 @@
 // app/Profile.tsx
 // ============================================================
-//  CAŁY PLIK – JEDYNA ZMIANA TO ZMODERNIZOWANA "LEVEL PILL"
+//  CAŁY PLIK – ZMIANA: NAKŁADKA "PREMIUM" NA AVATARZE (WIDOCZNA DLA INNYCH)
 // ============================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -281,6 +281,26 @@ export default function ProfileScreen() {
   const createdAtDate = toSafeDate(userDoc?.createdAt);
   const memberSinceLabel = formatDateLongPL(createdAtDate);
 
+  // PREMIUM (toleruje różne nazwy pól; działa też przy podglądzie cudzych profili)
+  const premiumUntilDate = toSafeDate(
+    userDoc?.premiumUntil ||
+      userDoc?.premiumExpiresAt ||
+      userDoc?.premiumExpiration ||
+      userDoc?.subscriptionEndsAt
+  );
+
+  const isPremium =
+    !!(
+      userDoc?.isPremium ||
+      userDoc?.premium ||
+      userDoc?.premiumActive ||
+      userDoc?.plan === "premium" ||
+      userDoc?.subscriptionTier === "premium" ||
+      userDoc?.subscriptionPlan === "premium"
+    ) || (premiumUntilDate ? premiumUntilDate.getTime() > Date.now() : false);
+
+  const premiumGold = "#fbbf24";
+
   const level = Math.max(1, Number(userDoc?.level ?? 1));
   const totalExp = Math.max(0, Number(userDoc?.totalExp ?? 0));
 
@@ -425,43 +445,100 @@ export default function ProfileScreen() {
             <>
               {/* TOP ROW */}
               <View style={{ flexDirection: "row", marginBottom: 16 }}>
-                {photoURL ? (
-                  <Image
-                    source={{ uri: photoURL }}
-                    style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 999,
-                      marginRight: 14,
-                      borderWidth: 2,
-                      borderColor: colors.accent + "88",
-                    }}
-                  />
-                ) : (
-                  <View
-                    style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 999,
-                      marginRight: 14,
-                      backgroundColor: colors.accent + "22",
-                      borderWidth: 2,
-                      borderColor: colors.accent + "66",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Text
+                {/* AVATAR + PREMIUM OVERLAY */}
+                <View style={{ position: "relative", marginRight: 14 }}>
+                  {photoURL ? (
+                    <Image
+                      source={{ uri: photoURL }}
                       style={{
-                        color: colors.accent,
-                        fontSize: 30,
-                        fontWeight: "900",
+                        width: 72,
+                        height: 72,
+                        borderRadius: 999,
+                        borderWidth: 2,
+                        borderColor: isPremium
+                          ? premiumGold
+                          : colors.accent + "88",
+                      }}
+                    />
+                  ) : (
+                    <View
+                      style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: 999,
+                        backgroundColor: isPremium
+                          ? premiumGold + "22"
+                          : colors.accent + "22",
+                        borderWidth: 2,
+                        borderColor: isPremium
+                          ? premiumGold + "AA"
+                          : colors.accent + "66",
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      {initialLetter}
-                    </Text>
-                  </View>
-                )}
+                      <Text
+                        style={{
+                          color: isPremium ? premiumGold : colors.accent,
+                          fontSize: 30,
+                          fontWeight: "900",
+                        }}
+                      >
+                        {initialLetter}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* NAKŁADKA PREMIUM NA AVATAR (widoczna dla wszystkich) */}
+                  {isPremium ? (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: -2,
+                        alignItems: "center",
+                      }}
+                      accessibilityLabel="Użytkownik Premium"
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          backgroundColor: "#0b1220CC",
+                          borderWidth: 1,
+                          borderColor: premiumGold,
+                          shadowColor: premiumGold,
+                          shadowOpacity: 0.25,
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowRadius: 4,
+                          elevation: 6,
+                        }}
+                      >
+                        <Ionicons
+                          name="sparkles"
+                          size={12}
+                          color={premiumGold}
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text
+                          style={{
+                            color: premiumGold,
+                            fontSize: 10,
+                            fontWeight: "900",
+                            letterSpacing: 0.6,
+                          }}
+                        >
+                          PREMIUM
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
 
                 <View style={{ flex: 1 }}>
                   <Text
@@ -874,3 +951,5 @@ function StatCard({
     </View>
   );
 }
+
+// app/Profile.tsx

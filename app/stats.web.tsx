@@ -96,7 +96,13 @@ type MemberStatsRow = {
   monthExp: number;
 };
 
-type TileId = "mission-search" | "achievements" | "leaderboard" | "freq" | "difficulty";
+type TileId =
+  | "summary"
+  | "mission-search"
+  | "achievements"
+  | "leaderboard"
+  | "freq"
+  | "difficulty";
 
 type TileConfig = {
   id: TileId;
@@ -177,9 +183,17 @@ function Chip({
       ]}
     >
       {!!icon && (
-        <Ionicons name={icon} size={14} color={colors.textMuted} style={{ marginRight: 6 }} />
+        <Ionicons
+          name={icon}
+          size={14}
+          color={colors.textMuted}
+          style={{ marginRight: 6 }}
+        />
       )}
-      <Text style={[styles.chipText, { color: colors.textMuted }]} numberOfLines={1}>
+      <Text
+        style={[styles.chipText, { color: colors.textMuted }]}
+        numberOfLines={1}
+      >
         {text}
       </Text>
     </View>
@@ -191,18 +205,25 @@ function PrimaryButton({
   icon,
   label,
   onPress,
+  style,
 }: {
   colors: any;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  style?: any;
 }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.primaryBtn,
-        { backgroundColor: colors.accent, opacity: pressed ? 0.88 : 1 },
+        styles.heroActionPill,
+        {
+          backgroundColor: colors.accent,
+          opacity: pressed ? 0.88 : 1,
+          borderColor: "transparent",
+        },
+        style,
       ]}
       hitSlop={10}
     >
@@ -250,12 +271,18 @@ function Card({
         <View style={styles.cardHeader}>
           <View style={{ flex: 1, minWidth: 0 }}>
             {!!title && (
-              <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
+              <Text
+                style={[styles.cardTitle, { color: colors.text }]}
+                numberOfLines={1}
+              >
                 {title}
               </Text>
             )}
             {!!subtitle && (
-              <Text style={[styles.cardSubtitle, { color: colors.textMuted }]} numberOfLines={2}>
+              <Text
+                style={[styles.cardSubtitle, { color: colors.textMuted }]}
+                numberOfLines={2}
+              >
                 {subtitle}
               </Text>
             )}
@@ -281,46 +308,6 @@ function Card({
   );
 }
 
-function KpiCard({
-  colors,
-  label,
-  value,
-  icon,
-  hint,
-  tint,
-}: {
-  colors: any;
-  label: string;
-  value: string | number;
-  icon: keyof typeof Ionicons.glyphMap;
-  hint?: string;
-  tint?: string;
-}) {
-  const t = tint ?? colors.accent;
-  return (
-    <View style={[styles.kpiCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
-      <View style={styles.kpiTopRow}>
-        <View style={[styles.kpiIconWrap, { backgroundColor: `${t}16`, borderColor: `${t}30` }]}>
-          <Ionicons name={icon} size={16} color={t} />
-        </View>
-        <Text style={[styles.kpiLabel, { color: colors.textMuted }]} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-
-      <Text style={[styles.kpiValue, { color: colors.text }]} numberOfLines={1}>
-        {value}
-      </Text>
-
-      {!!hint && (
-        <Text style={[styles.kpiHint, { color: colors.textMuted }]} numberOfLines={1}>
-          {hint}
-        </Text>
-      )}
-    </View>
-  );
-}
-
 /* ----------------------- Screen ----------------------- */
 
 const TILE_H = 320;
@@ -330,6 +317,8 @@ export default function StatsScreen() {
   const { missions, loading } = useMissions();
   const { members } = useFamily();
   const { width } = useWindowDimensions();
+
+  const isNarrow = width < 520;
 
   const is2Col = width >= 860;
   const is3Col = width >= 1220;
@@ -362,8 +351,12 @@ export default function StatsScreen() {
         .map((m) => ({
           Tytuł: m.title ?? "Bez nazwy",
           Status: "Wykonane",
-          "Data wykonania": m.completedAtJs ? m.completedAtJs.toLocaleString("pl-PL") : "",
-          "Data planowana": m.dueDateJs ? m.dueDateJs.toLocaleDateString("pl-PL") : "",
+          "Data wykonania": m.completedAtJs
+            ? m.completedAtJs.toLocaleString("pl-PL")
+            : "",
+          "Data planowana": m.dueDateJs
+            ? m.dueDateJs.toLocaleDateString("pl-PL")
+            : "",
           "Utworzone przez": m.createdByName ?? "Nieznane",
           "Zrealizowane przez": m.assignedToName ?? "Nieznane",
           EXP: m.expValueNum ?? 0,
@@ -375,7 +368,9 @@ export default function StatsScreen() {
           Tytuł: m.title ?? "Bez nazwy",
           Status: "Niewykonane",
           "Data wykonania": "",
-          "Data planowana": m.dueDateJs ? m.dueDateJs.toLocaleDateString("pl-PL") : "",
+          "Data planowana": m.dueDateJs
+            ? m.dueDateJs.toLocaleDateString("pl-PL")
+            : "",
           "Utworzone przez": m.createdByName ?? "Nieznane",
           "Zrealizowane przez": m.assignedToName ?? "Nieprzypisane",
           EXP: m.expValueNum ?? 0,
@@ -589,10 +584,26 @@ export default function StatsScreen() {
 
   useEffect(() => {
     if (!loading) {
-      Animated.timing(completionAnim, { toValue: completionRate, duration: 650, useNativeDriver: false }).start();
-      Animated.timing(easyAnim, { toValue: difficultyStats.easyPct, duration: 550, useNativeDriver: false }).start();
-      Animated.timing(mediumAnim, { toValue: difficultyStats.mediumPct, duration: 550, useNativeDriver: false }).start();
-      Animated.timing(hardAnim, { toValue: difficultyStats.hardPct, duration: 550, useNativeDriver: false }).start();
+      Animated.timing(completionAnim, {
+        toValue: completionRate,
+        duration: 650,
+        useNativeDriver: false,
+      }).start();
+      Animated.timing(easyAnim, {
+        toValue: difficultyStats.easyPct,
+        duration: 550,
+        useNativeDriver: false,
+      }).start();
+      Animated.timing(mediumAnim, {
+        toValue: difficultyStats.mediumPct,
+        duration: 550,
+        useNativeDriver: false,
+      }).start();
+      Animated.timing(hardAnim, {
+        toValue: difficultyStats.hardPct,
+        duration: 550,
+        useNativeDriver: false,
+      }).start();
     }
   }, [
     loading,
@@ -611,12 +622,28 @@ export default function StatsScreen() {
     outputRange: ["0%", "100%"],
     extrapolate: "clamp",
   });
-  const easyWidth = easyAnim.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"], extrapolate: "clamp" });
-  const mediumWidth = mediumAnim.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"], extrapolate: "clamp" });
-  const hardWidth = hardAnim.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"], extrapolate: "clamp" });
+  const easyWidth = easyAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+    extrapolate: "clamp",
+  });
+  const mediumWidth = mediumAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+    extrapolate: "clamp",
+  });
+  const hardWidth = hardAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+    extrapolate: "clamp",
+  });
 
   const badgeText =
-    completionRate >= 80 ? "Świetna robota! 🔥" : completionRate >= 50 ? "Dobra forma 💪" : "Dopiero się rozkręcamy";
+    completionRate >= 80
+      ? "Świetna robota! 🔥"
+      : completionRate >= 50
+      ? "Dobra forma 💪"
+      : "Dopiero się rozkręcamy";
 
   const trackColor = `${colors.textMuted}18`;
 
@@ -630,9 +657,10 @@ export default function StatsScreen() {
 
   const DEFAULT_TILES: TileConfig[] = useMemo(
     () => [
-      { id: "mission-search", wide: true },
+      { id: "summary" },
       { id: "achievements" },
       { id: "leaderboard" },
+      { id: "mission-search", wide: true },
       { id: "freq" },
       { id: "difficulty" },
     ],
@@ -784,11 +812,15 @@ export default function StatsScreen() {
 
     const out = Array.from(map.values()).map((r) => {
       const byPeople = Array.from(r.by.values()).sort((a, b) => b.count - a.count);
-      const events = [...r.events].sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
+      const events = [...r.events].sort(
+        (a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0)
+      );
       return { ...r, byPeople, events };
     });
 
-    out.sort((a, b) => (b.completed !== a.completed ? b.completed - a.completed : a.label.localeCompare(b.label, "pl")));
+    out.sort((a, b) =>
+      b.completed !== a.completed ? b.completed - a.completed : a.label.localeCompare(b.label, "pl")
+    );
     return out;
   }, [normalizedMissions, membersById]);
 
@@ -816,8 +848,83 @@ export default function StatsScreen() {
       </Pressable>
     );
 
+    if (tile.id === "summary") {
+      const rows = [
+        {
+          key: "week",
+          label: "Ten tydzień",
+          hint: "ukończone zadania",
+          value: loading ? "—" : weekCompleted.length,
+          icon: "calendar-outline" as const,
+          tint: colors.accent,
+        },
+        {
+          key: "month",
+          label: "Ten miesiąc",
+          hint: "ukończone zadania",
+          value: loading ? "—" : monthCompleted.length,
+          icon: "stats-chart-outline" as const,
+          tint: colors.accent,
+        },
+        {
+          key: "total",
+          label: "Wykonane łącznie",
+          hint: "od początku",
+          value: loading ? "—" : totalCompleted,
+          icon: "checkmark-done-outline" as const,
+          tint: "#22c55e",
+        },
+      ];
+
+      return (
+        <Card
+          colors={colors}
+          title="Podsumowanie"
+          subtitle="Najważniejsze liczniki."
+          right={right}
+          style={{ flex: 1 }}
+        >
+          <View style={{ marginTop: 8 }}>
+            {rows.map((r, idx) => (
+              <View key={r.key}>
+                {idx !== 0 && (
+                  <View style={{ marginVertical: 10 }}>
+                    <Divider colors={colors} />
+                  </View>
+                )}
+
+                <View style={styles.kpiTripleRow}>
+                  <View
+                    style={[
+                      styles.kpiIconWrapSmall,
+                      { backgroundColor: `${r.tint}16`, borderColor: `${r.tint}30` },
+                    ]}
+                  >
+                    <Ionicons name={r.icon} size={16} color={r.tint} />
+                  </View>
+
+                  <View style={styles.kpiTripleTexts}>
+                    <Text style={[styles.kpiTripleLabel, { color: colors.text }]} numberOfLines={1}>
+                      {r.label}
+                    </Text>
+                    <Text style={[styles.kpiTripleHint, { color: colors.textMuted }]} numberOfLines={1}>
+                      {r.hint}
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.kpiTripleValue, { color: colors.text }]} numberOfLines={1}>
+                    {r.value}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </Card>
+      );
+    }
+
     if (tile.id === "mission-search") {
-      const top = filteredStats.slice(0, 8); // może być dużo -> teraz scroll w kafelku ogarnia
+      const top = filteredStats.slice(0, 8);
       return (
         <Card
           colors={colors}
@@ -852,41 +959,43 @@ export default function StatsScreen() {
               <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Brak pasujących misji.</Text>
             ) : (
               <View style={{ marginTop: 10 }}>
-                {top.map((t) => {
-                  return (
-                    <Pressable
-                      key={t.key}
-                      onPress={() => {
-                        setSelectedKey(t.key);
-                        setDetailsOpen(true);
-                      }}
-                      style={({ pressed }) => [
-                        styles.searchRow,
-                        {
-                          borderColor: colors.border,
-                          backgroundColor: `${colors.textMuted}08`,
-                          opacity: pressed ? 0.9 : 1,
-                          marginBottom: 8,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.searchDot, { borderColor: colors.border }]}>
-                        <Ionicons name={t.completed > 0 ? "checkmark" : "ellipse-outline"} size={14} color={t.completed > 0 ? colors.accent : colors.textMuted} />
-                      </View>
+                {top.map((t) => (
+                  <Pressable
+                    key={t.key}
+                    onPress={() => {
+                      setSelectedKey(t.key);
+                      setDetailsOpen(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.searchRow,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: `${colors.textMuted}08`,
+                        opacity: pressed ? 0.9 : 1,
+                        marginBottom: 8,
+                      },
+                    ]}
+                  >
+                    <View style={[styles.searchDot, { borderColor: colors.border }]}>
+                      <Ionicons
+                        name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
+                        size={14}
+                        color={t.completed > 0 ? colors.accent : colors.textMuted}
+                      />
+                    </View>
 
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
-                          {t.label}
-                        </Text>
-                        <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                          {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
-                        </Text>
-                      </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
+                        {t.label}
+                      </Text>
+                      <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
+                      </Text>
+                    </View>
 
-                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                    </Pressable>
-                  );
-                })}
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  </Pressable>
+                ))}
 
                 <Pressable
                   onPress={() => setDetailsOpen(true)}
@@ -896,7 +1005,9 @@ export default function StatsScreen() {
                   ]}
                 >
                   <Ionicons name="list-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                  <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>Pokaż listę ({filteredStats.length})</Text>
+                  <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>
+                    Pokaż listę ({filteredStats.length})
+                  </Text>
                 </Pressable>
               </View>
             )}
@@ -912,15 +1023,22 @@ export default function StatsScreen() {
           title="Osiągnięcia"
           subtitle="Szybkie insighty."
           right={right}
-          style={{ height: TILE_H }}
-          scroll
+          style={{ flex: 1 }}
         >
           {loading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
           ) : (
             <View style={{ marginTop: 10, gap: 10 }}>
               <View style={styles.achRow}>
-                <View style={[styles.achIcon, { backgroundColor: "rgba(250,204,21,0.14)", borderColor: "rgba(250,204,21,0.35)" }]}>
+                <View
+                  style={[
+                    styles.achIcon,
+                    {
+                      backgroundColor: "rgba(250,204,21,0.14)",
+                      borderColor: "rgba(250,204,21,0.35)",
+                    },
+                  ]}
+                >
                   <Ionicons name="medal-outline" size={16} color="#facc15" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>
@@ -935,7 +1053,15 @@ export default function StatsScreen() {
               </View>
 
               <View style={styles.achRow}>
-                <View style={[styles.achIcon, { backgroundColor: "rgba(34,197,94,0.14)", borderColor: "rgba(34,197,94,0.35)" }]}>
+                <View
+                  style={[
+                    styles.achIcon,
+                    {
+                      backgroundColor: "rgba(34,197,94,0.14)",
+                      borderColor: "rgba(34,197,94,0.35)",
+                    },
+                  ]}
+                >
                   <Ionicons name="flash-outline" size={16} color="#22c55e" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>
@@ -950,7 +1076,15 @@ export default function StatsScreen() {
               </View>
 
               <View style={styles.achRow}>
-                <View style={[styles.achIcon, { backgroundColor: "rgba(239,68,68,0.14)", borderColor: "rgba(239,68,68,0.35)" }]}>
+                <View
+                  style={[
+                    styles.achIcon,
+                    {
+                      backgroundColor: "rgba(239,68,68,0.14)",
+                      borderColor: "rgba(239,68,68,0.35)",
+                    },
+                  ]}
+                >
                   <Ionicons name="flame-outline" size={16} color="#ef4444" />
                 </View>
                 <Text style={[styles.achText, { color: colors.text }]}>{dominantDifficultyLabel}</Text>
@@ -969,8 +1103,7 @@ export default function StatsScreen() {
           title="Leaderboard"
           subtitle="Top (ten tydzień)."
           right={right}
-          style={{ height: TILE_H }}
-          scroll
+          style={{ flex: 1 }}
         >
           {loading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
@@ -979,8 +1112,12 @@ export default function StatsScreen() {
           ) : (
             <View style={{ marginTop: 10 }}>
               {list.map((row, idx) => {
-                const tint = idx === 0 ? "#facc15" : idx === 1 ? "#a5b4fc" : idx === 2 ? "#f97316" : colors.accent;
-                const pct = Math.min(100, Math.round((row.weekCount / (list[0]?.weekCount || 1)) * 100));
+                const tint =
+                  idx === 0 ? "#facc15" : idx === 1 ? "#a5b4fc" : idx === 2 ? "#f97316" : colors.accent;
+                const pct = Math.min(
+                  100,
+                  Math.round((row.weekCount / (list[0]?.weekCount || 1)) * 100)
+                );
                 return (
                   <View key={row.id} style={{ marginBottom: 10 }}>
                     <View style={styles.memberTop}>
@@ -998,7 +1135,15 @@ export default function StatsScreen() {
                       </View>
 
                       <Ionicons
-                        name={idx === 0 ? "trophy" : idx === 1 ? "trophy-outline" : idx === 2 ? "ribbon-outline" : "chevron-forward"}
+                        name={
+                          idx === 0
+                            ? "trophy"
+                            : idx === 1
+                            ? "trophy-outline"
+                            : idx === 2
+                            ? "ribbon-outline"
+                            : "chevron-forward"
+                        }
                         size={18}
                         color={idx < 3 ? tint : colors.textMuted}
                       />
@@ -1104,9 +1249,33 @@ export default function StatsScreen() {
         ) : (
           <View style={{ marginTop: 10 }}>
             {[
-              { key: "easy", label: "Łatwe", icon: "leaf-outline" as const, count: difficultyStats.easy, pct: difficultyStats.easyPct, width: easyWidth, color: difficultyColors.easy },
-              { key: "medium", label: "Średnie", icon: "alert-circle-outline" as const, count: difficultyStats.medium, pct: difficultyStats.mediumPct, width: mediumWidth, color: difficultyColors.medium },
-              { key: "hard", label: "Trudne", icon: "flame-outline" as const, count: difficultyStats.hard, pct: difficultyStats.hardPct, width: hardWidth, color: difficultyColors.hard },
+              {
+                key: "easy",
+                label: "Łatwe",
+                icon: "leaf-outline" as const,
+                count: difficultyStats.easy,
+                pct: difficultyStats.easyPct,
+                width: easyWidth,
+                color: difficultyColors.easy,
+              },
+              {
+                key: "medium",
+                label: "Średnie",
+                icon: "alert-circle-outline" as const,
+                count: difficultyStats.medium,
+                pct: difficultyStats.mediumPct,
+                width: mediumWidth,
+                color: difficultyColors.medium,
+              },
+              {
+                key: "hard",
+                label: "Trudne",
+                icon: "flame-outline" as const,
+                count: difficultyStats.hard,
+                pct: difficultyStats.hardPct,
+                width: hardWidth,
+                color: difficultyColors.hard,
+              },
             ].map((row) => (
               <View key={row.key} style={{ marginBottom: 12 }}>
                 <View style={styles.diffTop}>
@@ -1114,7 +1283,9 @@ export default function StatsScreen() {
                     <Ionicons name={row.icon} size={16} color={row.color} style={{ marginRight: 8 }} />
                     <Text style={[styles.diffLabel, { color: colors.text }]}>{row.label}</Text>
                   </View>
-                  <Text style={[styles.diffMeta, { color: colors.textMuted }]}>{row.count} • {row.pct}%</Text>
+                  <Text style={[styles.diffMeta, { color: colors.textMuted }]}>
+                    {row.count} • {row.pct}%
+                  </Text>
                 </View>
 
                 <View style={[styles.diffTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
@@ -1128,8 +1299,6 @@ export default function StatsScreen() {
     );
   };
 
-  const kpiBasis = is3Col ? "32%" : is2Col ? "48%" : "100%";
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
@@ -1141,7 +1310,7 @@ export default function StatsScreen() {
         <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 16 }}>
           {/* HERO (fixed) */}
           <View style={[styles.hero, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            <View style={styles.heroTop}>
+            <View style={[styles.heroTop, isNarrow && styles.heroTopNarrow]}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
                   Statystyki
@@ -1171,28 +1340,46 @@ export default function StatsScreen() {
                 </View>
               </View>
 
-              <View style={{ alignItems: "flex-end" }}>
-                <PrimaryButton colors={colors} icon="download-outline" label="Export" onPress={handleExport} />
+              <View style={[styles.heroActionsCol, isNarrow && styles.heroActionsColNarrow]}>
+                <PrimaryButton
+                  colors={colors}
+                  icon="download-outline"
+                  label="Export"
+                  onPress={handleExport}
+                  style={isNarrow ? styles.heroActionPillNarrow : undefined}
+                />
 
                 <Pressable
                   onPress={() => setEditOpen(true)}
                   style={({ pressed }) => [
-                    styles.editBtn,
+                    styles.heroActionPill,
+                    isNarrow && styles.heroActionPillNarrow,
                     {
                       borderColor: colors.border,
                       backgroundColor: `${colors.textMuted}08`,
                       opacity: pressed ? 0.85 : 1,
-                      marginTop: 10,
+                      marginTop: isNarrow ? 0 : 10,
                     },
                   ]}
                 >
                   <Ionicons name="options-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                  <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 12 }}>
+                  <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 13, letterSpacing: -0.1 }}>
                     Dostosuj kafelki
                   </Text>
                 </Pressable>
 
-                <View style={[styles.heroBadge, { backgroundColor: `${colors.accent}14`, borderColor: `${colors.accent}33`, marginTop: 10 }]}>
+                <View
+                  style={[
+                    styles.heroActionPill,
+                    isNarrow ? styles.heroActionPillNarrowFull : null,
+                    {
+                      marginTop: isNarrow ? 0 : 10,
+                      backgroundColor: `${colors.accent}14`,
+                      borderColor: `${colors.accent}33`,
+                      justifyContent: "center",
+                    },
+                  ]}
+                >
                   <Text style={[styles.heroBadgeText, { color: colors.accent }]}>
                     Skuteczność: {completionRate}%
                   </Text>
@@ -1218,23 +1405,16 @@ export default function StatsScreen() {
             </View>
           </View>
 
-          {/* KPI row (fixed) */}
-          <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
-            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
-              <KpiCard colors={colors} label="Ten tydzień" value={loading ? "—" : weekCompleted.length} hint="ukończone zadania" icon="calendar-outline" tint={colors.accent} />
-            </View>
-
-            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
-              <KpiCard colors={colors} label="Ten miesiąc" value={loading ? "—" : monthCompleted.length} hint="ukończone zadania" icon="stats-chart-outline" tint={colors.accent} />
-            </View>
-
-            <View style={{ flexBasis: kpiBasis, flexGrow: 1, paddingHorizontal: 6, marginBottom: 12 }}>
-              <KpiCard colors={colors} label="Wykonane łącznie" value={loading ? "—" : totalCompleted} hint="od początku" icon="checkmark-done-outline" tint="#22c55e" />
-            </View>
-          </View>
-
-          {/* Custom tiles */}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
+          {/* Custom tiles (editable) */}
+          <View
+            style={{
+              marginTop: 12,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              marginHorizontal: -6,
+              alignItems: "stretch",
+            }}
+          >
             {visibleTiles.map((t) => (
               <View
                 key={t.id}
@@ -1243,6 +1423,7 @@ export default function StatsScreen() {
                   marginBottom: 12,
                   flexBasis: t.wide ? "100%" : itemBasis,
                   flexGrow: t.wide ? 0 : 1,
+                  alignSelf: "stretch",
                 }}
               >
                 {renderTile(t)}
@@ -1261,12 +1442,15 @@ export default function StatsScreen() {
               {loading ? (
                 <ActivityIndicator color={colors.accent} />
               ) : missionsSorted.length === 0 ? (
-                <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Nie dodano jeszcze żadnych zadań.</Text>
+                <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>
+                  Nie dodano jeszcze żadnych zadań.
+                </Text>
               ) : (
                 <View style={{ marginTop: 8 }}>
                   {missionsSorted.map((m: any, idx: number) => {
                     const lastDone = m.completedAtJs as Date | null;
-                    const lastBy = m.assignedToName || m.assignedByName || "Nieznany członek rodziny";
+                    const lastBy =
+                      m.assignedToName || m.assignedByName || "Nieznany członek rodziny";
                     const isDone = !!m.completed;
 
                     return (
@@ -1282,7 +1466,9 @@ export default function StatsScreen() {
                             style={[
                               styles.statusDot,
                               {
-                                borderColor: isDone ? "rgba(34,197,94,0.55)" : "rgba(148,163,184,0.55)",
+                                borderColor: isDone
+                                  ? "rgba(34,197,94,0.55)"
+                                  : "rgba(148,163,184,0.55)",
                                 backgroundColor: isDone ? "rgba(34,197,94,0.14)" : "transparent",
                               },
                             ]}
@@ -1300,7 +1486,8 @@ export default function StatsScreen() {
                             </Text>
 
                             <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                              Ostatnio wykonane: <Text style={{ color: colors.text }}>{formatDateTimeShort(lastDone)}</Text>
+                              Ostatnio wykonane:{" "}
+                              <Text style={{ color: colors.text }}>{formatDateTimeShort(lastDone)}</Text>
                             </Text>
 
                             <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
@@ -1335,14 +1522,13 @@ export default function StatsScreen() {
               {tiles.map((t) => (
                 <View
                   key={t.id}
-                  style={[
-                    styles.editRow,
-                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
-                  ]}
+                  style={[styles.editRow, { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` }]}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                      {t.id === "mission-search"
+                      {t.id === "summary"
+                        ? "Podsumowanie"
+                        : t.id === "mission-search"
                         ? "Wyszukaj misję"
                         : t.id === "achievements"
                         ? "Osiągnięcia"
@@ -1448,10 +1634,16 @@ export default function StatsScreen() {
                       ]}
                     >
                       <View style={[styles.searchDot, { borderColor: colors.border }]}>
-                        <Ionicons name={t.completed > 0 ? "checkmark" : "ellipse-outline"} size={14} color={t.completed > 0 ? colors.accent : colors.textMuted} />
+                        <Ionicons
+                          name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
+                          size={14}
+                          color={t.completed > 0 ? colors.accent : colors.textMuted}
+                        />
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>{t.label}</Text>
+                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
+                          {t.label}
+                        </Text>
                         <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
                           {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
                         </Text>
@@ -1486,7 +1678,10 @@ export default function StatsScreen() {
                       {selected.events.slice(0, 12).map((e: any) => (
                         <View
                           key={e.id}
-                          style={[styles.eventRow, { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` }]}
+                          style={[
+                            styles.eventRow,
+                            { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
+                          ]}
                         >
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
@@ -1539,6 +1734,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 14,
   },
+  heroTopNarrow: {
+    flexDirection: "column",
+  },
   heroTitle: {
     fontSize: 28,
     fontWeight: "900",
@@ -1549,12 +1747,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 16,
   },
-  heroBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
+
   heroBadgeText: {
     fontSize: 11,
     fontWeight: "900",
@@ -1589,6 +1782,37 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 
+  // ✅ 3 przyciski skalują się na mobile (nie zasłaniają treści)
+  heroActionsCol: {
+    alignItems: "stretch",
+    width: 190,
+  },
+  heroActionsColNarrow: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 12,
+  },
+  heroActionPill: {
+    height: 42,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  heroActionPillNarrow: {
+    flexBasis: "48%",
+    flexGrow: 1,
+  },
+  heroActionPillNarrowFull: {
+    flexBasis: "100%",
+    flexGrow: 1,
+  },
+
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1602,13 +1826,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-  },
   primaryBtnText: {
     color: "#fff",
     fontWeight: "900",
@@ -1616,20 +1833,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
 
-  editBtn: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
   card: {
     padding: 16,
     borderWidth: 1,
     borderRadius: 22,
-    overflow: "hidden", // ✅ ważne: nic nie wyjeżdża poza kartę
+    overflow: "hidden",
     ...(Platform.OS === "ios"
       ? { shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 2 }),
@@ -1651,19 +1859,17 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  kpiCard: {
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 14,
-    ...(Platform.OS === "ios"
-      ? { shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } }
-      : { elevation: 1 }),
+  bodyMuted: {
+    fontSize: 13,
+    marginTop: 6,
   },
-  kpiTopRow: {
+
+  // Summary tile rows
+  kpiTripleRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  kpiIconWrap: {
+  kpiIconWrapSmall: {
     width: 30,
     height: 30,
     borderRadius: 999,
@@ -1672,27 +1878,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 10,
   },
-  kpiLabel: {
-    fontSize: 11,
-    fontWeight: "800",
+  kpiTripleTexts: {
     flex: 1,
+    minWidth: 0,
   },
-  kpiValue: {
-    marginTop: 10,
-    fontSize: 26,
+  kpiTripleLabel: {
+    fontSize: 12,
     fontWeight: "900",
-    letterSpacing: -0.4,
+    letterSpacing: -0.1,
   },
-  kpiHint: {
-    marginTop: 4,
-    fontSize: 11,
+  kpiTripleHint: {
+    marginTop: 2,
+    fontSize: 10,
     fontWeight: "700",
     opacity: 0.9,
   },
-
-  bodyMuted: {
-    fontSize: 13,
-    marginTop: 6,
+  kpiTripleValue: {
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.2,
+    marginLeft: 10,
   },
 
   achRow: {

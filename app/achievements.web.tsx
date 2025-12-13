@@ -1,4 +1,3 @@
-// app/stats.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -137,7 +136,6 @@ type Achievement = {
   id: string;
   label: string;
   description: string;
-  // zamiast icon: używamy obrazków po id
   statKey: StatKey;
   thresholds: number[];
   tierNames: string[];
@@ -241,11 +239,9 @@ function percent(val: number, max?: number | null) {
 }
 
 /* =========================
-   Obrazki rang (zamiast ikon)
+   Obrazki rang
 ========================= */
 
-// UWAGA: załóżmy, że te pliki istnieją w src/assets/
-// done_total.png, exp_total.png, streak.png, created.png, hard.png, help.png, ontime.png
 const ACHIEVEMENT_IMAGES: Record<string, any> = {
   done_total: require("../src/assets/done_total.png"),
   exp_total: require("../src/assets/exp_total.png"),
@@ -259,35 +255,29 @@ const ACHIEVEMENT_IMAGES: Record<string, any> = {
 function AchievementImage({
   id,
   colors,
+  size,
 }: {
   id: string;
   colors: ReturnType<typeof useThemeColors>["colors"];
+  size: number;
 }) {
   const src = ACHIEVEMENT_IMAGES[id];
 
   if (!src) {
-    // fallback jakby coś nie pykło z assetem
     return (
       <View
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 12,
+          width: size,
+          height: size,
+          borderRadius: 14,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.accent + "22",
+          backgroundColor: colors.accent + "18",
           borderWidth: 1,
-          borderColor: colors.accent + "55",
+          borderColor: colors.accent + "44",
         }}
       >
-        <Text
-          style={{
-            color: colors.accent,
-            fontSize: 10,
-            fontWeight: "900",
-            textAlign: "center",
-          }}
-        >
+        <Text style={{ color: colors.accent, fontSize: 10, fontWeight: "900" }}>
           {id}
         </Text>
       </View>
@@ -298,29 +288,193 @@ function AchievementImage({
     <Image
       source={src}
       style={{
-        width: 44,
-        height: 44,
-        borderRadius: 12,
+        width: size,
+        height: size,
+        borderRadius: 14,
         resizeMode: "cover",
       }}
     />
   );
 }
 
+/* =========================
+   UI Bits
+========================= */
+
+function Pill({
+  colors,
+  icon,
+  label,
+  tone = "accent",
+}: {
+  colors: any;
+  icon: any;
+  label: string;
+  tone?: "accent" | "orange" | "muted";
+}) {
+  const bg =
+    tone === "orange"
+      ? "#f973161a"
+      : tone === "muted"
+      ? colors.border + "22"
+      : colors.accent + "1a";
+
+  const border =
+    tone === "orange"
+      ? "#f9731677"
+      : tone === "muted"
+      ? colors.border + "55"
+      : colors.accent + "66";
+
+  const fg =
+    tone === "orange" ? "#f97316" : tone === "muted" ? colors.textMuted : colors.accent;
+
+  return (
+    <View style={[ui.pill, { backgroundColor: bg, borderColor: border }]}>
+      <Ionicons name={icon} size={14} color={fg} />
+      <Text style={[ui.pillText, { color: fg }]} numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function TierDots({
+  total,
+  active,
+  colors,
+}: {
+  total: number;
+  active: number; // ile zdobytych tierów (0..total)
+  colors: any;
+}) {
+  const dots = Array.from({ length: total }, (_, i) => i);
+  return (
+    <View style={ui.dotsRow}>
+      {dots.map((i) => {
+        const on = i < active;
+        return (
+          <View
+            key={i}
+            style={[
+              ui.dot,
+              {
+                backgroundColor: on ? colors.accent : colors.border + "55",
+                borderColor: on ? colors.accent : colors.border + "99",
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function ProgressBar({
+  value,
+  colors,
+  compact = false,
+}: {
+  value: number;
+  colors: any;
+  compact?: boolean;
+}) {
+  const pct = clampPct(value);
+  return (
+    <View
+      style={[
+        ui.progressTrack,
+        {
+          height: compact ? 8 : 12,
+          borderColor: colors.border,
+          backgroundColor: colors.cardSoft || colors.bg,
+        },
+      ]}
+    >
+      <View style={[ui.progressFill, { width: `${pct}%`, backgroundColor: colors.accent }]} />
+    </View>
+  );
+}
+
+function Header({
+  title,
+  subtitle,
+  colors,
+  onBack,
+  stacked,
+}: {
+  title: string;
+  subtitle?: string;
+  colors: any;
+  onBack: () => void;
+  stacked: boolean;
+}) {
+  return (
+    <View style={[header.wrap, stacked && header.wrapStack]}>
+      <TouchableOpacity onPress={onBack} activeOpacity={0.85} style={header.backBtn}>
+        <Ionicons name="arrow-back" size={18} color={colors.text} />
+        <Text style={[header.backText, { color: colors.text }]}>Powrót</Text>
+      </TouchableOpacity>
+
+      <View style={header.titleCol}>
+        <Text
+          style={[header.title, { color: colors.text }, stacked && { textAlign: "left" }]}
+          numberOfLines={1}
+        >
+          {title}
+        </Text>
+        {!!subtitle && (
+          <Text
+            style={[
+              header.subtitle,
+              { color: colors.textMuted },
+              stacked && { textAlign: "left" },
+            ]}
+            numberOfLines={2}
+          >
+            {subtitle}
+          </Text>
+        )}
+      </View>
+
+      <View style={{ width: stacked ? 0 : 80 }} />
+    </View>
+  );
+}
+
+/* =========================
+   Screen
+========================= */
+
 export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
   const { width } = useWindowDimensions();
 
-  const isSmallScreen = width < 480;
+  const [isMobileWeb, setIsMobileWeb] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    try {
+      const ua = (globalThis as any)?.navigator?.userAgent ?? "";
+      setIsMobileWeb(/Android|iPhone|iPad|iPod|Mobile/i.test(ua));
+    } catch {
+      setIsMobileWeb(false);
+    }
+  }, []);
+
+  const isSM = width < 520 || isMobileWeb;
+  const isMD = width >= 520 && width < 980;
+  const containerMaxWidth = 1040;
+
+  const padH = isSM ? 12 : isMD ? 16 : 20;
+  const iconSize = isSM ? 40 : 44;
+  const iconWrap = isSM ? 50 : 56;
 
   const { missions, loading: missionsLoading } = useMissions();
   const { members } = useFamily();
 
   const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
-  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(
-    null
-  );
+  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(null);
   const [userLoading, setUserLoading] = useState(true);
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
@@ -328,13 +482,11 @@ export default function StatsScreen() {
   const monthStart = useMemo(() => startOfMonth(new Date()), []);
   const monthEnd = useMemo(() => endOfMonth(new Date()), []);
 
-  /* --- Auth listener --- */
   useEffect(() => {
     const off = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
     return () => off();
   }, []);
 
-  /* --- User document listener --- */
   useEffect(() => {
     if (!uid) {
       setUserDoc(null);
@@ -357,10 +509,6 @@ export default function StatsScreen() {
     );
     return unsub;
   }, [uid]);
-
-  /* =========================
-     Normalize missions
-  ========================== */
 
   const normalizedMissions = useMemo(() => {
     const list = Array.isArray(missions) ? missions : [];
@@ -385,10 +533,6 @@ export default function StatsScreen() {
         ),
       }));
   }, [missions]);
-
-  /* =========================
-     Family filter
-  ========================== */
 
   const familyMemberIds: string[] = useMemo(() => {
     if (!members) return [];
@@ -416,21 +560,11 @@ export default function StatsScreen() {
     };
   }, [uid, familyMemberIds]);
 
-  const visibleMissions = useMemo(() => {
-    return normalizedMissions.filter(isMineForStats);
-  }, [normalizedMissions, isMineForStats]);
+  const visibleMissions = useMemo(() => normalizedMissions.filter(isMineForStats), [
+    normalizedMissions,
+    isMineForStats,
+  ]);
 
-  /* =========================
-     Filter: missions assigned TO me
-  ========================== */
-
-  const myMissions = useMemo(() => {
-    const myId = uid ? String(uid) : null;
-    if (!myId) return [];
-    return visibleMissions.filter((m: any) => m.assignedToId === myId);
-  }, [visibleMissions, uid]);
-
-  // misje, które JA faktycznie ukończyłem
   const myCompleted = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return [];
@@ -444,23 +578,19 @@ export default function StatsScreen() {
     });
   }, [visibleMissions, uid]);
 
-  const myWeekCompleted = useMemo(() => {
-    return myCompleted.filter((m: any) => {
-      if (!m.completedAtJs) return false;
-      return isWithin(m.completedAtJs, weekStart, weekEnd);
-    });
-  }, [myCompleted, weekStart, weekEnd]);
+  const myWeekCompleted = useMemo(
+    () =>
+      myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, weekStart, weekEnd)),
+    [myCompleted, weekStart, weekEnd]
+  );
 
-  const myMonthCompleted = useMemo(() => {
-    return myCompleted.filter((m: any) => {
-      if (!m.completedAtJs) return false;
-      return isWithin(m.completedAtJs, monthStart, monthEnd);
-    });
-  }, [myCompleted, monthStart, monthEnd]);
-
-  /* =========================
-     EXP calculations
-  ========================== */
+  const myMonthCompleted = useMemo(
+    () =>
+      myCompleted.filter(
+        (m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)
+      ),
+    [myCompleted, monthStart, monthEnd]
+  );
 
   const weekExp = useMemo(
     () => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
@@ -485,16 +615,9 @@ export default function StatsScreen() {
   const createdTotal = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return 0;
-    return visibleMissions.filter(
-      (m: any) => m.createdById === myId || m.assignedById === myId
-    ).length;
+    return visibleMissions.filter((m: any) => m.createdById === myId || m.assignedById === myId).length;
   }, [visibleMissions, uid]);
 
-  /* =========================
-     Dodatkowe statystyki
-  ========================== */
-
-  // Pomocna dłoń – misje ukończone przeze mnie, które były zadaniami innych
   const missionsCompletedForOthers = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return 0;
@@ -504,7 +627,6 @@ export default function StatsScreen() {
     }).length;
   }, [myCompleted, uid]);
 
-  // Perfekcjonista – misje ukończone w dniu przydzielenia / stworzenia
   const missionsCompletedOnTime = useMemo(() => {
     return myCompleted.filter((m: any) => {
       const baseDate: Date | null = m.assignedAtJs || m.createdAtJs || null;
@@ -519,10 +641,6 @@ export default function StatsScreen() {
     }).length;
   }, [myCompleted]);
 
-  /* =========================
-     Streak calculation
-  ========================== */
-
   const streakDays = useMemo(() => {
     if (!myCompleted.length) return 0;
 
@@ -530,10 +648,9 @@ export default function StatsScreen() {
     myCompleted.forEach((m: any) => {
       const d: Date | null = m.completedAtJs;
       if (!d) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
-        2,
-        "0"
-      )}-${String(d.getDate()).padStart(2, "0")}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+      ).padStart(2, "0")}`;
       byDay.add(key);
     });
 
@@ -544,10 +661,9 @@ export default function StatsScreen() {
     let cursor = new Date(today);
 
     for (let i = 0; i < 365 * 2; i++) {
-      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
-        2,
-        "0"
-      )}-${String(cursor.getDate()).padStart(2, "0")}`;
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(
+        cursor.getDate()
+      ).padStart(2, "0")}`;
 
       if (!byDay.has(key)) break;
 
@@ -557,10 +673,6 @@ export default function StatsScreen() {
 
     return count;
   }, [myCompleted]);
-
-  /* =========================
-     Summary stats
-  ========================== */
 
   const mhStats: MHStats = useMemo(() => {
     return {
@@ -586,31 +698,31 @@ export default function StatsScreen() {
     missionsCompletedOnTime,
   ]);
 
-  /* =========================
-     🔥 Nick + Initial
-  ========================== */
-
   const myPhotoURL = auth.currentUser?.photoURL || null;
   const myDisplayName = auth.currentUser?.displayName || null;
 
   const myInitial = useMemo(() => {
-    const base =
-      myDisplayName || auth.currentUser?.email?.split("@")[0] || "U";
+    const base = myDisplayName || auth.currentUser?.email?.split("@")[0] || "U";
     return base.trim()?.[0]?.toUpperCase() || "U";
   }, [myDisplayName, auth.currentUser?.email]);
 
-  const levelPack = useMemo(() => {
-    return computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1);
-  }, [userDoc?.totalExp, userDoc?.level]);
+  const levelPack = useMemo(
+    () => computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1),
+    [userDoc?.totalExp, userDoc?.level]
+  );
 
   const busy = missionsLoading || userLoading;
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
-          isSmallScreen && { paddingHorizontal: 10 },
+          {
+            paddingHorizontal: padH,
+            maxWidth: containerMaxWidth,
+          },
         ]}
       >
         <Header
@@ -618,187 +730,112 @@ export default function StatsScreen() {
           subtitle="EXP, poziom i osiągnięcia - wszystko w jednym miejscu."
           colors={colors}
           onBack={() => router.back()}
-          isCompact={isSmallScreen}
+          stacked={isSM}
         />
 
-        {/* =========================
-            SUMMARY BOX
-        ========================== */}
-        <View
-          style={[
-            styles.summary,
-            { backgroundColor: colors.card, borderColor: colors.border },
-            isSmallScreen && styles.summaryStack,
-          ]}
-        >
-          <View style={[styles.summaryLeft, isSmallScreen && styles.summaryLeftStack]}>
-            {/* PROFILE BOX */}
-            <View
-              style={[
-                styles.rankBadge,
-                {
-                  borderColor: colors.border,
-                  backgroundColor: colors.cardSoft || colors.bg,
-                },
-              ]}
-            >
+        {/* HERO CARD */}
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.heroRow, isSM && styles.heroRowStack]}>
+            {/* PROFILE */}
+            <View style={[styles.profileBox, { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg }]}>
               {myPhotoURL ? (
                 <Image
                   source={{ uri: myPhotoURL }}
-                  style={{
-                    width: 58,
-                    height: 58,
-                    borderRadius: 14,
-                    backgroundColor: colors.bg,
-                  }}
+                  style={[
+                    styles.avatar,
+                    {
+                      backgroundColor: colors.bg,
+                      width: isSM ? 52 : 58,
+                      height: isSM ? 52 : 58,
+                    },
+                  ]}
                 />
               ) : (
                 <View
-                  style={{
-                    width: 58,
-                    height: 58,
-                    borderRadius: 14,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: colors.accent + "22",
-                    borderWidth: 1,
-                    borderColor: colors.accent + "66",
-                  }}
+                  style={[
+                    styles.avatar,
+                    {
+                      width: isSM ? 52 : 58,
+                      height: isSM ? 52 : 58,
+                      backgroundColor: colors.accent + "1a",
+                      borderColor: colors.accent + "55",
+                      borderWidth: 1,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    },
+                  ]}
                 >
-                  <Text
-                    style={{
-                      color: colors.accent,
-                      fontSize: 22,
-                      fontWeight: "900",
-                    }}
-                  >
+                  <Text style={{ color: colors.accent, fontSize: isSM ? 20 : 22, fontWeight: "900" }}>
                     {myInitial}
                   </Text>
                 </View>
               )}
 
-              <View style={{ marginLeft: 10 }}>
-                <Text style={[styles.rankName, { color: colors.text }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.name, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
                   {myDisplayName
                     ? myDisplayName
                     : auth.currentUser?.email
                     ? auth.currentUser.email.split("@")[0]
                     : myInitial}
                 </Text>
-
-                <Text style={[styles.pointsSub, { color: colors.textMuted }]}>
+                <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
                   Statystyki użytkownika
                 </Text>
               </View>
             </View>
 
-            <View style={{ flex: 1, marginTop: isSmallScreen ? 10 : 0 }}>
+            {/* LEVEL + STATS */}
+            <View style={{ flex: 1, minWidth: 0 }}>
               {busy ? (
-                <View style={{ paddingVertical: 6 }}>
+                <View style={{ paddingVertical: 18 }}>
                   <ActivityIndicator color={colors.accent} />
                 </View>
               ) : (
                 <>
-                  <Text
-                    style={[
-                      styles.points,
-                      { color: colors.text },
-                      isSmallScreen && { fontSize: 20 },
-                    ]}
-                  >
-                    Poziom {levelPack.level}
+                  <View style={styles.levelTop}>
+                    <Text style={[styles.levelTitle, { color: colors.text }]} numberOfLines={1}>
+                      Poziom {levelPack.level}
+                    </Text>
+
+                    <Pill
+                      colors={colors}
+                      icon="trending-up-outline"
+                      label={`Do LVL ${levelPack.level + 1}: ${levelPack.toNext} EXP`}
+                      tone="muted"
+                    />
+                  </View>
+
+                  <Text style={[styles.sub, { color: colors.textMuted, marginBottom: 8 }]} numberOfLines={1}>
+                    EXP w poziomie: {levelPack.into}/{levelPack.span} • Suma: {levelPack.exp}
                   </Text>
 
-                  <Text style={[styles.pointsSub, { color: colors.textMuted }]}>
-                    EXP {levelPack.into}/{levelPack.span}
-                  </Text>
+                  <ProgressBar value={levelPack.pct} colors={colors} />
 
-                  <Text style={[styles.pointsSub, { color: colors.textMuted }]}>
-                    Suma EXP: {levelPack.exp}
-                  </Text>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 8,
-                      marginTop: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <Chip
-                      colors={colors}
-                      icon="calendar-outline"
-                      label={`Ten tydzień: +${weekExp} EXP`}
-                    />
-                    <Chip
-                      colors={colors}
-                      icon="time-outline"
-                      label={`Ten miesiąc: +${monthExp} EXP`}
-                    />
-                    <Chip
-                      colors={colors}
-                      icon="flame"
-                      label={`Streak: ${streakDays} dni`}
-                      tone="orange"
-                    />
+                  <View style={styles.pillsRow}>
+                    <Pill colors={colors} icon="calendar-outline" label={`+${weekExp} EXP / tydz.`} />
+                    <Pill colors={colors} icon="time-outline" label={`+${monthExp} EXP / mies.`} />
+                    <Pill colors={colors} icon="flame" label={`Streak: ${streakDays} dni`} tone="orange" />
                   </View>
                 </>
               )}
             </View>
           </View>
-
-          <View
-            style={[
-              styles.summaryRight,
-              isSmallScreen && { alignItems: "flex-start", marginTop: 10 },
-            ]}
-          >
-            <View
-              style={[
-                styles.toNextBox,
-                {
-                  backgroundColor: colors.accent + "22",
-                  borderColor: colors.accent + "66",
-                },
-              ]}
-            >
-              <Text
-                style={{ color: colors.accent, fontSize: 11, fontWeight: "900" }}
-              >
-                Do LVL {levelPack.level + 1}: {levelPack.toNext} EXP
-              </Text>
-            </View>
-          </View>
         </View>
 
-        <ProgressBar
-          value={levelPack.pct}
-          colors={colors}
-          label={`EXP: ${levelPack.into}/${levelPack.span} (Poziom ${
-            levelPack.level
-          } → ${levelPack.level + 1})`}
-        />
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Twoje osiągnięcia</Text>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          Twoje osiągnięcia
-        </Text>
-
-        {/* =========================
-            ACHIEVEMENTS LIST
-        ========================== */}
-
-        <View style={styles.achList}>
+        <View style={styles.list}>
           {ACHIEVEMENTS.map((a) => {
             const p = progressFor(mhStats, a);
+
             const tierName =
               p.tierIndex <= 0
-                ? "-"
+                ? "—"
                 : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
 
             const nextLabel =
-              p.nextThreshold != null
-                ? `${p.progress}/${p.nextThreshold}`
-                : `${p.currentThreshold}+`;
+              p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
 
             const barMax = p.nextThreshold ?? p.currentThreshold;
             const barPct = percent(p.progress, barMax);
@@ -809,424 +846,350 @@ export default function StatsScreen() {
               <View
                 key={a.id}
                 style={[
-                  styles.achItem,
+                  styles.achCard,
                   { backgroundColor: colors.card, borderColor: colors.border },
-                  isSmallScreen && styles.achItemStack,
+                  isSM && { padding: 12 },
                 ]}
               >
-                <View
-                  style={[
-                    styles.iconWrap,
-                    {
-                      backgroundColor: colors.accent + "08",
-                      borderColor: colors.accent + "33",
-                    },
-                    isSmallScreen && { marginBottom: 8 },
-                  ]}
-                >
-                  <AchievementImage id={a.id} colors={{ ...colors }} />
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.achTitle, { color: colors.text }]}>
-                    {a.label}
-                  </Text>
-                  <Text style={[styles.achDesc, { color: colors.textMuted }]}>
-                    {a.description}
-                  </Text>
-
-                  <Text
-                    style={{
-                      marginTop: 6,
-                      fontSize: 12,
-                      fontWeight: "900",
-                      color: unlocked ? colors.text : colors.textMuted,
-                    }}
+                <View style={styles.achRow}>
+                  <View
+                    style={[
+                      styles.iconWrap,
+                      {
+                        width: iconWrap,
+                        height: iconWrap,
+                        borderColor: colors.border,
+                        backgroundColor: colors.accent + "0f",
+                      },
+                    ]}
                   >
-                    Aktualny tytuł: {tierName}
-                  </Text>
-
-                  <ProgressBar
-                    value={barPct}
-                    colors={colors}
-                    compact
-                    label={`Postęp: ${nextLabel}`}
-                  />
-
-                  <View style={styles.tiersRow}>
-                    {a.thresholds.map((t, idx) => {
-                      const earnedThisTier = idx < p.tierIndex;
-                      const activeTier = idx === p.tierIndex && p.progress >= t;
-                      const active = earnedThisTier || activeTier;
-
-                      return (
-                        <View
-                          key={`${a.id}_${t}`}
-                          style={[
-                            styles.tierBadge,
-                            {
-                              borderColor: colors.border,
-                              backgroundColor: active ? colors.accent : colors.bg,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.tierBadgeText,
-                              {
-                                color: active ? "#022c22" : colors.textMuted,
-                              },
-                            ]}
-                          >
-                            {t}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                    <AchievementImage id={a.id} colors={{ ...colors }} size={iconSize} />
                   </View>
 
-                  {p.nextThreshold != null ? (
-                    <Text
-                      style={{
-                        marginTop: 8,
-                        fontSize: 12,
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Następny próg:{" "}
-                      <Text style={{ color: colors.text }}>{p.nextThreshold}</Text>
-                    </Text>
-                  ) : (
-                    <Text
-                      style={{
-                        marginTop: 8,
-                        fontSize: 12,
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Wszystkie progi zdobyte ✅
-                    </Text>
-                  )}
-                </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.achHeaderRow}>
+                      <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
+                        {a.label}
+                      </Text>
 
-                <View
-                  style={[
-                    styles.pointsCol,
-                    isSmallScreen && styles.pointsColFull,
-                  ]}
-                >
-                  <Text style={[styles.pointsEarned, { color: colors.text }]}>
-                    {p.progress}
-                  </Text>
-                  <Text style={[styles.pointsHint, { color: colors.textMuted }]}>
-                    wartość
-                  </Text>
+                      <View style={styles.valueBox}>
+                        <Text style={[styles.valueNum, { color: colors.text }]} numberOfLines={1}>
+                          {p.progress}
+                        </Text>
+                        <Text style={[styles.valueSub, { color: colors.textMuted }]} numberOfLines={1}>
+                          wartość
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
+                      {a.description}
+                    </Text>
+
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.metaText, { color: unlocked ? colors.text : colors.textMuted }]} numberOfLines={1}>
+                        Tytuł: <Text style={{ fontWeight: "900" }}>{tierName}</Text>
+                      </Text>
+
+                      <TierDots total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+                    </View>
+
+                    <View style={{ marginTop: 10 }}>
+                      <View style={styles.progressRow}>
+                        <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                          Postęp: {nextLabel}
+                        </Text>
+
+                        {p.nextThreshold != null ? (
+                          <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                            Następny próg:{" "}
+                            <Text style={{ color: colors.text, fontWeight: "900" }}>{p.nextThreshold}</Text>
+                          </Text>
+                        ) : (
+                          <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                            Wszystkie progi zdobyte ✅
+                          </Text>
+                        )}
+                      </View>
+
+                      <ProgressBar value={barPct} colors={colors} compact />
+                    </View>
+                  </View>
                 </View>
               </View>
             );
           })}
         </View>
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 36 }} />
       </ScrollView>
     </View>
   );
 }
 
 /* =========================
-   HELPER COMPONENTS
-========================= */
-
-function Header({ title, subtitle, colors, onBack, isCompact }) {
-  return (
-    <View
-      style={[
-        headerStyles.wrap,
-        isCompact && headerStyles.wrapCompact,
-      ]}
-    >
-      <TouchableOpacity
-        onPress={onBack}
-        activeOpacity={0.85}
-        style={[
-          headerStyles.backBtn,
-          isCompact && { paddingLeft: 0 },
-        ]}
-      >
-        <Ionicons name="arrow-back" size={18} color={colors.text} />
-        <Text style={[headerStyles.backText, { color: colors.text }]}>
-          Powrót
-        </Text>
-      </TouchableOpacity>
-
-      <View style={headerStyles.titleCol}>
-        <Text
-          style={[
-            headerStyles.title,
-            { color: colors.text },
-            isCompact && { textAlign: "left", fontSize: 18 },
-          ]}
-        >
-          {title}
-        </Text>
-        {!!subtitle && (
-          <Text
-            style={[
-              headerStyles.subtitle,
-              { color: colors.textMuted },
-              isCompact && { textAlign: "left" },
-            ]}
-          >
-            {subtitle}
-          </Text>
-        )}
-      </View>
-
-      <View style={{ width: isCompact ? 0 : 90 }} />
-    </View>
-  );
-}
-
-function ProgressBar({ value, colors, label, compact = false }) {
-  const pct = clampPct(value);
-
-  return (
-    <View style={{ width: "100%", marginBottom: compact ? 10 : 14 }}>
-      {!!label && (
-        <Text
-          style={{
-            fontSize: 12,
-            fontWeight: "900",
-            marginBottom: 6,
-            color: colors.textMuted,
-          }}
-        >
-          {label}
-        </Text>
-      )}
-
-      <View
-        style={{
-          width: "100%",
-          height: compact ? 8 : 12,
-          backgroundColor: "#020617",
-          borderRadius: 999,
-          overflow: "hidden",
-          borderWidth: 1,
-          borderColor: colors.border,
-        }}
-      >
-        <View
-          style={{
-            width: `${pct}%`,
-            height: "100%",
-            backgroundColor: colors.accent,
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
-function Chip({ colors, icon, label, tone }) {
-  const bg = tone === "orange" ? "#f9731622" : colors.accent + "22";
-  const border = tone === "orange" ? "#f9731688" : colors.accent + "55";
-  const fg = tone === "orange" ? "#f97316" : colors.accent;
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: bg,
-        borderWidth: 1,
-        borderColor: border,
-      }}
-    >
-      <Ionicons name={icon} size={14} color={fg} />
-      <Text
-        style={{
-          marginLeft: 6,
-          color: fg,
-          fontSize: 11,
-          fontWeight: "900",
-        }}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-/* =========================
-   STYLES
+   Styles
 ========================= */
 
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    minHeight: Platform.OS === "web" ? ("100vh" as any) : undefined,
+    minHeight: Platform.OS === "web" ? ("100dvh" as any) : undefined,
   },
 
   scroll: {
-    paddingHorizontal: 12,
     paddingTop: 16,
     paddingBottom: 30,
     width: "100%",
-    maxWidth: 1280, // 🔥 SZERSZY EKRAN
     alignSelf: "center",
   },
 
-  summary: {
+  card: {
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 14,
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  heroRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "stretch",
     gap: 12,
   },
 
-  summaryStack: {
+  heroRowStack: {
     flexDirection: "column",
-    alignItems: "flex-start",
   },
 
-  summaryLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-
-  summaryLeftStack: {
-    flexDirection: "column",
-    alignItems: "flex-start",
-  },
-
-  /* PROFILE BOX */
-  rankBadge: {
+  profileBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    maxWidth: 360,
   },
 
-  rankName: { fontSize: 15, fontWeight: "900" },
-  points: { fontSize: 22, fontWeight: "900" },
-  pointsSub: { fontSize: 12, fontWeight: "800" },
+  avatar: {
+    borderRadius: 16,
+  },
 
-  summaryRight: { alignItems: "flex-end", justifyContent: "center" },
+  name: {
+    fontSize: 15,
+    fontWeight: "900",
+  },
 
-  toNextBox: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
+  sub: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  levelTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+    marginBottom: 4,
+  },
+
+  levelTitle: {
+    fontSize: 22,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+
+  pillsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
   },
 
   sectionTitle: {
     fontSize: 18,
     fontWeight: "900",
-    marginTop: 4,
+    marginTop: 14,
     marginBottom: 10,
-    textAlign: "left",
   },
 
-  achList: { gap: 14 },
-
-  achItem: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
+  list: {
     gap: 12,
   },
 
-  achItemStack: {
-    flexDirection: "column",
+  achCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  achRow: {
+    flexDirection: "row",
+    gap: 12,
   },
 
   iconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    borderRadius: 18,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
+    flexShrink: 0,
   },
 
-  achTitle: { fontSize: 14, fontWeight: "900" },
-  achDesc: { fontSize: 12, fontWeight: "800", opacity: 0.92, marginTop: 2 },
+  achHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
 
-  tiersRow: {
+  achTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+
+  achDesc: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.95,
+    marginTop: 3,
+  },
+
+  valueBox: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+    minWidth: 64,
+  },
+
+  valueNum: {
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  valueSub: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  metaRow: {
+    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  metaText: {
+    fontSize: 12,
+    fontWeight: "800",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 8,
     flexWrap: "wrap",
-    gap: 6,
-    marginTop: 10,
   },
 
-  tierBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 1,
+  progressLabel: {
+    fontSize: 12,
+    fontWeight: "800",
   },
-
-  tierBadgeText: { fontSize: 12, fontWeight: "900" },
-
-  pointsCol: { width: 74, alignItems: "flex-end" },
-  pointsColFull: {
-    width: "100%",
-    alignItems: "flex-start",
-    marginTop: 10,
-  },
-  pointsEarned: { fontSize: 16, fontWeight: "900" },
-  pointsHint: { fontSize: 11, fontWeight: "800", opacity: 0.9 },
 });
 
-/* HEADER */
-const headerStyles = StyleSheet.create({
+const header = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
-    minHeight: 40,
+    minHeight: 44,
   },
-  wrapCompact: {
+  wrapStack: {
     flexDirection: "column",
     alignItems: "flex-start",
     gap: 6,
   },
-
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingVertical: 6,
     paddingHorizontal: 6,
-    borderRadius: 10,
+    borderRadius: 12,
+  },
+  backText: {
+    fontWeight: "900",
+    fontSize: 14,
+  },
+  titleCol: {
+    flex: 1,
+    paddingHorizontal: 6,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.9,
+    textAlign: "center",
+    marginTop: 2,
+  },
+});
+
+const ui = StyleSheet.create({
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
   },
 
-  backText: { fontWeight: "900", fontSize: 14 },
+  progressTrack: {
+    width: "100%",
+    borderRadius: 999,
+    overflow: "hidden",
+    borderWidth: 1,
+  },
+  progressFill: {
+    height: "100%",
+  },
 
-  titleCol: { flex: 1, paddingHorizontal: 6 },
-
-  title: { fontSize: 20, fontWeight: "900", textAlign: "center" },
-
-  subtitle: { fontSize: 12, fontWeight: "800", opacity: 0.9, textAlign: "center" },
+  dotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  dot: {
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
 });
 
 // app/stats.tsx

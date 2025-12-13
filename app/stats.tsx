@@ -1265,7 +1265,7 @@ export default function StatsScreen() {
                   Statystyki
                 </Text>
                 <Text style={[styles.heroSubtitle, { color: colors.textMuted }]} numberOfLines={2}>
-                  Nowoczesny dashboard dla Twojej misji domowej.
+                  Dashboard dla Twojej misji domowej.
                 </Text>
 
                 <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 10 }}>

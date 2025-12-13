@@ -1030,7 +1030,7 @@ export default function HomeScreen() {
         >
           <FooterLink label="O aplikacji" to="/about-app" />
           <FooterLink label="Regulamin" to="/rules" />
-          <FooterLink label="Polityka prywatności" to="/privacy" />
+          <FooterLink label="Polityka prywatności i cookies" to="/privacy" />
           <FooterLink label="Kontakt" to="/contact" />
         </View>
 

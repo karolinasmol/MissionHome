@@ -12,6 +12,7 @@ import {
   Modal,
   Pressable,
   Alert,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -163,7 +164,8 @@ async function resolveUserByEmailOrNick(
       limit(1)
     );
     const sLower = await getDocs(qEmailLower);
-    if (!sLower.empty) return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
+    if (!sLower.empty)
+      return normalizeUserDoc(sLower.docs[0].id, sLower.docs[0].data());
 
     // fallback: jeśli ktoś ma w bazie email nie znormalizowany
     const qEmailRaw = query(
@@ -172,7 +174,8 @@ async function resolveUserByEmailOrNick(
       limit(1)
     );
     const sRaw = await getDocs(qEmailRaw);
-    if (!sRaw.empty) return normalizeUserDoc(sRaw.docs[0].id, sRaw.docs[0].data());
+    if (!sRaw.empty)
+      return normalizeUserDoc(sRaw.docs[0].id, sRaw.docs[0].data());
 
     return null;
   }
@@ -200,7 +203,12 @@ const familyInviteId = (familyId: string, fromUid: string, toUid: string) => {
 // ======= Modal feedback (web+native) =======
 type FeedbackModalState =
   | { visible: false }
-  | { visible: true; title: string; message?: string; variant?: "success" | "error" | "info" };
+  | {
+      visible: true;
+      title: string;
+      message?: string;
+      variant?: "success" | "error" | "info";
+    };
 
 function FeedbackModal({
   state,
@@ -242,9 +250,9 @@ function FeedbackModal({
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 480,
+            maxWidth: 520,
             backgroundColor: colors.card,
-            borderRadius: 18,
+            borderRadius: 20,
             borderWidth: 1,
             borderColor: colors.border,
             padding: 16,
@@ -284,8 +292,8 @@ function FeedbackModal({
             style={{
               marginTop: 14,
               backgroundColor: colors.accent,
-              borderRadius: 12,
-              paddingVertical: 10,
+              borderRadius: 14,
+              paddingVertical: 11,
               alignItems: "center",
             }}
             activeOpacity={0.9}
@@ -343,9 +351,9 @@ function ConfirmModal({
           onPress={() => {}}
           style={{
             width: "100%",
-            maxWidth: 480,
+            maxWidth: 520,
             backgroundColor: colors.card,
-            borderRadius: 18,
+            borderRadius: 20,
             borderWidth: 1,
             borderColor: colors.border,
             padding: 16,
@@ -395,14 +403,14 @@ function ConfirmModal({
             <TouchableOpacity
               onPress={onCancel}
               style={{
-                paddingVertical: 9,
+                paddingVertical: 10,
                 paddingHorizontal: 12,
-                borderRadius: 10,
+                borderRadius: 12,
                 borderWidth: 1,
                 borderColor: colors.border,
               }}
             >
-              <Text style={{ color: colors.textMuted, fontWeight: "800" }}>
+              <Text style={{ color: colors.textMuted, fontWeight: "900" }}>
                 {cancelLabel}
               </Text>
             </TouchableOpacity>
@@ -410,9 +418,9 @@ function ConfirmModal({
             <TouchableOpacity
               onPress={onConfirm}
               style={{
-                paddingVertical: 9,
+                paddingVertical: 10,
                 paddingHorizontal: 14,
-                borderRadius: 10,
+                borderRadius: 12,
                 backgroundColor: destructive ? ERROR_COLOR : colors.accent,
               }}
             >
@@ -435,6 +443,11 @@ function ConfirmModal({
 export default function FamilyScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+
+  // ✅ RESPONSIVE (działa też na mobile web iOS/Android)
+  const { width: screenW } = useWindowDimensions();
+  const isTwoCol = screenW >= 760; // tablet/desktop
+  const tileW = isTwoCol ? "49%" : "100%";
 
   // FAMILY (MAX) from hook
   const { family, members: rawMembers, loading: familyLoading } = useFamily();
@@ -617,11 +630,7 @@ export default function FamilyScreen() {
 
   const findBetween = (uidA: string, uidB: string) => {
     const id = friendshipId(uidA, uidB);
-    const all = [
-      ...friendsAccepted,
-      ...friendReqIncoming,
-      ...friendReqOutgoing,
-    ];
+    const all = [...friendsAccepted, ...friendReqIncoming, ...friendReqOutgoing];
     return all.find((x) => x.id === id) || null;
   };
 
@@ -701,10 +710,7 @@ export default function FamilyScreen() {
               );
               return;
             } catch (e: any) {
-              console.warn(
-                "auto-create /users/{uid} failed:",
-                e?.message || e
-              );
+              console.warn("auto-create /users/{uid} failed:", e?.message || e);
             }
           }
 
@@ -734,8 +740,7 @@ export default function FamilyScreen() {
           displayName: me.displayName || auth.currentUser?.displayName || "",
           username: me.username || "",
           email: me.email || auth.currentUser?.email || "",
-          photoURL:
-            me.photoURL || (auth.currentUser?.photoURL as any) || null,
+          photoURL: me.photoURL || (auth.currentUser?.photoURL as any) || null,
           city: me.city || "",
         });
       },
@@ -772,7 +777,8 @@ export default function FamilyScreen() {
 
     const filtered = checked.filter(Boolean) as FriendshipDoc[];
     filtered.sort(
-      (a: any, b: any) => (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
+      (a: any, b: any) =>
+        (b?.updatedAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
     );
     setFriendsAccepted(filtered);
   };
@@ -1359,8 +1365,7 @@ export default function FamilyScreen() {
     if (!friendUidSet.has(toUid))
       return "Możesz zapraszać do rodziny tylko znajomych.";
     if (memberIds.has(toUid)) return "Ta osoba już jest w Twojej rodzinie.";
-    if (pendingFamilyTo.has(toUid))
-      return "Zaproszenie do rodziny już wysłane.";
+    if (pendingFamilyTo.has(toUid)) return "Zaproszenie do rodziny już wysłane.";
     return null;
   };
 
@@ -1522,9 +1527,7 @@ export default function FamilyScreen() {
       const batch = writeBatch(db);
 
       // usuń z members
-      batch.delete(
-        doc(db, "families", String(familyId), "members", targetUid)
-      );
+      batch.delete(doc(db, "families", String(familyId), "members", targetUid));
 
       // wyczyść familyId u usera (zakładamy /users/{uid})
       batch.set(
@@ -1687,11 +1690,7 @@ export default function FamilyScreen() {
       setLocalFamilyId(fid);
       showModal("Dołączono ✅", "Jesteś w rodzinie MAX.", "success");
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się zaakceptować.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1705,11 +1704,7 @@ export default function FamilyScreen() {
         updatedAt: serverTimestamp(),
       });
     } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się odrzucić.",
-        "error"
-      );
+      showModal("Błąd", e?.message || "Nie udało się odrzucić.", "error");
     } finally {
       setFamilyInvActionId(null);
     }
@@ -1723,17 +1718,9 @@ export default function FamilyScreen() {
           status: "cancelled",
           updatedAt: serverTimestamp(),
         });
-        showModal(
-          "OK",
-          "Cofnięto zaproszenie do rodziny.",
-          "success"
-        );
+        showModal("OK", "Cofnięto zaproszenie do rodziny.", "success");
       } catch (e: any) {
-        showModal(
-          "Błąd",
-          e?.message || "Nie udało się cofnąć.",
-          "error"
-        );
+        showModal("Błąd", e?.message || "Nie udało się cofnąć.", "error");
       } finally {
         setFamilyInvActionId(null);
       }
@@ -1751,15 +1738,61 @@ export default function FamilyScreen() {
     ]);
   };
 
-  // ====== UI helpers (settings vibe) ======
-  const cardStyle = { backgroundColor: colors.card, borderColor: colors.border };
-  const labelStyle = { color: colors.text, fontWeight: "800", fontSize: 15 };
-  const mutedStyle = { color: colors.textMuted, fontSize: 13 };
+  // ====== UI helpers (tiles/dashboard vibe) ======
+  const softShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0 10px 30px rgba(0,0,0,0.20)" } as any)
+      : Platform.select({
+          ios: {
+            shadowColor: "#000",
+            shadowOpacity: 0.18,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 10 },
+          },
+          android: { elevation: 6 },
+          default: {},
+        });
+
+  const cardBase = {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 20,
+  };
+
+  const sectionPad = { padding: 14 };
+
+  const pill = (tone: "neutral" | "good" | "warn" = "neutral") => {
+    const bg =
+      tone === "good"
+        ? "rgba(34,197,94,0.14)"
+        : tone === "warn"
+        ? "rgba(239,68,68,0.12)"
+        : "rgba(148,163,184,0.14)";
+    const fg =
+      tone === "good"
+        ? "#22c55e"
+        : tone === "warn"
+        ? "#ef4444"
+        : colors.textMuted;
+
+    return {
+      backgroundColor: bg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 6,
+    };
+  };
 
   const buttonStyle = (disabled?: boolean) => ({
     backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     alignItems: "center" as const,
     justifyContent: "center" as const,
@@ -1769,15 +1802,74 @@ export default function FamilyScreen() {
   const ghostButtonStyle = (disabled?: boolean) => ({
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     alignItems: "center" as const,
     justifyContent: "center" as const,
     opacity: disabled ? 0.6 : 1,
   });
 
-  const renderUserRow = (
+  const SmallAction = ({
+    icon,
+    label,
+    onPress,
+    disabled,
+    tone,
+  }: {
+    icon: any;
+    label: string;
+    onPress: () => void;
+    disabled?: boolean;
+    tone?: "primary" | "muted" | "danger";
+  }) => {
+    const bg =
+      tone === "primary"
+        ? colors.accent
+        : tone === "danger"
+        ? "rgba(239,68,68,0.10)"
+        : "transparent";
+    const border =
+      tone === "primary"
+        ? "transparent"
+        : tone === "danger"
+        ? "rgba(239,68,68,0.35)"
+        : colors.border;
+    const fg =
+      tone === "primary"
+        ? "#022c22"
+        : tone === "danger"
+        ? ERROR_COLOR
+        : colors.textMuted;
+
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={disabled}
+        activeOpacity={0.9}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingVertical: 9,
+          paddingHorizontal: 10,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: border,
+          backgroundColor: bg,
+          opacity: disabled ? 0.6 : 1,
+        }}
+        accessibilityLabel={label}
+      >
+        <Ionicons name={icon} size={16} color={fg} />
+        <Text style={{ color: fg, fontWeight: "950" as any, fontSize: 12 }}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderUserCard = (
     u: {
       uid?: string;
       displayName?: string;
@@ -1786,8 +1878,9 @@ export default function FamilyScreen() {
       photoURL?: string | null;
       city?: string;
     },
-    right?: React.ReactNode,
-    subtitle?: string
+    actions?: React.ReactNode,
+    subtitle?: string,
+    variant: "row" | "tile" = "row"
   ) => {
     const photo = u.photoURL ? String(u.photoURL) : null;
 
@@ -1798,17 +1891,98 @@ export default function FamilyScreen() {
 
     const Wrapper: any = u.uid ? TouchableOpacity : View;
 
+    const baseBox = {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg,
+      borderRadius: 18,
+      padding: 12,
+    };
+
+    if (variant === "tile") {
+      return (
+        <Wrapper
+          key={`tile-${u.uid || u.email || u.displayName || Math.random()}`}
+          onPress={u.uid ? goToProfile : undefined}
+          activeOpacity={0.9}
+          style={{
+            width: tileW,
+            ...baseBox,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            {photo ? (
+              <Image
+                source={{ uri: photo }}
+                style={{ width: 44, height: 44, borderRadius: 999 }}
+              />
+            ) : (
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: "#022c22", fontWeight: "950" as any }}>
+                  {safeInitial(displayNameOf(u))}
+                </Text>
+              </View>
+            )}
+
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontWeight: "950" as any,
+                  fontSize: 15,
+                }}
+                numberOfLines={1}
+              >
+                {displayNameOf(u)}
+              </Text>
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  marginTop: 3,
+                }}
+                numberOfLines={1}
+              >
+                {subtitle || u.email || "—"}
+                {u.city ? ` • ${u.city}` : ""}
+              </Text>
+            </View>
+          </View>
+
+          {!!actions && (
+            <View
+              style={{
+                marginTop: 10,
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 10,
+              }}
+            >
+              {actions}
+            </View>
+          )}
+        </Wrapper>
+      );
+    }
+
+    // row (fallback)
     return (
       <Wrapper
+        key={`row-${u.uid || u.email || u.displayName || Math.random()}`}
         onPress={u.uid ? goToProfile : undefined}
-        activeOpacity={0.8}
+        activeOpacity={0.86}
         style={{
           marginTop: 10,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.bg,
-          borderRadius: 14,
-          padding: 12,
+          ...baseBox,
           flexDirection: "row",
           alignItems: "center",
           gap: 12,
@@ -1817,20 +1991,20 @@ export default function FamilyScreen() {
         {photo ? (
           <Image
             source={{ uri: photo }}
-            style={{ width: 42, height: 42, borderRadius: 999 }}
+            style={{ width: 44, height: 44, borderRadius: 999 }}
           />
         ) : (
           <View
             style={{
-              width: 42,
-              height: 42,
+              width: 44,
+              height: 44,
               borderRadius: 999,
               backgroundColor: colors.accent,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: "#022c22", fontWeight: "900" }}>
+            <Text style={{ color: "#022c22", fontWeight: "950" as any }}>
               {safeInitial(displayNameOf(u))}
             </Text>
           </View>
@@ -1840,7 +2014,7 @@ export default function FamilyScreen() {
           <Text
             style={{
               color: colors.text,
-              fontWeight: "900",
+              fontWeight: "950" as any,
               fontSize: 15,
             }}
             numberOfLines={1}
@@ -1851,7 +2025,7 @@ export default function FamilyScreen() {
             style={{
               color: colors.textMuted,
               fontSize: 12,
-              marginTop: 2,
+              marginTop: 3,
             }}
             numberOfLines={1}
           >
@@ -1860,13 +2034,14 @@ export default function FamilyScreen() {
           </Text>
         </View>
 
-        {right}
+        {actions}
       </Wrapper>
     );
   };
 
   // ====== Derived picked state
-  const pickedBetween = qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
+  const pickedBetween =
+    qPicked && myUid ? findBetween(myUid, qPicked.uid) : null;
   const pickedIsFriend = !!qPicked && friendUidSet.has(qPicked.uid);
   const pickedIncoming =
     !!pickedBetween &&
@@ -1898,6 +2073,8 @@ export default function FamilyScreen() {
     );
   }
 
+  const premiumTone: "good" | "warn" = isPremium ? "good" : "warn";
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <FeedbackModal
@@ -1917,890 +2094,947 @@ export default function FamilyScreen() {
           padding: 16,
           paddingBottom: 32,
           width: "100%",
-          maxWidth: 900,
+          maxWidth: 980,
           alignSelf: Platform.OS === "web" ? "center" : "stretch",
           gap: 14,
         }}
       >
-        {/* HEADER */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 4,
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ paddingRight: 8, paddingVertical: 4 }}
-          >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 18,
-              fontWeight: "800",
-            }}
-          >
-            Znajomi & Rodzina
-          </Text>
-        </View>
-
-        {/* ============ RODZINA MAX (TOP) ============ */}
-        <View
-          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
-        >
+        {/* COMMAND CENTER HEADER */}
+        <View style={{ ...cardBase, ...(softShadow as any), overflow: "hidden" }}>
           <View
+            pointerEvents="none"
             style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "baseline",
+              position: "absolute",
+              top: -80,
+              right: -70,
+              width: 180,
+              height: 180,
+              borderRadius: 999,
+              backgroundColor: colors.accent,
+              opacity: 0.1,
             }}
-          >
-            <Text style={labelStyle}>Rodzina MAX</Text>
-            <Text
+          />
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              bottom: -90,
+              left: -70,
+              width: 200,
+              height: 200,
+              borderRadius: 999,
+              backgroundColor: colors.accent,
+              opacity: 0.07,
+            }}
+          />
+
+          <View style={{ ...sectionPad, paddingBottom: 16 }}>
+            <View
               style={{
-                color: colors.textMuted,
-                fontSize: 12,
-                fontWeight: "900",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
             >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  flex: 1,
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => router.back()}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  activeOpacity={0.9}
+                >
+                  <Ionicons name="chevron-back" size={22} color={colors.text} />
+                </TouchableOpacity>
+
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 12,
+                      fontWeight: "800",
+                    }}
+                  >
+                    Centrum dowodzenia
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 18,
+                      fontWeight: "950" as any,
+                    }}
+                    numberOfLines={1}
+                  >
+                    Znajomi & Rodzina
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <View style={pill(premiumTone)}>
+                  <Ionicons
+                    name={isPremium ? "sparkles" : "lock-closed"}
+                    size={14}
+                    color={isPremium ? "#22c55e" : "#ef4444"}
+                  />
+                  <Text
+                    style={{
+                      color: isPremium ? "#22c55e" : "#ef4444",
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    {isPremium ? "PREMIUM" : "FREE"}
+                  </Text>
+                </View>
+
+                <View style={pill(familyId ? "good" : "neutral")}>
+                  <Ionicons
+                    name={familyId ? "people" : "people-outline"}
+                    size={14}
+                    color={familyId ? "#22c55e" : colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      color: familyId ? "#22c55e" : colors.textMuted,
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    {familyId ? `${familyCount}/${MAX_FAMILY}` : `0/${MAX_FAMILY}`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, marginTop: 10, lineHeight: 18 }}>
+              Szybko ogarnij rodzinę MAX, zaproszenia i znajomych — wszystko w jednym
+              miejscu.
+            </Text>
+          </View>
+        </View>
+
+        {/* ======= TOP ROW TILES ======= */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          {/* RODZINA MAX */}
+          <View
+            style={{
+              width: tileW,
+              ...cardBase,
+              ...(softShadow as any),
+              ...sectionPad,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill("neutral")}>
+                  <Ionicons name="people-circle" size={14} color={colors.textMuted} />
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    RODZINA MAX
+                  </Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>
+                  Status
+                </Text>
+              </View>
+
+              <View style={pill(familyId ? "good" : "neutral")}>
+                <Ionicons
+                  name={familyId ? "checkmark-circle" : "information-circle"}
+                  size={14}
+                  color={familyId ? "#22c55e" : colors.textMuted}
+                />
+                <Text
+                  style={{
+                    color: familyId ? "#22c55e" : colors.textMuted,
+                    fontWeight: "950" as any,
+                    fontSize: 11,
+                  }}
+                >
+                  {familyId ? `${familyCount}/${MAX_FAMILY}` : `0/${MAX_FAMILY}`}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8, lineHeight: 16 }}>
+              {familyId ? "Rodzina aktywna" : "Brak rodziny"} •{" "}
+              {iAmOwner ? "Właściciel" : familyId ? "Członek" : "—"} •{" "}
+              {isPremium ? "Premium ✅" : "Premium ❌"}
+            </Text>
+
+            {!familyId ? (
+              <View style={{ marginTop: 12 }}>
+                <TouchableOpacity onPress={createFamilyMax} style={buttonStyle(false)} activeOpacity={0.9}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="add-circle" size={18} color="#022c22" />
+                    <Text style={{ fontWeight: "950" as any, color: "#022c22" }}>
+                      Utwórz rodzinę MAX
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {!isPremium ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+                    Rodzina MAX jest dostępna w Premium.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          {/* ZAPROSZENIA DO RODZINY */}
+          <View
+            style={{
+              width: tileW,
+              ...cardBase,
+              ...(softShadow as any),
+              ...sectionPad,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill(familyInvIncomingForMy.length ? "good" : "neutral")}>
+                  <Ionicons
+                    name="mail"
+                    size={14}
+                    color={familyInvIncomingForMy.length ? "#22c55e" : colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      color: familyInvIncomingForMy.length ? "#22c55e" : colors.textMuted,
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    {familyInvIncomingForMy.length}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>
+                  Zaproszenia do rodziny
+                </Text>
+              </View>
+
+              <View style={pill("neutral")}>
+                <Ionicons name="home" size={14} color={colors.textMuted} />
+                <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                  {familyId ? "AKTYWNA" : "BRAK"}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8, lineHeight: 16 }}>
+              Zawsze widoczne. Możesz dołączyć lub odrzucić.
+            </Text>
+
+            {familyInvIncomingForMy.length === 0 ? (
+              <Text style={{ color: colors.textMuted, marginTop: 10 }}>Brak zaproszeń.</Text>
+            ) : (
+              <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                {familyInvIncomingForMy.map((inv) => {
+                  const busy = familyInvActionId === inv.id;
+                  return renderUserCard(
+                    {
+                      uid: inv.fromUserId,
+                      displayName: inv.fromDisplayName,
+                      email: inv.fromEmail,
+                    },
+                    <>
+                      <SmallAction
+                        icon="checkmark"
+                        label="Akceptuj"
+                        onPress={() => acceptFamilyInvite(inv)}
+                        disabled={busy}
+                        tone="primary"
+                      />
+                      <SmallAction
+                        icon="close"
+                        label="Odrzuć"
+                        onPress={() => declineFamilyInvite(inv)}
+                        disabled={busy}
+                        tone="muted"
+                      />
+                    </>,
+                    "Zaproszenie do rodziny MAX",
+                    "tile"
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* ======= MEMBERS GRID ======= */}
+        <View style={{ ...cardBase, ...(softShadow as any), ...sectionPad }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={pill("neutral")}>
+                <Ionicons name="people" size={14} color={colors.textMuted} />
+                <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                  CZŁONKOWIE
+                </Text>
+              </View>
+              <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>
+                Członkowie rodziny
+              </Text>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 12 }}>
               {familyId ? `${familyCount}/${MAX_FAMILY}` : `0/${MAX_FAMILY}`}
             </Text>
           </View>
 
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Premium: {isPremium ? "aktywny ✅" : "brak"} •{" "}
-            {familyId ? "rodzina: aktywna" : "brak rodziny"} •{" "}
-            {familyId
-              ? iAmOwner
-                ? "rola: właściciel"
-                : "rola: członek"
-              : "rola: —"}
-          </Text>
-
-          {/* CREATE FAMILY MAX (Premium) */}
-          {!familyId ? (
-            <View style={{ marginTop: 14 }}>
-              <TouchableOpacity
-                onPress={createFamilyMax}
-                style={buttonStyle(false)}
-                activeOpacity={0.9}
-              >
-                <Text style={{ fontWeight: "900", color: "#022c22" }}>
-                  Utwórz rodzinę MAX
-                </Text>
-              </TouchableOpacity>
-              {!isPremium ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Rodzina MAX jest dostępna w Premium.
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {/* ============ LISTA CZŁONKÓW RODZINY ============ */}
-          <Text
-            style={{
-              marginTop: 14,
-              color: colors.text,
-              fontWeight: "900",
-            }}
-          >
-            Członkowie rodziny
-          </Text>
-
           {!familyId || members.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>
-              Brak członków rodziny.
-            </Text>
+            <Text style={{ color: colors.textMuted, marginTop: 10 }}>Brak członków rodziny.</Text>
           ) : (
-            members
-              .slice()
-              .sort((a: any, b: any) => {
-                const auid = String(a?.uid || a?.userId || a?.id || "");
-                const buid = String(b?.uid || b?.userId || b?.id || "");
-                const aIsOwner =
-                  effectiveOwnerId && auid === String(effectiveOwnerId);
-                const bIsOwner =
-                  effectiveOwnerId && buid === String(effectiveOwnerId);
-                if (aIsOwner) return -1;
-                if (bIsOwner) return 1;
-                return String(a?.displayName || "").localeCompare(
-                  String(b?.displayName || "")
-                );
-              })
-              .map((m: any) => {
-                const memUid = String(m.uid || m.userId || "");
-                const isMe = myUid && memUid === myUid;
+            <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              {members
+                .slice()
+                .sort((a: any, b: any) => {
+                  const auid = String(a?.uid || a?.userId || a?.id || "");
+                  const buid = String(b?.uid || b?.userId || b?.id || "");
+                  const aIsOwner = effectiveOwnerId && auid === String(effectiveOwnerId);
+                  const bIsOwner = effectiveOwnerId && buid === String(effectiveOwnerId);
+                  if (aIsOwner) return -1;
+                  if (bIsOwner) return 1;
+                  return String(a?.displayName || "").localeCompare(String(b?.displayName || ""));
+                })
+                .map((m: any) => {
+                  const memUid = String(m.uid || m.userId || "");
+                  const isMe = myUid && memUid === myUid;
 
-                const isOwnerRow =
-                  !!effectiveOwnerId &&
-                  memUid === String(effectiveOwnerId);
-                const roleLabel = isOwnerRow
-                  ? "owner"
-                  : String(m?.role || "member");
+                  const isOwnerRow = !!effectiveOwnerId && memUid === String(effectiveOwnerId);
+                  const roleLabelRow = isOwnerRow ? "owner" : String(m?.role || "member");
+                  const subtitle = roleLabelRow === "owner" ? (isMe ? "Właściciel (Ty)" : "Właściciel") : "Członek";
 
-                let rightNode: React.ReactNode;
-                let subtitle =
-                  roleLabel === "owner"
-                    ? "Założyciel rodziny MAX"
-                    : "Członek rodziny";
+                  if (roleLabelRow === "owner") {
+                    return renderUserCard(
+                      {
+                        uid: m.uid || m.userId,
+                        displayName: m.displayName,
+                        email: m.email,
+                        photoURL: m.photoURL || null,
+                        city: m.city,
+                      },
+                      <View style={pill("good")}>
+                        <Ionicons name="key" size={14} color="#22c55e" />
+                        <Text style={{ color: "#22c55e", fontWeight: "950" as any, fontSize: 11 }}>
+                          OWNER
+                        </Text>
+                      </View>,
+                      subtitle,
+                      "tile"
+                    );
+                  }
 
-                if (roleLabel === "owner") {
-                  rightNode = (
-                    <Text
-                      style={{
-                        color: colors.textMuted,
-                        fontWeight: "900",
-                      }}
-                    >
-                      {isMe ? "Właściciel (Ty)" : "Właściciel"}
-                    </Text>
-                  );
-                  if (isMe) subtitle = "Założyciel rodziny MAX (Ty)";
-                } else if (iAmOwner) {
-                  const busy = familyMemberActionUid === memUid;
-                  const label =
-                    m.displayName ||
-                    m.email ||
-                    (isMe ? "Ciebie" : "tego członka rodziny");
+                  if (iAmOwner) {
+                    const busy = familyMemberActionUid === memUid;
+                    const label =
+                      m.displayName || m.email || (isMe ? "Ciebie" : "tego członka rodziny");
 
-                  rightNode = (
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontWeight: "900",
-                        }}
-                      >
-                        Członek
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() =>
-                          handleRemoveFamilyMember(memUid, label)
-                        }
+                    return renderUserCard(
+                      {
+                        uid: m.uid || m.userId,
+                        displayName: m.displayName,
+                        email: m.email,
+                        photoURL: m.photoURL || null,
+                        city: m.city,
+                      },
+                      <SmallAction
+                        icon="trash"
+                        label={busy ? "..." : "Usuń"}
+                        onPress={() => handleRemoveFamilyMember(memUid, label)}
                         disabled={busy}
-                        style={[
-                          ghostButtonStyle(busy),
-                          {
-                            marginTop: 6,
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                          },
-                        ]}
-                        activeOpacity={0.9}
-                      >
-                        {busy ? (
-                          <ActivityIndicator color={colors.textMuted} />
-                        ) : (
-                          <Text
-                            style={{
-                              fontWeight: "900",
-                              color: ERROR_COLOR,
-                              fontSize: 12,
-                            }}
-                          >
-                            Usuń z rodziny
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  );
-                } else {
-                  rightNode = (
-                    <Text
-                      style={{
-                        color: colors.textMuted,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Członek
-                    </Text>
-                  );
-                }
+                        tone="danger"
+                      />,
+                      subtitle,
+                      "tile"
+                    );
+                  }
 
-                return renderUserRow(
-                  {
-                    uid: m.uid || m.userId,
-                    displayName: m.displayName,
-                    email: m.email,
-                    photoURL: m.photoURL || null,
-                    city: m.city,
-                  },
-                  rightNode,
-                  subtitle
-                );
-              })
+                  return renderUserCard(
+                    {
+                      uid: m.uid || m.userId,
+                      displayName: m.displayName,
+                      email: m.email,
+                      photoURL: m.photoURL || null,
+                      city: m.city,
+                    },
+                    <View style={pill("neutral")}>
+                      <Ionicons name="person" size={14} color={colors.textMuted} />
+                      <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                        MEMBER
+                      </Text>
+                    </View>,
+                    subtitle,
+                    "tile"
+                  );
+                })}
+            </View>
           )}
 
-          {/* OPUŚĆ RODZINĘ (dla zwykłego członka) — NIE pokazujemy jeśli owner */}
           {canLeaveFamily && !iAmOwner ? (
-            <View style={{ marginTop: 16 }}>
+            <View style={{ marginTop: 14 }}>
               <TouchableOpacity
                 onPress={handleLeaveFamily}
                 disabled={familySelfActionBusy}
                 style={[
                   ghostButtonStyle(familySelfActionBusy),
-                  { borderColor: ERROR_COLOR, paddingVertical: 9 },
+                  {
+                    borderColor: "rgba(239,68,68,0.45)",
+                    backgroundColor: "rgba(239,68,68,0.06)",
+                    paddingVertical: 11,
+                  },
                 ]}
                 activeOpacity={0.9}
               >
                 {familySelfActionBusy ? (
                   <ActivityIndicator color={ERROR_COLOR} />
                 ) : (
-                  <Text
-                    style={{
-                      color: ERROR_COLOR,
-                      fontWeight: "900",
-                      textAlign: "center",
-                    }}
-                  >
-                    Opuść rodzinę
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <Ionicons name="log-out" size={16} color={ERROR_COLOR} />
+                    <Text style={{ color: ERROR_COLOR, fontWeight: "950" as any }}>Opuść rodzinę</Text>
+                  </View>
                 )}
               </TouchableOpacity>
             </View>
           ) : null}
 
-          {/* ⭐⭐⭐ ALWAYS VISIBLE INCOMING INVITES ⭐⭐⭐ */}
-          <Text
-            style={{
-              marginTop: 18,
-              color: colors.text,
-              fontWeight: "900",
-            }}
-          >
-            Zaproszenia do rodziny
-          </Text>
-
-          {familyInvIncomingForMy.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 8 }]}>
-              Brak zaproszeń.
-            </Text>
-          ) : (
-            familyInvIncomingForMy.map((inv) => {
-              const busy = familyInvActionId === inv.id;
-              return renderUserRow(
-                {
-                  uid: inv.fromUserId,
-                  displayName: inv.fromDisplayName,
-                  email: inv.fromEmail,
-                },
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TouchableOpacity
-                    onPress={() => acceptFamilyInvite(inv)}
-                    disabled={busy}
-                    style={buttonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    {busy ? (
-                      <ActivityIndicator color="#022c22" />
-                    ) : (
-                      <Text
-                        style={{
-                          fontWeight: "900",
-                          color: "#022c22",
-                        }}
-                      >
-                        Akceptuj
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => declineFamilyInvite(inv)}
-                    disabled={busy}
-                    style={ghostButtonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Odrzuć
-                    </Text>
-                  </TouchableOpacity>
-                </View>,
-                "Zaproszenie do rodziny MAX"
-              );
-            })
-          )}
-
-          {/* ================= ONLY OWNER+PREMIUM CAN SEE THIS BLOCK ================= */}
+          {/* only owner+premium: outgoing + invite friends */}
           {canInviteByPremium ? (
             <>
-              <Text
+              <View style={{ marginTop: 18, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ color: colors.text, fontWeight: "950" as any }}>Wysłane zaproszenia</Text>
+                  <View style={pill("neutral")}>
+                    <Ionicons name="paper-plane" size={14} color={colors.textMuted} />
+                    <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                      {familyInvOutgoingForMyFamily.length}
+                    </Text>
+                  </View>
+                </View>
+
+                {familyInvOutgoingForMyFamily.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, marginTop: 10 }}>Brak wysłanych.</Text>
+                ) : (
+                  <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    {familyInvOutgoingForMyFamily.map((inv) => {
+                      const busy = familyInvActionId === inv.id;
+                      return renderUserCard(
+                        {
+                          uid: inv.toUserId,
+                          displayName: inv.toDisplayName,
+                          email: inv.toEmail,
+                        },
+                        <SmallAction
+                          icon="close"
+                          label={busy ? "..." : "Cofnij"}
+                          onPress={() => cancelFamilyInvite(inv)}
+                          disabled={busy}
+                          tone="muted"
+                        />,
+                        "Oczekuje",
+                        "tile"
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+
+              <View style={{ marginTop: 18 }}>
+                <Text style={{ color: colors.text, fontWeight: "950" as any }}>Zaproś znajomego do rodziny</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                  Dostępne w Premium. Limit {MAX_FAMILY} osób.
+                </Text>
+
+                {friendsAccepted.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, marginTop: 10 }}>Najpierw dodaj znajomych.</Text>
+                ) : (
+                  <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    {friendsAccepted.slice(0, 30).map((fr) => {
+                      const other = otherProfileFromFriendship(fr);
+                      const toUid = String(other?.uid || "");
+                      const reason = toUid ? familyInviteDisabledReason(toUid) : "Brak uid.";
+                      const disabled = !!reason;
+                      const busy = familyInvActionId === toUid;
+
+                      return renderUserCard(
+                        {
+                          uid: toUid,
+                          displayName: other?.displayName,
+                          username: other?.username,
+                          email: other?.email,
+                          photoURL: other?.photoURL || null,
+                          city: other?.city,
+                        },
+                        <SmallAction
+                          icon="add"
+                          label={busy ? "..." : disabled ? "Niedostępne" : "Zaproś"}
+                          onPress={() => sendFamilyInvite(fr)}
+                          disabled={disabled || busy}
+                          tone={disabled ? "muted" : "primary"}
+                        />,
+                        disabled ? reason || "—" : "Znajomy",
+                        "tile"
+                      );
+                    })}
+                  </View>
+                )}
+
+                {!canAddFamilyMore ? (
+                  <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "900" }}>
+                    Osiągnięto limit {MAX_FAMILY} osób w rodzinie.
+                  </Text>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+        </View>
+
+        {/* ======= FRIENDS DASHBOARD: 4 kafelki w siatce ======= */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          {/* Add friend */}
+          <View style={{ width: tileW, ...cardBase, ...(softShadow as any), ...sectionPad }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill("neutral")}>
+                  <Ionicons name="person-add" size={14} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>ZNAJOMI</Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>Dodaj</Text>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+              Nick lub e-mail. Podpowiedzi pojawią się automatycznie.
+            </Text>
+
+            <View
+              style={{
+                marginTop: 12,
+                borderWidth: 1,
+                borderRadius: 18,
+                borderColor: qError ? ERROR_COLOR : colors.border,
+                backgroundColor: colors.bg,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <View style={pill("neutral")}>
+                <Ionicons name="search" size={14} color={colors.textMuted} />
+                <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>SZUKAJ</Text>
+              </View>
+
+              <TextInput
+                placeholder="np. janek123 lub jan@email.com"
+                placeholderTextColor={colors.textMuted}
+                value={qText}
+                onChangeText={(v) => {
+                  setQText(v);
+                  if (qError) setQError("");
+                }}
                 style={{
-                  marginTop: 18,
+                  flex: 1,
                   color: colors.text,
-                  fontWeight: "900",
+                  fontSize: 14,
+                  fontWeight: "850" as any,
+                  paddingVertical: 2,
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                onSubmitEditing={handleSearch}
+                onFocus={() => {
+                  if (blurHideTimer.current) clearTimeout(blurHideTimer.current);
+                  setInputFocused(true);
+                }}
+                onBlur={() => {
+                  blurHideTimer.current = setTimeout(() => setInputFocused(false), 160);
+                }}
+              />
+
+              <TouchableOpacity
+                onPress={handleSearch}
+                style={[buttonStyle(qLoading), { minWidth: 104 }]}
+                disabled={qLoading}
+                activeOpacity={0.9}
+              >
+                {qLoading ? (
+                  <ActivityIndicator color="#022c22" />
+                ) : (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="arrow-forward" size={16} color="#022c22" />
+                    <Text style={{ fontWeight: "950" as any, color: "#022c22" }}>Szukaj</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {qError ? (
+              <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="alert-circle" size={14} color={ERROR_COLOR} />
+                <Text style={{ color: ERROR_COLOR, fontSize: 12, fontWeight: "900" }}>{qError}</Text>
+              </View>
+            ) : null}
+
+            {/* TYPEAHEAD */}
+            {inputFocused && qText.trim().length >= 2 ? (
+              <View
+                style={{
+                  marginTop: 10,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  overflow: "hidden",
+                  ...(softShadow as any),
                 }}
               >
-                Wysłane zaproszenia
-              </Text>
-
-              {familyInvOutgoingForMyFamily.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Brak wysłanych.
-                </Text>
-              ) : (
-                familyInvOutgoingForMyFamily.map((inv) => {
-                  const busy = familyInvActionId === inv.id;
-                  return renderUserRow(
-                    {
-                      uid: inv.toUserId,
-                      displayName: inv.toDisplayName,
-                      email: inv.toEmail,
-                    },
-                    <TouchableOpacity
-                      onPress={() => cancelFamilyInvite(inv)}
-                      disabled={busy}
-                      style={ghostButtonStyle(busy)}
-                      activeOpacity={0.9}
-                    >
-                      {busy ? (
-                        <ActivityIndicator color={colors.textMuted} />
-                      ) : (
-                        <Text
+                {typeaheadStatus === "loading" ? (
+                  <View style={{ paddingVertical: 12 }}>
+                    <ActivityIndicator color={colors.accent} />
+                  </View>
+                ) : typeaheadStatus === "error" ? (
+                  <View style={{ padding: 12 }}>
+                    <Text style={{ color: ERROR_COLOR, fontWeight: "950" as any, fontSize: 12 }}>
+                      {typeaheadErr || "Błąd podpowiedzi."}
+                    </Text>
+                  </View>
+                ) : typeahead.length === 0 ? (
+                  <View style={{ padding: 12 }}>
+                    <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 12 }}>
+                      Brak wyników dla “{qText.trim()}”.
+                    </Text>
+                  </View>
+                ) : (
+                  typeahead.map((u, idx) => {
+                    const between = myUid ? findBetween(myUid, u.uid) : null;
+                    const isFriend = friendUidSet.has(u.uid);
+                    const topBorder = idx === 0 ? 0 : 1;
+                    return (
+                      <TouchableOpacity
+                        key={`ta-${u.uid}`}
+                        onPress={() => handlePick(u)}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          borderTopWidth: topBorder,
+                          borderTopColor: colors.border,
+                          backgroundColor: colors.card,
+                        }}
+                        activeOpacity={0.9}
+                      >
+                        <View
                           style={{
-                            fontWeight: "900",
-                            color: colors.textMuted,
+                            width: 34,
+                            height: 34,
+                            borderRadius: 999,
+                            backgroundColor: colors.accent,
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
                         >
-                          Cofnij
-                        </Text>
-                      )}
-                    </TouchableOpacity>,
-                    "Oczekuje"
-                  );
-                })
-              )}
+                          <Text style={{ color: "#022c22", fontWeight: "950" as any }}>
+                            {safeInitial(displayNameOf(u))}
+                          </Text>
+                        </View>
 
-              <Text
-                style={{
-                  marginTop: 18,
-                  color: colors.text,
-                  fontWeight: "900",
-                }}
-              >
-                Zaproś znajomego do rodziny
-              </Text>
-              <Text style={[mutedStyle, { marginTop: 4 }]}>
-                Dostępne w Premium. Limit {MAX_FAMILY} osób.
-              </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: "950" as any }} numberOfLines={1}>
+                            {displayNameOf(u)}
+                          </Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                            {u.email || "—"}
+                            {u.city ? ` • ${u.city}` : ""}
+                          </Text>
+                        </View>
 
-              {friendsAccepted.length === 0 ? (
-                <Text style={[mutedStyle, { marginTop: 8 }]}>
-                  Najpierw dodaj znajomych.
-                </Text>
-              ) : (
-                friendsAccepted.slice(0, 30).map((fr) => {
-                  const other = otherProfileFromFriendship(fr);
-                  const toUid = String(other?.uid || "");
-                  const reason = toUid
-                    ? familyInviteDisabledReason(toUid)
-                    : "Brak uid.";
-                  const disabled = !!reason;
-                  const busy = familyInvActionId === toUid;
+                        <View style={pill(isFriend ? "good" : between?.status === "pending" ? "neutral" : "neutral")}>
+                          <Text
+                            style={{
+                              color: isFriend ? "#22c55e" : colors.textMuted,
+                              fontWeight: "950" as any,
+                              fontSize: 11,
+                            }}
+                          >
+                            {isFriend ? "ZNAJOMY" : between?.status === "pending" ? "PENDING" : "—"}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+            ) : null}
 
-                  return renderUserRow(
+            {/* PICKED */}
+            {qPicked ? (
+              <View style={{ marginTop: 12 }}>
+                {renderUserCard(
+                  qPicked,
+                  pickedIncoming ? (
+                    <View style={pill("neutral")}>
+                      <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
+                      <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                        Przychodzące
+                      </Text>
+                    </View>
+                  ) : pickedOutgoing ? (
+                    <View style={pill("neutral")}>
+                      <Ionicons name="paper-plane" size={14} color={colors.textMuted} />
+                      <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                        Wysłane
+                      </Text>
+                    </View>
+                  ) : pickedIsFriend ? (
+                    <View style={pill("good")}>
+                      <Ionicons name="checkmark" size={14} color="#22c55e" />
+                      <Text style={{ color: "#22c55e", fontWeight: "950" as any, fontSize: 11 }}>Znajomy</Text>
+                    </View>
+                  ) : (
+                    <SmallAction
+                      icon="add"
+                      label={!myProfileReady ? "Ładuję..." : "Dodaj"}
+                      onPress={() => sendFriendRequest(qPicked)}
+                      disabled={!myProfileReady}
+                      tone="primary"
+                    />
+                  ),
+                  pickedIsFriend
+                    ? "Znajomy"
+                    : pickedOutgoing
+                    ? "Zaproszenie wysłane"
+                    : pickedIncoming
+                    ? "Masz od niego zaproszenie"
+                    : !myProfileReady
+                    ? "Ładowanie profilu…"
+                    : "Użytkownik",
+                  "row"
+                )}
+              </View>
+            ) : null}
+          </View>
+
+          {/* Incoming friend requests */}
+          <View style={{ width: tileW, ...cardBase, ...(softShadow as any), ...sectionPad }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill(friendReqIncoming.length ? "good" : "neutral")}>
+                  <Ionicons
+                    name="mail-unread"
+                    size={14}
+                    color={friendReqIncoming.length ? "#22c55e" : colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      color: friendReqIncoming.length ? "#22c55e" : colors.textMuted,
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    {friendReqIncoming.length}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>Przychodzące</Text>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+              Kto chce Cię dodać do znajomych.
+            </Text>
+
+            {friendReqIncoming.length === 0 ? (
+              <Text style={{ color: colors.textMuted, marginTop: 10 }}>Brak zaproszeń.</Text>
+            ) : (
+              <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                {friendReqIncoming.map((f) => {
+                  const other = otherProfileFromFriendship(f);
+                  const busy = friendActionId === f.id;
+
+                  return renderUserCard(
                     {
-                      uid: toUid,
+                      uid: other?.uid || "",
                       displayName: other?.displayName,
                       username: other?.username,
                       email: other?.email,
                       photoURL: other?.photoURL || null,
                       city: other?.city,
                     },
-                    <TouchableOpacity
-                      onPress={() => sendFamilyInvite(fr)}
-                      disabled={disabled || busy}
-                      style={buttonStyle(disabled || busy)}
-                      activeOpacity={0.9}
-                    >
-                      {busy ? (
-                        <ActivityIndicator color="#022c22" />
-                      ) : (
-                        <Text
-                          style={{
-                            fontWeight: "900",
-                            color: "#022c22",
-                          }}
-                        >
-                          {disabled ? "Już w rodzinie" : "Zaproś"}
-                        </Text>
-                      )}
-                    </TouchableOpacity>,
-                    disabled ? reason || "—" : "Znajomy"
+                    <>
+                      <SmallAction
+                        icon="checkmark"
+                        label="Akceptuj"
+                        onPress={() => acceptFriendRequest(f)}
+                        disabled={busy}
+                        tone="primary"
+                      />
+                      <SmallAction
+                        icon="close"
+                        label="Odrzuć"
+                        onPress={() => declineFriendRequest(f)}
+                        disabled={busy}
+                        tone="muted"
+                      />
+                    </>,
+                    "Prośba o dodanie",
+                    "tile"
                   );
-                })
-              )}
-
-              {!canAddFamilyMore ? (
-                <Text
-                  style={[
-                    mutedStyle,
-                    { marginTop: 10, fontWeight: "900" },
-                  ]}
-                >
-                  Osiągnięto limit {MAX_FAMILY} osób w rodzinie.
-                </Text>
-              ) : null}
-            </>
-          ) : null}
-        </View>
-
-        {/* ===================== FRIENDS: ADD / REQUESTS / LIST ===================== */}
-        <View
-          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
-        >
-          <Text style={labelStyle}>Dodaj znajomego</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Nick lub e-mail.
-          </Text>
-
-          <View
-            style={{
-              marginTop: 12,
-              borderWidth: 1,
-              borderRadius: 14,
-              borderColor: qError ? ERROR_COLOR : colors.border,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <Ionicons name="search" size={18} color={colors.textMuted} />
-            <TextInput
-              placeholder="np. janek123 lub jan@email.com"
-              placeholderTextColor={colors.textMuted}
-              value={qText}
-              onChangeText={(v) => {
-                setQText(v);
-                if (qError) setQError("");
-              }}
-              style={{
-                flex: 1,
-                color: colors.text,
-                fontSize: 14,
-                fontWeight: "700",
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-              onSubmitEditing={handleSearch}
-              onFocus={() => {
-                if (blurHideTimer.current) clearTimeout(blurHideTimer.current);
-                setInputFocused(true);
-              }}
-              onBlur={() => {
-                blurHideTimer.current = setTimeout(
-                  () => setInputFocused(false),
-                  160
-                );
-              }}
-            />
-
-            <TouchableOpacity
-              onPress={handleSearch}
-              style={[buttonStyle(qLoading), { minWidth: 92 }]}
-              disabled={qLoading}
-              activeOpacity={0.9}
-            >
-              {qLoading ? (
-                <ActivityIndicator color="#022c22" />
-              ) : (
-                <Text
-                  style={{
-                    fontWeight: "900",
-                    color: "#022c22",
-                  }}
-                >
-                  Szukaj
-                </Text>
-              )}
-            </TouchableOpacity>
+                })}
+              </View>
+            )}
           </View>
 
-          {qError ? (
-            <Text
-              style={{
-                color: ERROR_COLOR,
-                fontSize: 12,
-                fontWeight: "800",
-                marginTop: 8,
-              }}
-            >
-              {qError}
+          {/* Outgoing friend requests */}
+          <View style={{ width: tileW, ...cardBase, ...(softShadow as any), ...sectionPad }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill("neutral")}>
+                  <Ionicons name="paper-plane" size={14} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontWeight: "950" as any, fontSize: 11 }}>
+                    {friendReqOutgoing.length}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>Wysłane</Text>
+              </View>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+              Oczekują na akceptację.
             </Text>
-          ) : null}
 
-          {/* TYPEAHEAD */}
-          {inputFocused && qText.trim().length >= 2 ? (
-            <View
-              style={{
-                marginTop: 10,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.bg,
-                overflow: "hidden",
-              }}
-            >
-              {typeaheadStatus === "loading" ? (
-                <View style={{ paddingVertical: 12 }}>
-                  <ActivityIndicator color={colors.accent} />
-                </View>
-              ) : typeaheadStatus === "error" ? (
-                <View style={{ padding: 12 }}>
-                  <Text
-                    style={{
-                      color: ERROR_COLOR,
-                      fontWeight: "900",
-                      fontSize: 12,
-                    }}
-                  >
-                    {typeaheadErr || "Błąd podpowiedzi."}
-                  </Text>
-                </View>
-              ) : typeahead.length === 0 ? (
-                <View style={{ padding: 12 }}>
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "800",
-                      fontSize: 12,
-                    }}
-                  >
-                    Brak wyników dla “{qText.trim()}”.
-                  </Text>
-                </View>
-              ) : (
-                typeahead.map((u) => {
-                  const between = myUid ? findBetween(myUid, u.uid) : null;
-                  const isFriend = friendUidSet.has(u.uid);
-                  return (
-                    <TouchableOpacity
-                      key={`ta-${u.uid}`}
-                      onPress={() => handlePick(u)}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        paddingHorizontal: 12,
-                        paddingVertical: 10,
-                        borderTopWidth: 1,
-                        borderTopColor: colors.border,
-                      }}
-                      activeOpacity={0.9}
-                    >
-                      <View
-                        style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 999,
-                          backgroundColor: colors.accent,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: "#022c22",
-                            fontWeight: "900",
-                          }}
-                        >
-                          {safeInitial(displayNameOf(u))}
-                        </Text>
-                      </View>
+            {friendReqOutgoing.length === 0 ? (
+              <Text style={{ color: colors.textMuted, marginTop: 10 }}>Brak.</Text>
+            ) : (
+              <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                {friendReqOutgoing.map((f) => {
+                  const other = otherProfileFromFriendship(f);
+                  const busy = friendActionId === f.id;
 
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{ color: colors.text, fontWeight: "900" }}
-                          numberOfLines={1}
-                        >
-                          {displayNameOf(u)}
-                        </Text>
-                        <Text
-                          style={{
-                            color: colors.textMuted,
-                            fontSize: 12,
-                            marginTop: 2,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {u.email || "—"}
-                          {u.city ? ` • ${u.city}` : ""}
-                        </Text>
-                      </View>
-
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontWeight: "900",
-                          fontSize: 11,
-                        }}
-                      >
-                        {isFriend
-                          ? "ZNAJOMY"
-                          : between?.status === "pending"
-                          ? "PENDING"
-                          : ""}
-                      </Text>
-                    </TouchableOpacity>
+                  return renderUserCard(
+                    {
+                      uid: other?.uid || "",
+                      displayName: other?.displayName,
+                      username: other?.username,
+                      email: other?.email,
+                      photoURL: other?.photoURL || null,
+                      city: other?.city,
+                    },
+                    <SmallAction
+                      icon="close"
+                      label={busy ? "..." : "Cofnij"}
+                      onPress={() => cancelFriendRequest(f)}
+                      disabled={busy}
+                      tone="muted"
+                    />,
+                    "Oczekuje",
+                    "tile"
                   );
-                })
-              )}
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* Friends list */}
+          <View style={{ width: tileW, ...cardBase, ...(softShadow as any), ...sectionPad }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={pill(friendsAccepted.length ? "good" : "neutral")}>
+                  <Ionicons
+                    name="people"
+                    size={14}
+                    color={friendsAccepted.length ? "#22c55e" : colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      color: friendsAccepted.length ? "#22c55e" : colors.textMuted,
+                      fontWeight: "950" as any,
+                      fontSize: 11,
+                    }}
+                  >
+                    {friendsAccepted.length}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>Znajomi</Text>
+              </View>
             </View>
-          ) : null}
 
-          {/* PICKED */}
-          {qPicked ? (
-            <View style={{ marginTop: 12 }}>
-              {renderUserRow(
-                qPicked,
-                pickedIncoming ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    → „Przychodzące”
-                  </Text>
-                ) : pickedOutgoing ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    Wysłane
-                  </Text>
-                ) : pickedIsFriend ? (
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontWeight: "900",
-                    }}
-                  >
-                    Znajomy
-                  </Text>
-                ) : (
-                  <TouchableOpacity
-                    onPress={() => sendFriendRequest(qPicked)}
-                    disabled={!myProfileReady}
-                    style={buttonStyle(!myProfileReady)}
-                    activeOpacity={0.9}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: "#022c22",
-                      }}
-                    >
-                      {!myProfileReady ? "Ładuję..." : "Dodaj"}
-                    </Text>
-                  </TouchableOpacity>
-                ),
-                pickedIsFriend
-                  ? "Znajomy"
-                  : pickedOutgoing
-                  ? "Zaproszenie wysłane"
-                  : pickedIncoming
-                  ? "Masz od niego zaproszenie"
-                  : !myProfileReady
-                  ? "Ładowanie profilu…"
-                  : "Użytkownik"
-              )}
-            </View>
-          ) : null}
-        </View>
-
-        {/* Incoming friend requests */}
-        <View
-          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
-        >
-          <Text style={labelStyle}>Przychodzące zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Kto chce Cię dodać do znajomych.
-          </Text>
-
-          {friendReqIncoming.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>
-              Brak zaproszeń.
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
+              Twoja lista znajomych.
             </Text>
-          ) : (
-            friendReqIncoming.map((f) => {
-              const other = otherProfileFromFriendship(f);
-              const busy = friendActionId === f.id;
 
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TouchableOpacity
-                    onPress={() => acceptFriendRequest(f)}
-                    disabled={busy}
-                    style={buttonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    {busy ? (
-                      <ActivityIndicator color="#022c22" />
-                    ) : (
-                      <Text
-                        style={{
-                          fontWeight: "900",
-                          color: "#022c22",
-                        }}
-                      >
-                        Akceptuj
-                      </Text>
-                    )}
-                  </TouchableOpacity>
+            {friendsAccepted.length === 0 ? (
+              <Text style={{ color: colors.textMuted, marginTop: 10 }}>Nie masz jeszcze znajomych.</Text>
+            ) : (
+              <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                {friendsAccepted.map((f) => {
+                  const other = otherProfileFromFriendship(f);
+                  const busy = friendActionId === f.id;
 
-                  <TouchableOpacity
-                    onPress={() => declineFriendRequest(f)}
-                    disabled={busy}
-                    style={ghostButtonStyle(busy)}
-                    activeOpacity={0.9}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Odrzuć
-                    </Text>
-                  </TouchableOpacity>
-                </View>,
-                "Prośba o dodanie"
-              );
-            })
-          )}
-        </View>
-
-        {/* Outgoing friend requests */}
-        <View
-          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
-        >
-          <Text style={labelStyle}>Wysłane zaproszenia</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Oczekują na akceptację.
-          </Text>
-
-          {friendReqOutgoing.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>Brak.</Text>
-          ) : (
-            friendReqOutgoing.map((f) => {
-              const other = otherProfileFromFriendship(f);
-              const busy = friendActionId === f.id;
-
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <TouchableOpacity
-                  onPress={() => cancelFriendRequest(f)}
-                  disabled={busy}
-                  style={ghostButtonStyle(busy)}
-                  activeOpacity={0.9}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={colors.textMuted} />
-                  ) : (
-                    <Text
-                      style={{
-                        fontWeight: "900",
-                        color: colors.textMuted,
-                      }}
-                    >
-                      Cofnij
-                    </Text>
-                  )}
-                </TouchableOpacity>,
-                "Oczekuje"
-              );
-            })
-          )}
-        </View>
-
-        {/* Friends list */}
-        <View
-          style={{ ...cardStyle, borderWidth: 1, borderRadius: 16, padding: 14 }}
-        >
-          <Text style={labelStyle}>Znajomi</Text>
-          <Text style={[mutedStyle, { marginTop: 4 }]}>
-            Twoja lista znajomych.
-          </Text>
-
-          {friendsAccepted.length === 0 ? (
-            <Text style={[mutedStyle, { marginTop: 10 }]}>
-              Nie masz jeszcze znajomych.
-            </Text>
-          ) : (
-            friendsAccepted.map((f) => {
-              const other = otherProfileFromFriendship(f);
-              const busy = friendActionId === f.id;
-
-              return renderUserRow(
-                {
-                  uid: other?.uid || "",
-                  displayName: other?.displayName,
-                  username: other?.username,
-                  email: other?.email,
-                  photoURL: other?.photoURL || null,
-                  city: other?.city,
-                },
-                <TouchableOpacity
-                  onPress={() => handleRemoveFriend(f)}
-                  disabled={busy}
-                  style={[
-                    ghostButtonStyle(busy),
-                    { paddingVertical: 8, paddingHorizontal: 10 },
-                  ]}
-                  activeOpacity={0.9}
-                >
-                  {busy ? (
-                    <ActivityIndicator color={ERROR_COLOR} />
-                  ) : (
-                    <Text
-                      style={{
-                        color: ERROR_COLOR,
-                        fontWeight: "900",
-                        fontSize: 12,
-                      }}
-                    >
-                      Usuń znajomego
-                    </Text>
-                  )}
-                </TouchableOpacity>,
-                "Znajomy"
-              );
-            })
-          )}
+                  return renderUserCard(
+                    {
+                      uid: other?.uid || "",
+                      displayName: other?.displayName,
+                      username: other?.username,
+                      email: other?.email,
+                      photoURL: other?.photoURL || null,
+                      city: other?.city,
+                    },
+                    <SmallAction
+                      icon="trash"
+                      label={busy ? "..." : "Usuń"}
+                      onPress={() => handleRemoveFriend(f)}
+                      disabled={busy}
+                      tone="danger"
+                    />,
+                    "Znajomy",
+                    "tile"
+                  );
+                })}
+              </View>
+            )}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// src/screens/FamilyScreen.tsx
+//src/screens/family.web.tsx

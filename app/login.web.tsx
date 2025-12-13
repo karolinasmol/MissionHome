@@ -93,6 +93,9 @@ export default function LoginScreen() {
 
   const passwordRef = useRef<TextInput | null>(null);
 
+  // ✅ Modal „Witaj w MissionHome”
+  const [welcomeModalVisible, setWelcomeModalVisible] = useState(true);
+
   // Modal „Potwierdź e-mail”
   const [verifyModalVisible, setVerifyModalVisible] = useState(false);
   const [verifyInfo, setVerifyInfo] = useState("");
@@ -239,6 +242,8 @@ export default function LoginScreen() {
           } catch (e: any) {
             dbg("getRedirectResult profile hydrate error:", e?.message || e);
           }
+          // żeby nie mignął welcome modal przy redirect
+          setWelcomeModalVisible(false);
           router.replace("/");
         }
       } catch (e: any) {
@@ -545,6 +550,10 @@ export default function LoginScreen() {
   const styles = useMemo(() => getStyles(colors, width), [colors, width]);
   const googleLogo = require("../src/assets/google_g.png");
 
+  // ✅ nie pokazuj welcome, gdy inne krytyczne modale są aktywne
+  const shouldShowWelcome =
+    welcomeModalVisible && !verifyModalVisible && !showLoginErrorModal;
+
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
       <View style={styles.row}>
@@ -696,12 +705,7 @@ export default function LoginScreen() {
                 size={20}
                 color={colors.accent}
               />
-              <Text
-                style={[
-                  styles.rememberText,
-                  { color: colors.text || "#000" },
-                ]}
-              >
+              <Text style={[styles.rememberText, { color: colors.text || "#000" }]}>
                 {" "}
                 Pamiętaj mnie
               </Text>
@@ -765,9 +769,7 @@ export default function LoginScreen() {
                 source={googleLogo}
                 style={{ width: 20, height: 20, marginRight: 10 }}
               />
-              <Text style={styles.socialGoogleText}>
-                Kontynuuj poprzez Google
-              </Text>
+              <Text style={styles.socialGoogleText}>Kontynuuj poprzez Google</Text>
             </TouchableOpacity>
 
             {/* Facebook */}
@@ -805,12 +807,7 @@ export default function LoginScreen() {
               onPress={() => router.push("/register")}
               style={styles.registerLink}
             >
-              <Text
-                style={[
-                  styles.linkText,
-                  { color: colors.text || "#000" },
-                ]}
-              >
+              <Text style={[styles.linkText, { color: colors.text || "#000" }]}>
                 Nie masz konta?{" "}
                 <Text
                   style={[
@@ -826,6 +823,153 @@ export default function LoginScreen() {
         </View>
         <View style={styles.gutter} />
       </View>
+
+      {/* ✅ Modal „Witaj w MissionHome” */}
+      <Modal
+        visible={shouldShowWelcome}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWelcomeModalVisible(false)}
+      >
+        <View style={styles.overlay}>
+          <View
+            style={[
+              styles.welcomeCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.welcomeBadge,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.06)"
+                    : "rgba(0,0,0,0.05)",
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Icon name="sparkles" size={18} color={colors.accent} />
+              <Text style={[styles.welcomeBadgeText, { color: colors.text }]}>
+                MissionHome
+              </Text>
+            </View>
+
+            <Text style={[styles.welcomeTitle, { color: colors.text }]}>
+              Witaj w MissionHome 🏠🚀
+            </Text>
+
+            <Text
+              style={[
+                styles.welcomeSubtitle,
+                { color: colors.textMuted || colors.text },
+              ]}
+            >
+              Domowe centrum dowodzenia, które zamienia obowiązki w system
+              misji.
+            </Text>
+
+            <View style={styles.welcomeFeatures}>
+              <View style={styles.welcomeFeatureRow}>
+                <Icon name="sparkles" size={18} color={colors.accent} />
+                <Text
+                  style={[
+                    styles.welcomeFeatureText,
+                    { color: colors.textMuted || colors.text },
+                  ]}
+                >
+                  Codziennie dostajesz świeżą dawkę misji - krótkie, konkretne
+                  zadania, które domykają dzień bez spiny.
+                </Text>
+              </View>
+
+              <View style={styles.welcomeFeatureRow}>
+                <Icon name="people" size={18} color={colors.accent} />
+                <Text
+                  style={[
+                    styles.welcomeFeatureText,
+                    { color: colors.textMuted || colors.text },
+                  ]}
+                >
+                  Pakiet Rodzinny: wspólny kalendarz, jedna tablica misji i możliwość dodawania
+                  zadań sobie nawzajem - dom zaczyna działać jak drużyna.
+
+                </Text>
+              </View>
+
+              <View style={styles.welcomeFeatureRow}>
+                <Icon name="podium" size={18} color={colors.accent} />
+                <Text
+                  style={[
+                    styles.welcomeFeatureText,
+                    { color: colors.textMuted || colors.text },
+                  ]}
+                >
+                  Rywalizuj w rankingu: punkty za misje, serie dni (streaki) - niech wygra ten, kto naprawdę ogarnia.
+                </Text>
+              </View>
+
+              <View style={styles.welcomeFeatureRow}>
+                <Icon name="stats-chart" size={18} color={colors.accent} />
+                <Text
+                  style={[
+                    styles.welcomeFeatureText,
+                    { color: colors.textMuted || colors.text },
+                  ]}
+                >
+                  Osiągnięcia i statystyki: podgląd progresu, nawyków i wkładu
+                  domowników - wiesz kto co robi, bez gadania i bez domysłów.
+                </Text>
+              </View>
+            </View>
+
+            <Text
+              style={[
+                styles.welcomeSubtitle,
+                {
+                  color: colors.textMuted || colors.text,
+                  marginTop: 2,
+                  marginBottom: 12,
+                },
+              ]}
+            >
+              Zarejestruj się i odpal pierwszą misję - potem zdecydujesz, czy
+              wchodzisz w Pakiet Rodzinny.
+            </Text>
+
+            <View style={styles.welcomeButtonsCol}>
+              <TouchableOpacity
+                onPress={() => {
+                  setWelcomeModalVisible(false);
+                  router.push("/register");
+                }}
+                style={[
+                  styles.welcomeBtnPrimary,
+                  { backgroundColor: colors.accent },
+                ]}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.welcomeBtnPrimaryText}>Zarejestruj się</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setWelcomeModalVisible(false)}
+                style={[styles.welcomeBtnGhost, { borderColor: colors.border }]}
+                activeOpacity={0.9}
+              >
+                <Text
+                  style={[
+                    styles.welcomeBtnGhostText,
+                    { color: colors.text },
+                  ]}
+                >
+                  Mam już konto
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal „Potwierdź e-mail” */}
       <Modal
@@ -849,12 +993,7 @@ export default function LoginScreen() {
               },
             ]}
           >
-            <Text
-              style={[
-                styles.verifyTitle,
-                { color: colors.text || "#000" },
-              ]}
-            >
+            <Text style={[styles.verifyTitle, { color: colors.text || "#000" }]}>
               Potwierdź e-mail
             </Text>
 
@@ -865,10 +1004,7 @@ export default function LoginScreen() {
               ]}
             >
               Najpierw potwierdź swój adres e-mail
-              {verifyInfo && verifyInfo.includes("@")
-                ? ` (${verifyInfo})`
-                : ""}
-              .
+              {verifyInfo && verifyInfo.includes("@") ? ` (${verifyInfo})` : ""}.
             </Text>
 
             {!!verifyInfo && !verifyInfo.includes("@") && (
@@ -940,20 +1076,10 @@ export default function LoginScreen() {
               },
             ]}
           >
-            <Text
-              style={[
-                styles.verifyTitle,
-                { color: colors.text || "#000" },
-              ]}
-            >
+            <Text style={[styles.verifyTitle, { color: colors.text || "#000" }]}>
               Błąd logowania
             </Text>
-            <Text
-              style={[
-                styles.verifyText,
-                { color: ERROR_COLOR },
-              ]}
-            >
+            <Text style={[styles.verifyText, { color: ERROR_COLOR }]}>
               {loginError ||
                 "Nieprawidłowy e-mail / nazwa użytkownika lub hasło."}
             </Text>
@@ -1122,6 +1248,90 @@ const getStyles = (colors: any, width: number) => {
       alignItems: "center",
       padding: 20,
     },
+
+    // ✅ Welcome modal styles
+    welcomeCard: {
+      width: "100%",
+      maxWidth: 560,
+      borderRadius: 16,
+      borderWidth: 1,
+      paddingVertical: 18,
+      paddingHorizontal: 16,
+      alignSelf: "center",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+    welcomeBadge: {
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      marginBottom: 10,
+    },
+    welcomeBadgeText: {
+      fontWeight: "900",
+      letterSpacing: 0.2,
+    },
+    welcomeTitle: {
+      fontSize: 20,
+      fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 6,
+    },
+    welcomeSubtitle: {
+      fontSize: 14,
+      textAlign: "center",
+      lineHeight: 20,
+      marginBottom: 14,
+    },
+    welcomeFeatures: {
+      gap: 10,
+      marginBottom: 14,
+    },
+    welcomeFeatureRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 10,
+    },
+    welcomeFeatureText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: "700",
+      opacity: 0.95,
+    },
+    welcomeButtonsCol: {
+      gap: 10,
+    },
+    welcomeBtnPrimary: {
+      paddingVertical: 12,
+      borderRadius: 999,
+      alignItems: "center",
+    },
+    welcomeBtnPrimaryText: {
+      color: "#022c22",
+      fontSize: 15,
+      fontWeight: "900",
+    },
+    welcomeBtnGhost: {
+      paddingVertical: 12,
+      borderRadius: 999,
+      alignItems: "center",
+      borderWidth: 1,
+      backgroundColor: "transparent",
+    },
+    welcomeBtnGhostText: {
+      fontSize: 14,
+      fontWeight: "900",
+    },
+
     verifyCard: {
       width: "100%",
       maxWidth: 520,

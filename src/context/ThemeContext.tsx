@@ -9,11 +9,13 @@ import React, {
   useState,
   ReactNode,
   CSSProperties,
+  useSyncExternalStore,
 } from "react";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /**
  * ✅ Motywy kolorystyczne
- * ❌ usunięte: lavender, pink, custom
  */
 export type Theme =
   | "dark"
@@ -102,7 +104,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 /**
- * ✅ Kolejność cyklicznego przełączania (możesz ją zmienić jak chcesz)
+ * ✅ Kolejność cyklicznego przełączania
  */
 const THEMES_CYCLE: Theme[] = [
   "dark",
@@ -333,25 +335,149 @@ export const THEME_COLORS: Record<Theme, ThemeColors> = {
 };
 
 /**
- * ✅ WAŻNE: export mapy kolorów do UI (podglądy w settings)
+ * ✅ export mapy kolorów do UI (podglądy w settings)
  */
 export const THEME_COLORS_MAP: Record<Theme, ThemeColors> = THEME_COLORS;
 
 const LS_THEME_KEY = "missionhome_theme";
 const LS_PATTERN_KEY = "missionhome_pattern";
+const isWeb = Platform.OS === "web";
 
-function isTheme(v: unknown): v is Theme {
-  return typeof v === "string" && (THEMES_CYCLE as string[]).includes(v);
+/* ----------------------- Helpers: storage ----------------------- */
+
+function getWebStorage(): Storage | null {
+  // ✅ localStorage -> sessionStorage -> null
+  try {
+    if (typeof window === "undefined") return null;
+
+    // localStorage test
+    const s = window.localStorage;
+    const k = "__mh_test__";
+    s.setItem(k, "1");
+    s.removeItem(k);
+    return s;
+  } catch {
+    try {
+      if (typeof window === "undefined") return null;
+      const s = window.sessionStorage;
+      const k = "__mh_test__";
+      s.setItem(k, "1");
+      s.removeItem(k);
+      return s;
+    } catch {
+      return null;
+    }
+  }
 }
-function isPattern(v: unknown): v is BackgroundPattern {
-  return typeof v === "string" && (PATTERNS_CYCLE as string[]).includes(v);
+
+async function storageGet(key: string): Promise<string | null> {
+  try {
+    if (isWeb) {
+      const s = getWebStorage();
+      return s ? s.getItem(key) : null;
+    }
+    return await AsyncStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
+
+async function storageSet(key: string, value: string): Promise<void> {
+  try {
+    if (isWeb) {
+      const s = getWebStorage();
+      if (s) s.setItem(key, value);
+      return;
+    }
+    await AsyncStorage.setItem(key, value);
+  } catch {}
+}
+
+/* ----------------------- Helpers: normalize ----------------------- */
+
+function unwrapStoredString(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  let s = v.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.length ? s : null;
+}
+
+function normalizeStoredKey(v: unknown): string | null {
+  const s = unwrapStoredString(v);
+  return s ? s.toLowerCase() : null;
+}
+
+function toTheme(v: unknown): Theme | null {
+  const key = normalizeStoredKey(v);
+  if (!key) return null;
+  return (THEMES_CYCLE as string[]).includes(key) ? (key as Theme) : null;
+}
+
+function toPattern(v: unknown): BackgroundPattern | null {
+  const key = normalizeStoredKey(v);
+  if (!key) return null;
+  return (PATTERNS_CYCLE as string[]).includes(key)
+    ? (key as BackgroundPattern)
+    : null;
+}
+
+/* ----------------------- WEB store (dla tej samej karty) ----------------------- */
+
+const WEB_THEME_EVENT = "missionhome:theme-change";
+
+/**
+ * Snapshot jako STRING (stabilny) — używamy go WYŁĄCZNIE do “pingowania” subskrypcji.
+ * Nie jest już źródłem prawdy o motywie (to jest Context).
+ */
+function readWebSnapshotKey(): string {
+  const s = getWebStorage();
+  if (!s) return "__no_storage__";
+  const t = toTheme(s.getItem(LS_THEME_KEY)) ?? "dark";
+  const p = toPattern(s.getItem(LS_PATTERN_KEY)) ?? "none";
+  return `${t}|${p}`;
+}
+
+function subscribeWebSnapshot(onStoreChange: () => void) {
+  if (!isWeb || typeof window === "undefined") return () => {};
+
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === LS_THEME_KEY || e.key === LS_PATTERN_KEY) onStoreChange();
+  };
+
+  const onCustom = () => onStoreChange();
+
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(WEB_THEME_EVENT, onCustom as any);
+
+  // w tej samej karcie storage event nie odpala → polling
+  const id = window.setInterval(onStoreChange, 250);
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(WEB_THEME_EVENT, onCustom as any);
+    window.clearInterval(id);
+  };
+}
+
+function emitWebThemeEvent() {
+  if (!isWeb || typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new Event(WEB_THEME_EVENT));
+  } catch {}
+}
+
+/* ----------------------- Provider ----------------------- */
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [pattern, setPatternState] = useState<BackgroundPattern>("none");
 
-  // refs do porównań w sync (bez zależności i bez “pętli”)
+  // refs do porównań w sync
   const themeRef = useRef<Theme>("dark");
   const patternRef = useRef<BackgroundPattern>("none");
 
@@ -363,30 +489,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     patternRef.current = pattern;
   }, [pattern]);
 
-  // ✅ wczytanie ustawień z localStorage (jeśli jest)
+  // ✅ wczytanie ustawień (web/native)
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    let alive = true;
 
-    const t = window.localStorage.getItem(LS_THEME_KEY);
-    if (isTheme(t)) setThemeState(t);
+    (async () => {
+      const tRaw = await storageGet(LS_THEME_KEY);
+      const t = toTheme(tRaw);
+      if (alive && t) setThemeState(t);
 
-    const p = window.localStorage.getItem(LS_PATTERN_KEY);
-    if (isPattern(p)) setPatternState(p);
+      const pRaw = await storageGet(LS_PATTERN_KEY);
+      const p = toPattern(pRaw);
+      if (alive && p) setPatternState(p);
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // ✅ setTheme / setPattern = jedyne miejsce, które ZAPISUJE do localStorage
+  // ✅ setTheme / setPattern = jedyne miejsce, które ZAPISUJE do storage
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LS_THEME_KEY, t);
-    }
+    storageSet(LS_THEME_KEY, t);
+    emitWebThemeEvent(); // ta sama karta
   }, []);
 
   const setPattern = useCallback((p: BackgroundPattern) => {
     setPatternState(p);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LS_PATTERN_KEY, p);
-    }
+    storageSet(LS_PATTERN_KEY, p);
+    emitWebThemeEvent(); // ta sama karta
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -394,10 +526,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const currentIndex = THEMES_CYCLE.indexOf(prev);
       const nextIndex = (currentIndex + 1) % THEMES_CYCLE.length;
       const next = THEMES_CYCLE[nextIndex];
-
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(LS_THEME_KEY, next);
-      }
+      storageSet(LS_THEME_KEY, next);
+      emitWebThemeEvent();
       return next;
     });
   }, []);
@@ -407,35 +537,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const currentIndex = PATTERNS_CYCLE.indexOf(prev);
       const nextIndex = (currentIndex + 1) % PATTERNS_CYCLE.length;
       const next = PATTERNS_CYCLE[nextIndex];
-
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(LS_PATTERN_KEY, next);
-      }
+      storageSet(LS_PATTERN_KEY, next);
+      emitWebThemeEvent();
       return next;
     });
   }, []);
 
   /**
-   * ✅ SYNC z localStorage:
-   * - storage event działa między kartami
-   * - w tej samej karcie storage NIE odpala -> dajemy lekki polling
-   *
-   * WAŻNE: ten efekt TYLKO CZYTA localStorage i aktualizuje stan.
-   * Nie zapisuje z powrotem, więc nie ma “dyskoteki”.
+   * ✅ SYNC web:
+   * - między kartami: storage event
+   * - w tej samej karcie: custom event + polling (subscribeWebSnapshot)
    */
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!isWeb) return;
+
+    const s = getWebStorage();
+    if (!s || typeof window === "undefined") return;
 
     const syncFromStorage = () => {
-      const t = window.localStorage.getItem(LS_THEME_KEY);
-      if (isTheme(t) && t !== themeRef.current) {
-        setThemeState(t);
-      }
+      const t = toTheme(s.getItem(LS_THEME_KEY));
+      if (t && t !== themeRef.current) setThemeState(t);
 
-      const p = window.localStorage.getItem(LS_PATTERN_KEY);
-      if (isPattern(p) && p !== patternRef.current) {
-        setPatternState(p);
-      }
+      const p = toPattern(s.getItem(LS_PATTERN_KEY));
+      if (p && p !== patternRef.current) setPatternState(p);
     };
 
     // start
@@ -449,7 +573,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener("storage", onStorage);
 
-    // gwarancja dla tej samej karty (ale bez zapisu => brak pętli)
     const id = window.setInterval(syncFromStorage, 250);
 
     return () => {
@@ -479,7 +602,33 @@ export function useTheme() {
   return ctx;
 }
 
-// --- helpers do isDark (luminancja bg) ---
+/* ----------------------- Snapshot keys (WEB) ----------------------- */
+
+/**
+ * ✅ KLUCZOWA ZMIANA:
+ * - Na WEB nadal subskrybujemy zmiany (żeby “pingować” rerender),
+ * - ale ŹRÓDŁEM PRAWDY jest Context (ctx.theme/ctx.pattern), NIE localStorage.
+ */
+function useThemeSnapshotKeys(): { theme: Theme; pattern: BackgroundPattern } {
+  const ctx = useTheme();
+
+  if (!isWeb || typeof window === "undefined") {
+    return { theme: ctx.theme, pattern: ctx.pattern };
+  }
+
+  // subskrypcja tylko po to, żeby odświeżyć komponenty, gdy storage zmieni się w innej karcie
+  useSyncExternalStore(
+    subscribeWebSnapshot,
+    readWebSnapshotKey,
+    () => "__no_storage__"
+  );
+
+  // ✅ SOURCE OF TRUTH:
+  return { theme: ctx.theme, pattern: ctx.pattern };
+}
+
+/* ----------------------- Color utils ----------------------- */
+
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
@@ -507,8 +656,7 @@ function getActiveThemeColors(theme: Theme): ThemeColors {
 }
 
 /**
- * ✅ Patterny tła – zwracamy style, które możesz wrzucić np. na wrappera aplikacji.
- * Uwaga: nie nadpisujemy backgroundColor – to weź z colors.bg (albo w tym hooku).
+ * ✅ Patterny tła (web: backgroundImage; native: tylko backgroundColor)
  */
 function getPatternStyle(
   pattern: BackgroundPattern,
@@ -607,7 +755,7 @@ function getPatternStyle(
 }
 
 export function useThemeColors() {
-  const { theme } = useTheme();
+  const { theme } = useThemeSnapshotKeys();
 
   const colors = useMemo(() => {
     const active = getActiveThemeColors(theme);
@@ -626,7 +774,7 @@ export function useThemeColors() {
  * ✅ Hook do łatwego podpięcia tła (kolor + wzorek)
  */
 export function useThemeBackground() {
-  const { pattern } = useTheme();
+  const { pattern } = useThemeSnapshotKeys();
   const { isDark, colors } = useThemeColors();
 
   const backgroundStyle = useMemo<CSSProperties>(() => {
@@ -639,5 +787,4 @@ export function useThemeBackground() {
 
   return { backgroundStyle, pattern };
 }
-
 // src/context/ThemeContext.tsx

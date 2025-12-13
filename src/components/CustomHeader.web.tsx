@@ -1,4 +1,3 @@
-// src/components/CustomHeader.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -77,10 +76,7 @@ export default function CustomHeader() {
   const useNative = Platform.OS !== "web";
   const isMobileWeb = isWeb && width < 720;
 
-  const styles = useMemo(
-    () => makeStyles(palette, isWeb, isMobileWeb),
-    [palette, isWeb, isMobileWeb]
-  );
+  const styles = useMemo(() => makeStyles(palette, isWeb, isMobileWeb), [palette, isWeb, isMobileWeb]);
 
   const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
   const themeLabelUpper = String(themeLabel).toUpperCase();
@@ -114,6 +110,18 @@ export default function CustomHeader() {
     setThemeOpen(false);
     themeAnim.stopAnimation();
     themeAnim.setValue(0);
+  };
+
+  const closeMenuInstant = () => {
+    setMenuOpen(false);
+    menuAnim.stopAnimation();
+    menuAnim.setValue(0);
+  };
+
+  const closeNotifsInstant = () => {
+    setNotifsOpen(false);
+    notifAnim.stopAnimation();
+    notifAnim.setValue(0);
   };
 
   const openTheme = () => {
@@ -156,6 +164,18 @@ export default function CustomHeader() {
   const themeMenuPos = useMemo(() => {
     // WEB: fixed pod buttonem (anchor w viewport)
     if (isWeb && themeAnchor) {
+      // MOBILE WEB: pilnujemy, żeby menu nie nachodziło na header (i było "responsywne")
+      if (isMobileWeb) {
+        const menuW = Math.min(360, Math.max(220, width - 24));
+        const left = Math.max(12, Math.min(themeAnchor.x, width - menuW - 12));
+        return {
+          position: "fixed" as const,
+          left,
+          top: Math.max(10, themeAnchor.y + themeAnchor.h + 8),
+          width: menuW,
+        };
+      }
+
       return {
         position: "fixed" as const,
         left: Math.max(10, themeAnchor.x),
@@ -163,6 +183,7 @@ export default function CustomHeader() {
         width: 232,
       };
     }
+
     // fallback / native
     return {
       position: "absolute" as const,
@@ -170,7 +191,7 @@ export default function CustomHeader() {
       top: 62,
       width: 232,
     };
-  }, [isWeb, themeAnchor]);
+  }, [isWeb, themeAnchor, isMobileWeb, width]);
 
   // NAV STRUCTURE (do użycia w panelu mobilnym)
   const NAV_ITEMS: NavItem[] = [
@@ -270,18 +291,6 @@ export default function CustomHeader() {
     else openNav();
   };
 
-  const closeMenuInstant = () => {
-    setMenuOpen(false);
-    menuAnim.stopAnimation();
-    menuAnim.setValue(0);
-  };
-
-  const closeNotifsInstant = () => {
-    setNotifsOpen(false);
-    notifAnim.stopAnimation();
-    notifAnim.setValue(0);
-  };
-
   // NOTIFICATIONS PANEL
   const [notifsOpen, setNotifsOpen] = useState(false);
   const notifAnim = useRef(new Animated.Value(0)).current;
@@ -296,10 +305,7 @@ export default function CustomHeader() {
       return;
     }
 
-    const qUnread = query(
-      collection(db as any, `users/${uid}/notifications`),
-      where("read", "==", false)
-    );
+    const qUnread = query(collection(db as any, `users/${uid}/notifications`), where("read", "==", false));
 
     const unsub = onSnapshot(
       qUnread,
@@ -403,9 +409,7 @@ export default function CustomHeader() {
     if (!uid) return;
     const nextRead = !n.read;
 
-    setNotifRows((prev) =>
-      prev ? prev.map((row) => (row.id === n.id ? { ...row, read: nextRead } : row)) : prev
-    );
+    setNotifRows((prev) => (prev ? prev.map((row) => (row.id === n.id ? { ...row, read: nextRead } : row)) : prev));
 
     try {
       await updateDoc(doc(db as any, `users/${uid}/notifications/${n.id}`), {
@@ -509,13 +513,12 @@ export default function CustomHeader() {
         tension: 220,
       }).start();
 
-    const hoverHandlers =
-      isWeb
-        ? ({
-            onMouseEnter: () => setHovered(true),
-            onMouseLeave: () => setHovered(false),
-          } as any)
-        : {};
+    const hoverHandlers = isWeb
+      ? ({
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
+        } as any)
+      : {};
 
     return (
       <Pressable
@@ -523,30 +526,15 @@ export default function CustomHeader() {
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         {...hoverHandlers}
-        style={[
-          styles.navBtn,
-          hovered && styles.navBtnHover,
-          active && styles.navBtnActive,
-        ]}
+        style={[styles.navBtn, hovered && styles.navBtnHover, active && styles.navBtnActive]}
       >
         <Animated.View style={[styles.navInner, { transform: [{ scale }] }]}>
-          <Ionicons
-            name={icon}
-            size={18}
-            color={active ? palette.navIconActive : palette.navIcon}
-          />
+          <Ionicons name={icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
 
-            {premium && (
-              <Ionicons
-                name="sparkles"
-                size={14}
-                color={ACCENT_PREMIUM}
-                style={{ marginTop: 1 }}
-              />
-            )}
+            {premium && <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} style={{ marginTop: 1 }} />}
           </View>
         </Animated.View>
       </Pressable>
@@ -563,10 +551,7 @@ export default function CustomHeader() {
     label: string;
     onPress: () => void;
   }) => (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
-    >
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}>
       <Ionicons name={icon} size={18} color={palette.menuText} style={{ marginRight: 8 }} />
       <Text style={styles.menuItemText}>{label}</Text>
     </Pressable>
@@ -597,13 +582,15 @@ export default function CustomHeader() {
             onPress={toggleThemeDropdown}
             style={({ pressed }) => [styles.themeBtn, pressed && styles.themeBtnPressed]}
           >
-            <Ionicons name="color-palette" size={16} color={palette.muted} />
-            {isWeb && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
-            <Ionicons
-              name={themeOpen ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={palette.muted}
-            />
+            <Ionicons name="color-palette" size={isMobileWeb ? 18 : 16} color={palette.muted} />
+
+            {/* ✅ na telefonie (mobile web) NIE pokazujemy nazwy motywu */}
+            {isWeb && !isMobileWeb && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
+
+            {/* ✅ na telefonie zostawiamy tylko ikonkę paletki */}
+            {!isMobileWeb && (
+              <Ionicons name={themeOpen ? "chevron-up" : "chevron-down"} size={14} color={palette.muted} />
+            )}
           </Pressable>
         </View>
 
@@ -666,10 +653,7 @@ export default function CustomHeader() {
                     {isWeb && <Text style={styles.bellLabel}>Powiadomienia</Text>}
                   </Pressable>
 
-                  <Pressable
-                    onPress={toggleMenu}
-                    style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}
-                  >
+                  <Pressable onPress={toggleMenu} style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}>
                     <View style={styles.avatarOuter}>
                       <View style={styles.avatarInner}>
                         {user?.photoURL ? (
@@ -686,11 +670,7 @@ export default function CustomHeader() {
                       {shownName}
                     </Text>
 
-                    <Ionicons
-                      name={menuOpen ? "chevron-up" : "chevron-down"}
-                      size={16}
-                      color={palette.profileChevron}
-                    />
+                    <Ionicons name={menuOpen ? "chevron-up" : "chevron-down"} size={16} color={palette.profileChevron} />
                   </Pressable>
                 </View>
               </>
@@ -700,18 +680,12 @@ export default function CustomHeader() {
             {isMobileWeb && (
               <View style={styles.mobileActions}>
                 {/* MENU (NAV) */}
-                <Pressable
-                  onPress={toggleNav}
-                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-                >
+                <Pressable onPress={toggleNav} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
                   <Ionicons name="ellipsis-horizontal" size={20} color={palette.navIcon} />
                 </Pressable>
 
                 {/* POWIADOMIENIA */}
-                <Pressable
-                  onPress={toggleNotifs}
-                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-                >
+                <Pressable onPress={toggleNotifs} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
                   <View style={{ position: "relative" }}>
                     <Ionicons
                       name={notifsOpen ? "notifications" : "notifications-outline"}
@@ -731,10 +705,7 @@ export default function CustomHeader() {
                 </Pressable>
 
                 {/* PROFIL */}
-                <Pressable
-                  onPress={toggleMenu}
-                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-                >
+                <Pressable onPress={toggleMenu} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
                   <View style={styles.avatarOuterSmall}>
                     <View style={styles.avatarInner}>
                       {user?.photoURL ? (
@@ -756,11 +727,7 @@ export default function CustomHeader() {
       {/* THEME DROPDOWN OVERLAY */}
       {themeOpen && (
         <>
-          <Pressable
-            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
-            onPress={closeTheme}
-            pointerEvents="auto"
-          />
+          <Pressable style={isMobileWeb ? styles.backdropDimmed : styles.backdrop} onPress={closeTheme} pointerEvents="auto" />
 
           <Animated.View
             pointerEvents="auto"
@@ -801,6 +768,12 @@ export default function CustomHeader() {
             >
               {AVAILABLE_THEMES.map((t) => {
                 const active = t === theme;
+
+                const swatch = themeSwatchColor(t);
+                const safeTextColor = active
+                  ? palette.navIconActive
+                  : ensureReadableColor(swatch, palette.menuBg, palette.menuText);
+
                 return (
                   <Pressable
                     key={t}
@@ -811,12 +784,12 @@ export default function CustomHeader() {
                       pressed && styles.themeItemPressed,
                     ]}
                   >
-                    <Text
-                      style={[styles.themeItemText, active && styles.themeItemTextActive]}
-                      numberOfLines={1}
-                    >
-                      {String(THEME_LABELS?.[t] ?? t).toUpperCase()}
-                    </Text>
+                    <View style={styles.themeItemLeft}>
+                      <View style={[styles.themeSwatch, { backgroundColor: swatch, borderColor: palette.border }]} />
+                      <Text style={[styles.themeItemText, { color: safeTextColor }]} numberOfLines={1}>
+                        {String(THEME_LABELS?.[t] ?? t).toUpperCase()}
+                      </Text>
+                    </View>
 
                     {active ? (
                       <Ionicons name="checkmark" size={16} color={palette.navIconActive} />
@@ -854,18 +827,10 @@ export default function CustomHeader() {
                       pressed && styles.mobileNavItemPressed,
                     ]}
                   >
-                    <Ionicons
-                      name={item.icon}
-                      size={18}
-                      color={active ? palette.navIconActive : palette.navIcon}
-                    />
+                    <Ionicons name={item.icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Text style={[styles.mobileNavText, active && styles.mobileNavTextActive]}>
-                        {item.label}
-                      </Text>
-                      {item.premium && (
-                        <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />
-                      )}
+                      <Text style={[styles.mobileNavText, active && styles.mobileNavTextActive]}>{item.label}</Text>
+                      {item.premium && <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />}
                     </View>
                   </Pressable>
                 );
@@ -878,11 +843,7 @@ export default function CustomHeader() {
       {/* MENU DROPDOWN */}
       {user && menuOpen && (
         <>
-          <Pressable
-            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
-            onPress={closeMenu}
-            pointerEvents="auto"
-          />
+          <Pressable style={isMobileWeb ? styles.backdropDimmed : styles.backdrop} onPress={closeMenu} pointerEvents="auto" />
 
           <Animated.View
             pointerEvents="box-none"
@@ -986,11 +947,7 @@ export default function CustomHeader() {
             <View style={styles.notifHeader}>
               <Text style={styles.notifTitle}>Powiadomienia</Text>
 
-              <TouchableOpacity
-                onPress={markVisibleRead}
-                activeOpacity={0.9}
-                style={styles.notifAction}
-              >
+              <TouchableOpacity onPress={markVisibleRead} activeOpacity={0.9} style={styles.notifAction}>
                 <Ionicons name="checkmark-done" size={14} color="#fff" />
                 <Text style={styles.notifActionText}>Przeczytane</Text>
               </TouchableOpacity>
@@ -1031,13 +988,7 @@ export default function CustomHeader() {
                       />
 
                       <View style={{ flex: 1 }}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.notifRowTitle,
-                            { fontWeight: unread ? "900" : "700" },
-                          ]}
-                        >
+                        <Text numberOfLines={1} style={[styles.notifRowTitle, { fontWeight: unread ? "900" : "700" }]}>
                           {n.title || "Powiadomienie"}
                         </Text>
 
@@ -1139,6 +1090,119 @@ function makePalette({
   };
 }
 
+/** ✅ Kolor przypisany do nazwy motywu (pełna mapa + fallback) */
+function themeSwatchColor(t: Theme): string {
+  const key = String(t || "").toLowerCase();
+
+  const THEME_COLORS: Record<string, string> = {
+    dark: "#0b1220",
+    light: "#e2e8f0",
+    slate: "#475569",
+    midnight: "#111827",
+
+    ocean: "#06b6d4",
+    forest: "#22c55e",
+    coffee: "#b45309",
+    sand: "#f59e0b",
+
+    blue: "#3b82f6",
+    green: "#10b981",
+
+    // ✅ brakujące z Twojego screena
+    mint: "#34d399",
+    teal: "#14b8a6",
+    purple: "#a855f7",
+    rose: "#fb7185",
+    crimson: "#dc2626",
+    orange: "#f97316",
+    sunset: "#f59e0b",
+    yellow: "#eab308",
+    cyber: "#22d3ee",
+  };
+
+  return THEME_COLORS[key] ?? colorFromString(key);
+}
+
+/** ✅ Fallback: zawsze generuje sensowny kolor z nazwy (żeby nowe motywy też miały kolor) */
+function colorFromString(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  const h = Math.abs(hash) % 360;
+  // do menu na ciemnym tle: dość jasny i nasycony
+  return hslToHex(h, 78, 55);
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  s /= 100;
+  l /= 100;
+
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+
+  let r = 0,
+    g = 0,
+    b = 0;
+
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+
+  const toHex = (v: number) => {
+    const n = Math.round((v + m) * 255);
+    return n.toString(16).padStart(2, "0");
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/** ✅ Jeśli kolor tekstu ma za słaby kontrast z tłem menu — użyj fallback */
+function ensureReadableColor(colorHex: string, bgHex: string, fallback: string) {
+  const c = toRgb(colorHex);
+  const b = toRgb(bgHex);
+  if (!c || !b) return fallback;
+
+  const ratio = contrastRatio(c, b);
+  return ratio >= 3 ? colorHex : fallback;
+}
+
+function toRgb(hex: string): { r: number; g: number; b: number } | null {
+  const h = String(hex || "").trim();
+  const m = /^#([0-9a-fA-F]{6})$/.exec(h);
+  if (!m) return null;
+  const s = m[1];
+  return {
+    r: parseInt(s.slice(0, 2), 16),
+    g: parseInt(s.slice(2, 4), 16),
+    b: parseInt(s.slice(4, 6), 16),
+  };
+}
+
+function srgbToLinear(v: number) {
+  const x = v / 255;
+  return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+}
+
+function luminance(rgb: { r: number; g: number; b: number }) {
+  const R = srgbToLinear(rgb.r);
+  const G = srgbToLinear(rgb.g);
+  const B = srgbToLinear(rgb.b);
+  return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+}
+
+function contrastRatio(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) {
+  const L1 = luminance(a);
+  const L2 = luminance(b);
+  const lighter = Math.max(L1, L2);
+  const darker = Math.min(L1, L2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isMobileWeb: boolean) {
   return StyleSheet.create({
     wrap: {
@@ -1146,8 +1210,8 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       backgroundColor: palette.bg,
       borderBottomWidth: 1,
       borderBottomColor: palette.border,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingHorizontal: isMobileWeb ? 8 : 12,
+      paddingVertical: isMobileWeb ? 6 : 6,
       zIndex: 100,
     },
     main: {
@@ -1159,43 +1223,47 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 14,
-      paddingVertical: 6,
+      paddingHorizontal: isMobileWeb ? 10 : 14,
+      paddingVertical: isMobileWeb ? 6 : 6,
+      minHeight: isMobileWeb ? 48 : 0,
     },
 
     left: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: isMobileWeb ? 8 : 10,
       flexShrink: 1,
     },
     logoWrap: {
-      paddingRight: 6,
+      paddingRight: isMobileWeb ? 4 : 6,
       paddingVertical: 4,
       ...(isWeb ? ({ cursor: "pointer" } as any) : null),
     },
     logoTop: {
-      fontSize: 18,
+      fontSize: isMobileWeb ? 16 : 18,
       fontWeight: "900",
       color: palette.text,
-      lineHeight: 18,
+      lineHeight: isMobileWeb ? 16 : 18,
     },
     logoBottom: {
-      fontSize: 18,
+      fontSize: isMobileWeb ? 16 : 18,
       fontWeight: "900",
       color: "#1dd4c7",
-      lineHeight: 20,
+      lineHeight: isMobileWeb ? 18 : 20,
       marginTop: -2,
     },
 
-    // ✅ mały, mniej angażujący przycisk
+    // ✅ mały, mniej angażujący przycisk (na mobile web: kompaktowa ikonka)
     themeBtn: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 999,
+      gap: isMobileWeb ? 0 : 8,
+      paddingHorizontal: isMobileWeb ? 0 : 10,
+      paddingVertical: isMobileWeb ? 0 : 5,
+      width: isMobileWeb ? 34 : undefined,
+      height: isMobileWeb ? 34 : undefined,
+      justifyContent: "center",
+      borderRadius: isMobileWeb ? 12 : 999,
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: "transparent",
@@ -1272,15 +1340,26 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
     themeItemActive: {
       backgroundColor: palette.accentSoft,
     },
+
+    themeItemLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      minWidth: 0,
+      paddingRight: 10,
+      gap: 10,
+    },
+    themeSwatch: {
+      width: 12,
+      height: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+    },
     themeItemText: {
-      color: palette.menuText,
       fontSize: 12,
       fontWeight: "900",
       flex: 1,
-      paddingRight: 10,
-    },
-    themeItemTextActive: {
-      color: palette.navIconActive,
+      minWidth: 0,
     },
 
     center: {

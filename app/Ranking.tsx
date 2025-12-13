@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useThemeColors } from "../src/context/ThemeContext";
 import { db, auth } from "../src/firebase/firebase";
@@ -89,12 +89,13 @@ function fmtCompact(n: number) {
 }
 
 /* ===========================================
-   Ranking Screen – MEGA Mobile UI
+   Ranking Screen
 =========================================== */
 
 export default function RankingScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const insets = useSafeAreaInsets();
   const myUid = auth.currentUser?.uid ?? null;
 
   const [users, setUsers] = useState<any[]>([]);
@@ -211,8 +212,10 @@ export default function RankingScreen() {
     [router, myUid, colors]
   );
 
+  const bottomPad = Math.max(insets.bottom, 12);
+
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={["top"]}>
+    <View style={[styles.safe, { backgroundColor: colors.bg }]}>
       <View style={[styles.page, { backgroundColor: colors.bg }]}>
         {busy ? (
           <View style={styles.center}>
@@ -221,27 +224,38 @@ export default function RankingScreen() {
         ) : (
           <>
             <FlatList
+              style={styles.list}
               data={ranking}
               keyExtractor={(item) => item.id}
               renderItem={renderItem}
-              contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
-              stickyHeaderIndices={[0]}
+              contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad + 12 }]}
+              // iOS: twardo wyłączamy auto-insety (żeby nie robiło “dziury”)
+              contentInsetAdjustmentBehavior="never"
+              automaticallyAdjustContentInsets={false as any}
+              contentInset={{ top: 0, left: 0, right: 0, bottom: 0 }}
+              scrollIndicatorInsets={{ top: 0, left: 0, right: 0, bottom: 0 }}
+              removeClippedSubviews={Platform.OS === "android"}
+              initialNumToRender={14}
+              windowSize={9}
+              maxToRenderPerBatch={18}
               ListHeaderComponent={
-                <HeaderMega
-                  colors={colors}
-                  router={router}
-                  mode={mode}
-                  setMode={setMode}
-                  periodLabel={periodLabel}
-                  showDateNav={mode !== "all"}
-                  onPrev={movePrev}
-                  onNext={moveNext}
-                  onNow={resetNow}
-                  top3={top3}
-                  myUid={myUid}
-                />
+                <View style={styles.headerWrap}>
+                  <TopBarCard
+                    colors={colors}
+                    router={router}
+                    mode={mode}
+                    setMode={setMode}
+                    periodLabel={periodLabel}
+                    showDateNav={mode !== "all"}
+                    onPrev={movePrev}
+                    onNext={moveNext}
+                    onNow={resetNow}
+                  />
+                  <Top3Card colors={colors} top3={top3} myUid={myUid} />
+                </View>
               }
+              // rezerwa pod floating "Ty"
               ListFooterComponent={<View style={{ height: myUser ? 88 : 16 }} />}
               ListEmptyComponent={
                 <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
@@ -259,7 +273,11 @@ export default function RankingScreen() {
                 onPress={() => router.push(`/Profile?uid=${myUser.id}`)}
                 style={({ pressed }) => [
                   styles.floatWrap,
-                  { opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.99 : 1 }] },
+                  {
+                    bottom: bottomPad,
+                    opacity: pressed ? 0.92 : 1,
+                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                  },
                 ]}
               >
                 <View
@@ -295,15 +313,15 @@ export default function RankingScreen() {
           </>
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 /* ===========================================
-   Header Mega (sticky) + Podium
+   Header parts (w list header)
 =========================================== */
 
-function HeaderMega({
+function TopBarCard({
   colors,
   router,
   mode,
@@ -313,70 +331,70 @@ function HeaderMega({
   onPrev,
   onNext,
   onNow,
-  top3,
-  myUid,
 }: any) {
   return (
-    <View style={[styles.headerSticky, { backgroundColor: colors.bg }]}>
-      {/* HERO */}
-      <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={styles.heroTop}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
+    <View style={[styles.topBarCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.heroTop}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text style={[styles.heroTitle, { color: colors.text }]}>Ranking</Text>
+          <Text style={{ color: colors.text, opacity: 0.65, marginTop: 2, fontWeight: "800" }} numberOfLines={1}>
+            {periodLabel}
+          </Text>
+        </View>
+
+        <TouchableOpacity onPress={onNow} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
+          <Ionicons name="time-outline" size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+
+      <SegmentedMega colors={colors} mode={mode} setMode={setMode} />
+
+      {showDateNav && (
+        <View style={styles.dateNav}>
+          <TouchableOpacity onPress={onPrev} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
+            <Ionicons name="chevron-back" size={18} color={colors.text} />
           </TouchableOpacity>
 
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={[styles.heroTitle, { color: colors.text }]}>Ranking</Text>
-            <Text style={{ color: colors.text, opacity: 0.65, marginTop: 2, fontWeight: "800" }} numberOfLines={1}>
+          <View style={[styles.datePill, { borderColor: colors.border, backgroundColor: colors.bg }]}>
+            <Ionicons name="calendar-outline" size={14} color={colors.text} style={{ opacity: 0.75 }} />
+            <Text style={{ color: colors.text, fontWeight: "900", marginLeft: 8 }} numberOfLines={1}>
               {periodLabel}
             </Text>
           </View>
 
-          <TouchableOpacity onPress={onNow} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
-            <Ionicons name="time-outline" size={20} color={colors.text} />
+          <TouchableOpacity onPress={onNext} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
+            <Ionicons name="chevron-forward" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
-
-        {/* SEGMENTED */}
-        <SegmentedMega colors={colors} mode={mode} setMode={setMode} />
-
-        {/* DATE NAV */}
-        {showDateNav && (
-          <View style={styles.dateNav}>
-            <TouchableOpacity onPress={onPrev} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
-              <Ionicons name="chevron-back" size={18} color={colors.text} />
-            </TouchableOpacity>
-
-            <View style={[styles.datePill, { borderColor: colors.border, backgroundColor: colors.bg }]}>
-              <Ionicons name="calendar-outline" size={14} color={colors.text} style={{ opacity: 0.75 }} />
-              <Text style={{ color: colors.text, fontWeight: "900", marginLeft: 8 }} numberOfLines={1}>
-                {periodLabel}
-              </Text>
-            </View>
-
-            <TouchableOpacity onPress={onNext} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
-              <Ionicons name="chevron-forward" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* PODIUM */}
-        <View style={[styles.podiumWrap, { borderColor: colors.border, backgroundColor: colors.bg }]}>
-          <Text style={{ color: colors.text, fontWeight: "900", marginBottom: 10 }}>TOP 3</Text>
-
-          <View style={styles.podiumRow}>
-            <PodiumCard colors={colors} user={top3?.[1]} place={2} myUid={myUid} />
-            <PodiumCard colors={colors} user={top3?.[0]} place={1} myUid={myUid} big />
-            <PodiumCard colors={colors} user={top3?.[2]} place={3} myUid={myUid} />
-          </View>
-        </View>
-      </View>
-
-      {/* Separator space under sticky hero */}
-      <View style={{ height: 10 }} />
+      )}
     </View>
   );
 }
+
+function Top3Card({ colors, top3, myUid }: any) {
+  return (
+    <View style={[styles.top3Card, { borderColor: colors.border, backgroundColor: colors.card }]}>
+      <View style={styles.top3HeaderRow}>
+        <Text style={{ color: colors.text, fontWeight: "900" }}>TOP 3</Text>
+        <Text style={{ color: colors.text, opacity: 0.6, fontWeight: "800", fontSize: 12 }}>najwięcej EXP</Text>
+      </View>
+
+      <View style={styles.podiumRow}>
+        <PodiumCard colors={colors} user={top3?.[1]} place={2} myUid={myUid} />
+        <PodiumCard colors={colors} user={top3?.[0]} place={1} myUid={myUid} big />
+        <PodiumCard colors={colors} user={top3?.[2]} place={3} myUid={myUid} />
+      </View>
+    </View>
+  );
+}
+
+/* ===========================================
+   Segmented
+=========================================== */
 
 function SegmentedMega({ colors, mode, setMode }: any) {
   const items = useMemo(
@@ -403,7 +421,7 @@ function SegmentedMega({ colors, mode, setMode }: any) {
     }).start();
   }, [idx, anim]);
 
-  const segW = w ? (w - 8) / 4 : 0; // 4 przyciski + padding
+  const segW = w ? (w - 8) / 4 : 0;
 
   const translateX = anim.interpolate({
     inputRange: [0, 1, 2, 3],
@@ -415,7 +433,6 @@ function SegmentedMega({ colors, mode, setMode }: any) {
       style={[styles.segmentShell, { borderColor: colors.border, backgroundColor: colors.bg }]}
       onLayout={(e) => setW(e.nativeEvent.layout.width)}
     >
-      {/* sliding highlight */}
       {!!segW && (
         <Animated.View
           pointerEvents="none"
@@ -436,10 +453,7 @@ function SegmentedMega({ colors, mode, setMode }: any) {
           <Pressable
             key={it.key}
             onPress={() => setMode(it.key)}
-            style={({ pressed }) => [
-              styles.segmentBtn,
-              { opacity: pressed ? 0.9 : 1 },
-            ]}
+            style={({ pressed }) => [styles.segmentBtn, { opacity: pressed ? 0.9 : 1 }]}
           >
             <Ionicons name={it.icon as any} size={14} color={active ? "#022c22" : colors.text} style={{ opacity: active ? 1 : 0.75 }} />
             <Text style={{ color: active ? "#022c22" : colors.text, fontWeight: "900", fontSize: 12, marginLeft: 6 }}>
@@ -452,17 +466,18 @@ function SegmentedMega({ colors, mode, setMode }: any) {
   );
 }
 
+/* ===========================================
+   PodiumCard
+=========================================== */
+
 function PodiumCard({ colors, user, place, myUid, big }: any) {
   const name = user ? user.displayName || user.username || user.email || "Użytkownik" : "—";
   const exp = user ? Number(user.periodExp || 0) : 0;
   const avatar = user?.photoURL || null;
   const isMe = user?.id && myUid && user.id === myUid;
 
-  const medal =
-    place === 1 ? "trophy" : place === 2 ? "medal" : "ribbon";
-
-  const medalColor =
-    place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : "#d97706";
+  const medal = place === 1 ? "trophy" : place === 2 ? "medal" : "ribbon";
+  const medalColor = place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : "#d97706";
 
   return (
     <View
@@ -471,14 +486,14 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
         big && styles.podiumCardBig,
         {
           borderColor: isMe ? colors.accent + "77" : colors.border,
-          backgroundColor: isMe ? colors.accent + "18" : colors.card,
+          backgroundColor: isMe ? colors.accent + "18" : colors.bg,
         },
       ]}
     >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <View style={[styles.podiumPlace, { backgroundColor: medalColor + "22", borderColor: medalColor + "55" }]}>
-          <Ionicons name={medal as any} size={14} color={medalColor} />
-          <Text style={{ color: medalColor, fontWeight: "900", marginLeft: 6 }}>{place}</Text>
+          <Ionicons name={medal as any} size={13} color={medalColor} />
+          <Text style={{ color: medalColor, fontWeight: "900", marginLeft: 6, fontSize: 12 }}>{place}</Text>
         </View>
 
         {isMe && (
@@ -488,24 +503,26 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
         )}
       </View>
 
-      <View style={{ alignItems: "center", marginTop: 10 }}>
+      <View style={{ alignItems: "center", marginTop: big ? 4 : 2 }}>
         {avatar ? (
           <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
         ) : (
-          <View style={[styles.podiumAvatarGen, { borderColor: colors.border, backgroundColor: colors.bg }, big && styles.podiumAvatarBig]}>
-            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 18 : 16 }}>
+          <View style={[styles.podiumAvatarGen, { borderColor: colors.border, backgroundColor: colors.card }, big && styles.podiumAvatarBig]}>
+            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 16 : 14 }}>
               {(name?.[0] || "U").toUpperCase()}
             </Text>
           </View>
         )}
 
-        <Text style={{ color: colors.text, fontWeight: "900", marginTop: 8 }} numberOfLines={1}>
+        <Text style={{ color: colors.text, fontWeight: "900", marginTop: 4, fontSize: 11 }} numberOfLines={1}>
           {name}
         </Text>
 
         <View style={[styles.podiumExp, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
-          <Ionicons name="sparkles-outline" size={12} color={colors.accent} />
-          <Text style={{ color: colors.accent, fontWeight: "900", marginLeft: 6 }}>{fmtCompact(exp)} EXP</Text>
+          <Ionicons name="sparkles-outline" size={11} color={colors.accent} />
+          <Text style={{ color: colors.accent, fontWeight: "900", marginLeft: 6, fontSize: 10 }}>
+            {fmtCompact(exp)} EXP
+          </Text>
         </View>
       </View>
     </View>
@@ -520,8 +537,7 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
   const avatar = user.photoURL || null;
   const name = user.displayName || user.username || user.email || "Użytkownik";
 
-  const placeColor =
-    place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : place === 3 ? "#d97706" : colors.text;
+  const placeColor = place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : place === 3 ? "#d97706" : colors.text;
 
   return (
     <View
@@ -542,9 +558,7 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
           <Image source={{ uri: avatar }} style={styles.avatar} />
         ) : (
           <View style={[styles.generatedAvatar, { borderColor: colors.border, backgroundColor: colors.bg }]}>
-            <Text style={{ color: colors.accent, fontWeight: "900" }}>
-              {(name?.[0] || "U").toUpperCase()}
-            </Text>
+            <Text style={{ color: colors.accent, fontWeight: "900" }}>{(name?.[0] || "U").toUpperCase()}</Text>
           </View>
         )}
       </View>
@@ -564,12 +578,7 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
         </View>
 
         <View style={{ flexDirection: "row", marginTop: 8 }}>
-          <View
-            style={[
-              styles.expChip,
-              { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" },
-            ]}
-          >
+          <View style={[styles.expChip, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
             <Ionicons name="sparkles-outline" size={12} color={colors.accent} />
             <Text style={{ marginLeft: 6, color: colors.accent, fontSize: 12, fontWeight: "900" }}>
               {fmtCompact(exp)} EXP
@@ -595,23 +604,24 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   page: { flex: 1 },
+  list: { flex: 1 },
 
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
+  // ✅ klucz: normalny, “statystyki-like” start treści pod górnym app-barem
   listContent: {
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 16,
+    paddingTop: 12,
   },
 
-  headerSticky: {
-    paddingTop: 2,
+  headerWrap: {
+    paddingHorizontal: 0,
   },
 
-  hero: {
+  topBarCard: {
     borderWidth: 1,
     borderRadius: 20,
-    padding: 14,
+    padding: 10,
     overflow: "hidden",
   },
 
@@ -623,22 +633,22 @@ const styles = StyleSheet.create({
   },
 
   heroTitle: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: "900",
     letterSpacing: 0.2,
   },
 
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 13,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
 
   segmentShell: {
-    marginTop: 12,
+    marginTop: 8,
     borderWidth: 1,
     borderRadius: 16,
     padding: 4,
@@ -658,7 +668,7 @@ const styles = StyleSheet.create({
 
   segmentBtn: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 34,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
@@ -667,16 +677,16 @@ const styles = StyleSheet.create({
   },
 
   dateNav: {
-    marginTop: 12,
+    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
 
   chevBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 13,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -686,38 +696,46 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderRadius: 14,
-    height: 40,
+    height: 36,
     paddingHorizontal: 12,
     alignItems: "center",
     flexDirection: "row",
   },
 
-  podiumWrap: {
-    marginTop: 12,
+  top3Card: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 18,
+    padding: 10,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+
+  top3HeaderRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 6,
   },
 
   podiumRow: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
   },
 
   podiumCard: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 10,
+    borderRadius: 14,
+    padding: 6,
   },
 
   podiumCardBig: {
-    flex: 1.12,
-    padding: 12,
-    borderRadius: 18,
-    transform: [{ translateY: -6 }],
+    flex: 1.08,
+    padding: 7,
+    borderRadius: 16,
+    transform: [{ translateY: -1 }],
   },
 
   podiumPlace: {
@@ -725,8 +743,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
 
   meTiny: {
@@ -736,21 +754,24 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
 
-  podiumAvatar: { width: 44, height: 44, borderRadius: 16 },
-  podiumAvatarBig: { width: 54, height: 54, borderRadius: 18 },
+  podiumAvatar: { width: 32, height: 32, borderRadius: 12 },
+  podiumAvatarBig: { width: 38, height: 38, borderRadius: 14 },
 
   podiumAvatarGen: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
 
   podiumExp: {
-    marginTop: 8,
+    marginTop: 4,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -829,7 +850,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     right: 14,
-    bottom: 14,
   },
 
   floatCard: {
@@ -864,3 +884,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
+
+// app/Ranking.tsx

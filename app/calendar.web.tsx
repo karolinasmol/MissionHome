@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../src/context/ThemeContext";
@@ -135,6 +136,14 @@ export default function CalendarScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
   const { members } = useFamily();
+
+  const { width } = useWindowDimensions();
+  const isPhone = width < 480;
+  const isTablet = width >= 480 && width < 980;
+  const isWide = width >= 980;
+
+  const pagePadding = isPhone ? 12 : isTablet ? 16 : 24;
+  const daySize = isPhone ? 34 : 30;
 
   const currentUser = auth.currentUser;
   const myUid = currentUser?.uid ?? null;
@@ -414,14 +423,68 @@ export default function CalendarScreen() {
     return anyDelDone;
   };
 
+  const SectionHeader = ({
+    title,
+    subtitle,
+    right,
+    icon,
+  }: {
+    title: string;
+    subtitle: string;
+    right?: React.ReactNode;
+    icon?: keyof typeof Ionicons.glyphMap;
+  }) => {
+    return (
+      <View style={styles.cardHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            {!!icon && (
+              <View
+                style={[
+                  styles.iconPill,
+                  {
+                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    marginRight: 8,
+                  },
+                ]}
+              >
+                <Ionicons name={icon} size={14} color={colors.text} />
+              </View>
+            )}
+            <Text style={[styles.cardTitle, { color: colors.text }]}>
+              {title}
+            </Text>
+          </View>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
+            {subtitle}
+          </Text>
+        </View>
+
+        <View style={{ marginLeft: 12, alignItems: "flex-end" }}>{right}</View>
+      </View>
+    );
+  };
+
   /* ------------------------- UI ------------------------- */
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ paddingVertical: 16, alignItems: "center" }}
+      contentContainerStyle={{
+        paddingVertical: isPhone ? 12 : 16,
+        paddingBottom: 24,
+        alignItems: "stretch",
+      }}
     >
-      <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 24 }}>
+      <View
+        style={{
+          width: "100%",
+          paddingHorizontal: pagePadding,
+          maxWidth: isWide ? 1344 : undefined,
+          alignSelf: "center",
+        }}
+      >
         <Text
           style={{
             color: colors.text,
@@ -454,7 +517,10 @@ export default function CalendarScreen() {
                   return startOfMonth(d);
                 })
               }
-              style={styles.monthNavBtn}
+              style={[
+                styles.monthNavBtn,
+                { borderColor: colors.border, backgroundColor: colors.bg },
+              ]}
             >
               <Ionicons name="chevron-back" size={18} color={colors.text} />
             </TouchableOpacity>
@@ -465,6 +531,7 @@ export default function CalendarScreen() {
                   color: colors.text,
                   fontSize: 16,
                   fontWeight: "700",
+                  textTransform: "capitalize",
                 }}
               >
                 {currentMonth.toLocaleDateString("pl-PL", {
@@ -482,7 +549,10 @@ export default function CalendarScreen() {
                   return startOfMonth(d);
                 })
               }
-              style={styles.monthNavBtn}
+              style={[
+                styles.monthNavBtn,
+                { borderColor: colors.border, backgroundColor: colors.bg },
+              ]}
             >
               <Ionicons
                 name="chevron-forward"
@@ -544,8 +614,8 @@ export default function CalendarScreen() {
                 >
                   <View
                     style={{
-                      width: 30,
-                      height: 30,
+                      width: daySize,
+                      height: daySize,
                       borderRadius: 999,
                       backgroundColor: bg,
                       borderWidth: 1,
@@ -582,566 +652,529 @@ export default function CalendarScreen() {
           </View>
         </View>
 
-        {/* Moje zadania na dzień */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              marginBottom: 16,
-            },
-          ]}
-        >
+        {/* ✅ KAFELKI: AUTO-WRAP (jak brak miejsca -> spadają pod siebie) */}
+        <View style={styles.cardsWrap}>
+          {/* Moje zadania na dzień */}
           <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              alignItems: "center",
-            }}
+            style={[
+              styles.card,
+              styles.responsiveCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
           >
-            <View>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "700",
-                }}
-              >
-                Twoje zadania na dzień
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {formatDayLong(selectedDate)}
-              </Text>
-            </View>
+            <SectionHeader
+              icon="person-circle-outline"
+              title="Twoje zadania"
+              subtitle={formatDayLong(selectedDate)}
+              right={
+                loading ? (
+                  <ActivityIndicator color={colors.accent} />
+                ) : (
+                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                    {myPendingMissions.length} otwarte •{" "}
+                    {myCompletedMissions.length} wykonane
+                  </Text>
+                )
+              }
+            />
 
             {loading ? (
-              <ActivityIndicator color={colors.accent} />
-            ) : (
-              <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                {myPendingMissions.length} otwarte •{" "}
-                {myCompletedMissions.length} wykonane
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Ładowanie zadań…
               </Text>
+            ) : myMissionsForSelectedDay.length === 0 ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Brak zadań przypisanych do Ciebie w tym dniu.
+              </Text>
+            ) : (
+              <>
+                {/* Niezrealizowane */}
+                {myPendingMissions.length > 0 && (
+                  <View style={{ marginBottom: 10 }}>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 13,
+                        fontWeight: "800",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Niezrealizowane
+                    </Text>
+
+                    {myPendingMissions.map((m: any) => {
+                      const creator = getCreatorMember(m);
+
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            styles.missionRow,
+                            {
+                              borderColor: colors.border,
+                              backgroundColor: colors.card,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              marginRight: 10,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Ionicons
+                              name="ellipse-outline"
+                              size={16}
+                              color={colors.textMuted}
+                            />
+                          </View>
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                              numberOfLines={2}
+                            >
+                              {m.title}
+                            </Text>
+
+                            {creator?.label && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Dodane przez: {creator.label}
+                              </Text>
+                            )}
+                          </View>
+
+                          {!!m.expValue && (
+                            <View
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: colors.accent + "88",
+                                backgroundColor: colors.accent + "22",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.accent,
+                                  fontSize: 11,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                +{m.expValue} EXP
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Zrealizowane */}
+                {myCompletedMissions.length > 0 && (
+                  <View>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 13,
+                        fontWeight: "800",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Zrealizowane
+                    </Text>
+
+                    {myCompletedMissions.map((m: any) => {
+                      const creator = getCreatorMember(m);
+                      const doneBy = getCompletedByLabel(m);
+
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            styles.missionRow,
+                            {
+                              borderColor: colors.accent + "66",
+                              backgroundColor: colors.card,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: colors.accent + "AA",
+                              marginRight: 10,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: colors.accent + "22",
+                            }}
+                          >
+                            <Ionicons
+                              name="checkmark"
+                              size={16}
+                              color={colors.accent}
+                            />
+                          </View>
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                              numberOfLines={2}
+                            >
+                              {m.title}
+                            </Text>
+
+                            <Text
+                              style={{
+                                color: colors.textMuted,
+                                fontSize: 11,
+                                marginTop: 2,
+                              }}
+                            >
+                              Wykonane przez: {doneBy}
+                            </Text>
+
+                            {creator?.label && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Dodane przez: {creator.label}
+                              </Text>
+                            )}
+                          </View>
+
+                          {!!m.expValue && (
+                            <View
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: colors.accent + "88",
+                                backgroundColor: colors.accent + "22",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.accent,
+                                  fontSize: 11,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                +{m.expValue} EXP
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
             )}
           </View>
 
-          {loading ? (
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-              Ładowanie zadań…
-            </Text>
-          ) : myMissionsForSelectedDay.length === 0 ? (
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-              Brak zadań przypisanych do Ciebie w tym dniu.
-            </Text>
-          ) : (
-            <>
-              {/* Niezrealizowane */}
-              {myPendingMissions.length > 0 && (
-                <View style={{ marginBottom: 10 }}>
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "800",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Niezrealizowane
-                  </Text>
-
-                  {myPendingMissions.map((m: any) => {
-                    const creator = getCreatorMember(m);
-
-                    return (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.missionRow,
-                          {
-                            borderColor: colors.border,
-                            backgroundColor: colors.card,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            marginRight: 10,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Ionicons
-                            name="ellipse-outline"
-                            size={16}
-                            color={colors.textMuted}
-                          />
-                        </View>
-
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: 14,
-                              fontWeight: "700",
-                            }}
-                            numberOfLines={2}
-                          >
-                            {m.title}
-                          </Text>
-
-                          {creator?.label && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Dodane przez: {creator.label}
-                            </Text>
-                          )}
-                        </View>
-
-                        {!!m.expValue && (
-                          <View
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: colors.accent + "88",
-                              backgroundColor: colors.accent + "22",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: colors.accent,
-                                fontSize: 11,
-                                fontWeight: "700",
-                              }}
-                            >
-                              +{m.expValue} EXP
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* Zrealizowane */}
-              {myCompletedMissions.length > 0 && (
-                <View>
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "800",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Zrealizowane
-                  </Text>
-
-                  {myCompletedMissions.map((m: any) => {
-                    const creator = getCreatorMember(m);
-                    const doneBy = getCompletedByLabel(m);
-
-                    return (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.missionRow,
-                          {
-                            borderColor: colors.accent + "66",
-                            backgroundColor: colors.card,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.accent + "AA",
-                            marginRight: 10,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            backgroundColor: colors.accent + "22",
-                          }}
-                        >
-                          <Ionicons
-                            name="checkmark"
-                            size={16}
-                            color={colors.accent}
-                          />
-                        </View>
-
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: 14,
-                              fontWeight: "700",
-                            }}
-                            numberOfLines={2}
-                          >
-                            {m.title}
-                          </Text>
-
-                          <Text
-                            style={{
-                              color: colors.textMuted,
-                              fontSize: 11,
-                              marginTop: 2,
-                            }}
-                          >
-                            Wykonane przez: {doneBy}
-                          </Text>
-
-                          {creator?.label && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Dodane przez: {creator.label}
-                            </Text>
-                          )}
-                        </View>
-
-                        {!!m.expValue && (
-                          <View
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: colors.accent + "88",
-                              backgroundColor: colors.accent + "22",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: colors.accent,
-                                fontSize: 11,
-                                fontWeight: "700",
-                              }}
-                            >
-                              +{m.expValue} EXP
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* Zadania przypisane innym domownikom */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-              marginBottom: 16,
-            },
-          ]}
-        >
+          {/* Zadania przypisane domownikom */}
           <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              alignItems: "center",
-            }}
+            style={[
+              styles.card,
+              styles.responsiveCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
           >
-            <View>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "700",
-                }}
-              >
-                Zadania przypisane innym domownikom
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {formatDayLong(selectedDate)}
-              </Text>
-            </View>
+            <SectionHeader
+              icon="people-outline"
+              title="Zadania przypisane domownikom"
+              subtitle={formatDayLong(selectedDate)}
+              right={
+                loading ? (
+                  <ActivityIndicator color={colors.accent} />
+                ) : (
+                  <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                    {delegatedPending.length} otwarte •{" "}
+                    {delegatedCompleted.length} wykonane
+                  </Text>
+                )
+              }
+            />
 
             {loading ? (
-              <ActivityIndicator color={colors.accent} />
-            ) : (
-              <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                {delegatedPending.length} otwarte •{" "}
-                {delegatedCompleted.length} wykonane
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Ładowanie zadań…
               </Text>
+            ) : delegatedForSelectedDay.length === 0 ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                Brak zadań przypisanych przez Ciebie innym w tym dniu.
+              </Text>
+            ) : (
+              <>
+                {/* Niezrealizowane */}
+                {delegatedPending.length > 0 && (
+                  <View style={{ marginBottom: 10 }}>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 13,
+                        fontWeight: "800",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Niezrealizowane
+                    </Text>
+
+                    {delegatedPending.map((m: any) => {
+                      const creator = getCreatorMember(m);
+
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            styles.missionRow,
+                            {
+                              borderColor: colors.border,
+                              backgroundColor: colors.card,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              marginRight: 10,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Ionicons
+                              name="ellipse-outline"
+                              size={16}
+                              color={colors.textMuted}
+                            />
+                          </View>
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                              numberOfLines={2}
+                            >
+                              {m.title}
+                            </Text>
+
+                            {!!m.assignedToName && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Przypisane do: {m.assignedToName}
+                              </Text>
+                            )}
+
+                            {creator?.label && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Dodane przez: {creator.label}
+                              </Text>
+                            )}
+                          </View>
+
+                          {!!m.expValue && (
+                            <View
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: colors.accent + "88",
+                                backgroundColor: colors.accent + "22",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.accent,
+                                  fontSize: 11,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                +{m.expValue} EXP
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Zrealizowane */}
+                {delegatedCompleted.length > 0 && (
+                  <View>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: 13,
+                        fontWeight: "800",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Zrealizowane
+                    </Text>
+
+                    {delegatedCompleted.map((m: any) => {
+                      const creator = getCreatorMember(m);
+                      const doneBy = getCompletedByLabel(m);
+
+                      return (
+                        <View
+                          key={m.id}
+                          style={[
+                            styles.missionRow,
+                            {
+                              borderColor: colors.accent + "66",
+                              backgroundColor: colors.card,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 999,
+                              borderWidth: 1,
+                              borderColor: colors.accent + "AA",
+                              marginRight: 10,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              backgroundColor: colors.accent + "22",
+                            }}
+                          >
+                            <Ionicons
+                              name="checkmark"
+                              size={16}
+                              color={colors.accent}
+                            />
+                          </View>
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontSize: 14,
+                                fontWeight: "700",
+                              }}
+                              numberOfLines={2}
+                            >
+                              {m.title}
+                            </Text>
+
+                            <Text
+                              style={{
+                                color: colors.textMuted,
+                                fontSize: 11,
+                                marginTop: 2,
+                              }}
+                            >
+                              Wykonane przez: {doneBy}
+                            </Text>
+
+                            {!!m.assignedToName && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Przypisane do: {m.assignedToName}
+                              </Text>
+                            )}
+
+                            {creator?.label && (
+                              <Text
+                                style={{
+                                  color: colors.textMuted,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Dodane przez: {creator.label}
+                              </Text>
+                            )}
+                          </View>
+
+                          {!!m.expValue && (
+                            <View
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: colors.accent + "88",
+                                backgroundColor: colors.accent + "22",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.accent,
+                                  fontSize: 11,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                +{m.expValue} EXP
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
             )}
           </View>
-
-          {loading ? (
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-              Ładowanie zadań…
-            </Text>
-          ) : delegatedForSelectedDay.length === 0 ? (
-            <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-              Brak zadań przypisanych przez Ciebie innym w tym dniu.
-            </Text>
-          ) : (
-            <>
-              {/* Niezrealizowane */}
-              {delegatedPending.length > 0 && (
-                <View style={{ marginBottom: 10 }}>
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "800",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Niezrealizowane
-                  </Text>
-
-                  {delegatedPending.map((m: any) => {
-                    const creator = getCreatorMember(m);
-
-                    return (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.missionRow,
-                          {
-                            borderColor: colors.border,
-                            backgroundColor: colors.card,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            marginRight: 10,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Ionicons
-                            name="ellipse-outline"
-                            size={16}
-                            color={colors.textMuted}
-                          />
-                        </View>
-
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: 14,
-                              fontWeight: "700",
-                            }}
-                            numberOfLines={2}
-                          >
-                            {m.title}
-                          </Text>
-
-                          {!!m.assignedToName && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Przypisane do: {m.assignedToName}
-                            </Text>
-                          )}
-
-                          {creator?.label && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Dodane przez: {creator.label}
-                            </Text>
-                          )}
-                        </View>
-
-                        {!!m.expValue && (
-                          <View
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: colors.accent + "88",
-                              backgroundColor: colors.accent + "22",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: colors.accent,
-                                fontSize: 11,
-                                fontWeight: "700",
-                              }}
-                            >
-                              +{m.expValue} EXP
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* Zrealizowane */}
-              {delegatedCompleted.length > 0 && (
-                <View>
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "800",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Zrealizowane
-                  </Text>
-
-                  {delegatedCompleted.map((m: any) => {
-                    const creator = getCreatorMember(m);
-                    const doneBy = getCompletedByLabel(m);
-
-                    return (
-                      <View
-                        key={m.id}
-                        style={[
-                          styles.missionRow,
-                          {
-                            borderColor: colors.accent + "66",
-                            backgroundColor: colors.card,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.accent + "AA",
-                            marginRight: 10,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            backgroundColor: colors.accent + "22",
-                          }}
-                        >
-                          <Ionicons
-                            name="checkmark"
-                            size={16}
-                            color={colors.accent}
-                          />
-                        </View>
-
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: 14,
-                              fontWeight: "700",
-                            }}
-                            numberOfLines={2}
-                          >
-                            {m.title}
-                          </Text>
-
-                          <Text
-                            style={{
-                              color: colors.textMuted,
-                              fontSize: 11,
-                              marginTop: 2,
-                            }}
-                          >
-                            Wykonane przez: {doneBy}
-                          </Text>
-
-                          {!!m.assignedToName && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Przypisane do: {m.assignedToName}
-                            </Text>
-                          )}
-
-                          {creator?.label && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                                marginTop: 2,
-                              }}
-                            >
-                              Dodane przez: {creator.label}
-                            </Text>
-                          )}
-                        </View>
-
-                        {!!m.expValue && (
-                          <View
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 999,
-                              borderWidth: 1,
-                              borderColor: colors.accent + "88",
-                              backgroundColor: colors.accent + "22",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: colors.accent,
-                                fontSize: 11,
-                                fontWeight: "700",
-                              }}
-                            >
-                              +{m.expValue} EXP
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </>
-          )}
         </View>
 
         {/* Usunięte zadania */}
@@ -1213,7 +1246,7 @@ export default function CalendarScreen() {
                   <Ionicons name="trash-outline" size={16} color="#ef4444" />
                 </View>
 
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text
                     style={{
                       color: colors.text,
@@ -1251,6 +1284,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
   },
+
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  iconPill: {
+    width: 26,
+    height: 26,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   monthHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1261,7 +1314,6 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.4)",
   },
   weekLabelsRow: {
     flexDirection: "row",
@@ -1272,11 +1324,36 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     marginTop: 4,
   },
+
+  // ✅ fix na mobile web (Safari/Android): flexBasis + maxWidth zamiast width: "14.28%"
   dayCell: {
-    width: "14.28%",
+    flexBasis: "14.2857%",
+    maxWidth: "14.2857%",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
+
+  // ✅ auto-wrap kafelków
+  cardsWrap: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+    // gap działa na web; na native bywa różnie -> i tak mamy marginBottom na kartach
+    gap: 16 as any,
+    marginBottom: 0,
+  },
+
+  // ✅ każdy kafelek ma "preferowaną" szerokość; jak brak miejsca -> spada pod spód
+  responsiveCard: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 560, // docelowo 2 kolumny na szerokości, ale na telefonie spadnie do 1
+    maxWidth: "100%",
+    minWidth: 0,
+    marginBottom: 16, // fallback spacing gdy gap nie zadziała
+  },
+
   missionRow: {
     flexDirection: "row",
     alignItems: "center",

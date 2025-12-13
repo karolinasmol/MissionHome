@@ -1,82 +1,634 @@
-// app/editmission.tsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Platform,
-  ScrollView,
-  ActivityIndicator,
-  Image,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { RepeatType } from "../src/context/TasksContext";
-import { useFamily } from "../src/hooks/useFamily";
-import { createMission } from "../src/services/missions";
-import { auth } from "../src/firebase/firebase";
-import { db } from "../src/firebase/firebase.web";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { useThemeColors, THEME_COLORS_MAP, type Theme } from "../src/context/ThemeContext";
+// src/context/ThemeContext.tsx
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  ReactNode,
+  CSSProperties,
+  useSyncExternalStore,
+} from "react";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/* ----------------------- Helpers ----------------------- */
+/**
+ * ✅ Motywy kolorystyczne
+ */
+export type Theme =
+  | "dark"
+  | "light"
+  | "slate"
+  | "midnight"
+  | "ocean"
+  | "forest"
+  | "coffee"
+  | "sand"
+  | "blue"
+  | "green"
+  | "mint"
+  | "teal"
+  | "purple"
+  | "rose"
+  | "crimson"
+  | "orange"
+  | "sunset"
+  | "yellow"
+  | "cyber"
+  | "mono"
+  | "brown"
+  | "arcade";
 
-function startOfMonth(date: Date) {
-  const d = new Date(date);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d;
+export type ThemeColors = {
+  bg: string;
+  card: string;
+  text: string;
+  textMuted: string;
+  accent: string;
+  border: string;
+};
+
+/**
+ * ✅ Wzorki / patterny tła (opcjonalne)
+ */
+export type BackgroundPattern =
+  | "none"
+  | "dots"
+  | "grid"
+  | "diagonal"
+  | "zigzag"
+  | "waves"
+  | "honeycomb"
+  | "confetti";
+
+/**
+ * ✅ Nazwy (pod UI) — jednosłowne
+ */
+export const THEME_LABELS: Record<Theme, string> = {
+  dark: "dark",
+  light: "light",
+  slate: "slate",
+  midnight: "midnight",
+  ocean: "ocean",
+  forest: "forest",
+  coffee: "coffee",
+  sand: "sand",
+  blue: "blue",
+  green: "green",
+  mint: "mint",
+  teal: "teal",
+  purple: "purple",
+  rose: "rose",
+  crimson: "crimson",
+  orange: "orange",
+  sunset: "sunset",
+  yellow: "yellow",
+  cyber: "cyber",
+  mono: "mono",
+  brown: "brown",
+  arcade: "arcade",
+};
+
+type ThemeContextValue = {
+  theme: Theme;
+  toggleTheme: () => void;
+  setTheme: (t: Theme) => void;
+
+  pattern: BackgroundPattern;
+  togglePattern: () => void;
+  setPattern: (p: BackgroundPattern) => void;
+};
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+
+/**
+ * ✅ Kolejność cyklicznego przełączania
+ */
+const THEMES_CYCLE: Theme[] = [
+  "dark",
+  "light",
+  "slate",
+  "midnight",
+  "ocean",
+  "forest",
+  "coffee",
+  "sand",
+  "blue",
+  "green",
+  "mint",
+  "teal",
+  "purple",
+  "rose",
+  "crimson",
+  "orange",
+  "sunset",
+  "yellow",
+  "cyber",
+  "mono",
+  "brown",
+  "arcade",
+];
+
+// ✅ eksport listy theme’ów do UI (np. settings)
+export const THEMES = THEMES_CYCLE;
+
+const PATTERNS_CYCLE: BackgroundPattern[] = [
+  "none",
+  "dots",
+  "grid",
+  "diagonal",
+  "zigzag",
+  "waves",
+  "honeycomb",
+  "confetti",
+];
+
+// ✅ eksport listy patternów do UI (np. settings)
+export const PATTERNS = PATTERNS_CYCLE;
+
+const BASE_COLORS = {
+  border: "rgba(0,0,0,0.15)",
+} satisfies Partial<ThemeColors>;
+
+/**
+ * ✅ Kolory motywów
+ */
+export const THEME_COLORS: Record<Theme, ThemeColors> = {
+  dark: {
+    bg: "#141b26",
+    card: "#1f2937",
+    text: "#e6edf3",
+    textMuted: "#a3b0c2",
+    accent: "#1dd4c7",
+    border: "rgba(255,255,255,0.12)",
+  },
+  light: {
+    bg: "#9edbd1",
+    card: "#c4eee8",
+    text: "#083b39",
+    textMuted: "#1b746e",
+    accent: "#0fb4a8",
+    border: "rgba(0,90,85,0.25)",
+  },
+  slate: {
+    bg: "#2a3441",
+    card: "#364253",
+    text: "#e9eef6",
+    textMuted: "#b6c3d6",
+    accent: "#7cc4ff",
+    border: "rgba(255,255,255,0.12)",
+  },
+  midnight: {
+    bg: "#0b1020",
+    card: "#111a2f",
+    text: "#e9eeff",
+    textMuted: "#a4b0d6",
+    accent: "#6ea8ff",
+    border: "rgba(255,255,255,0.12)",
+  },
+  ocean: {
+    bg: "#0e2a2f",
+    card: "#123740",
+    text: "#e9fbff",
+    textMuted: "#a6cbd3",
+    accent: "#35e3c6",
+    border: "rgba(255,255,255,0.12)",
+  },
+  forest: {
+    bg: "#13261b",
+    card: "#1a3324",
+    text: "#e9f7ef",
+    textMuted: "#a7c9b4",
+    accent: "#3de28c",
+    border: "rgba(255,255,255,0.12)",
+  },
+  coffee: {
+    bg: "#211a16",
+    card: "#2b221d",
+    text: "#f4ede7",
+    textMuted: "#cbb9ad",
+    accent: "#f0b27a",
+    border: "rgba(255,255,255,0.12)",
+  },
+  sand: {
+    bg: "#d7c7aa",
+    card: "#eadfca",
+    text: "#3d2f1e",
+    textMuted: "#6b5a42",
+    accent: "#b56a2a",
+    border: "rgba(80,55,30,0.22)",
+  },
+  blue: {
+    bg: "#84bdf2",
+    card: "#b2d7ff",
+    text: "#003457",
+    textMuted: "#3f6b93",
+    accent: "#2b82ff",
+    border: "rgba(0,120,255,0.25)",
+  },
+  green: {
+    bg: "#9be69a",
+    card: "#c5f6c5",
+    text: "#0f4f00",
+    textMuted: "#357a33",
+    accent: "#2fe96a",
+    border: "rgba(0,200,60,0.25)",
+  },
+  mint: {
+    bg: "#7ed9c8",
+    card: "#b0f0e6",
+    text: "#063a35",
+    textMuted: "#1f6f68",
+    accent: "#11c6a9",
+    border: "rgba(0,90,85,0.22)",
+  },
+  teal: {
+    bg: "#1f4d57",
+    card: "#2a616e",
+    text: "#e8fbff",
+    textMuted: "#b2d6df",
+    accent: "#2fe0d1",
+    border: "rgba(255,255,255,0.12)",
+  },
+  purple: {
+    bg: "#a58cf2",
+    card: "#c6b2ff",
+    text: "#24005a",
+    textMuted: "#5a458e",
+    accent: "#7f46ff",
+    border: "rgba(120,0,255,0.25)",
+  },
+  rose: {
+    bg: "#d882a8",
+    card: "#f0b0cf",
+    text: "#4b0026",
+    textMuted: "#7b3b5a",
+    accent: "#ff4f8d",
+    border: "rgba(255,0,120,0.22)",
+  },
+  crimson: {
+    bg: "#3a0f1c",
+    card: "#4c1626",
+    text: "#ffe9ee",
+    textMuted: "#e0b4bf",
+    accent: "#ff3b5c",
+    border: "rgba(255,255,255,0.12)",
+  },
+  orange: {
+    bg: "#6b3a12",
+    card: "#824717",
+    text: "#fff1e6",
+    textMuted: "#f0c9ad",
+    accent: "#ff8a2a",
+    border: "rgba(255,255,255,0.12)",
+  },
+  sunset: {
+    bg: "#2b1636",
+    card: "#3a1f4a",
+    text: "#fff0fb",
+    textMuted: "#e0bfe0",
+    accent: "#ff7a45",
+    border: "rgba(255,255,255,0.12)",
+  },
+  yellow: {
+    bg: "#f3e289",
+    card: "#f7edb2",
+    text: "#4f4500",
+    textMuted: "#877b2f",
+    accent: "#ffcc00",
+    border: "rgba(255,200,0,0.3)",
+  },
+  cyber: {
+    bg: "#0a0f0d",
+    card: "#0f1714",
+    text: "#eafff5",
+    textMuted: "#a5c7b6",
+    accent: "#34ff6a",
+    border: "rgba(52,255,106,0.25)",
+  },
+  mono: {
+    bg: "#101010",
+    card: "#1a1a1a",
+    text: "#f3f3f3",
+    textMuted: "#bdbdbd",
+    accent: "#ffffff",
+    border: "rgba(255,255,255,0.14)",
+  },
+  brown: {
+    bg: "#32291f",
+    card: "#4a3c2f",
+    text: "#f2e6d8",
+    textMuted: "#c7b299",
+    accent: "#b67c5a",
+    border: "rgba(210,180,150,0.25)",
+  },
+  arcade: {
+    bg: "#0f172a",
+    card: "#141b33",
+    text: "#eef2ff",
+    textMuted: "#a6b3d6",
+    accent: "#22d3ee",
+    border: "rgba(251,191,36,0.22)",
+  },
+};
+
+/**
+ * ✅ export mapy kolorów do UI (podglądy w settings)
+ */
+export const THEME_COLORS_MAP: Record<Theme, ThemeColors> = THEME_COLORS;
+
+const LS_THEME_KEY = "missionhome_theme";
+const LS_PATTERN_KEY = "missionhome_pattern";
+const isWeb = Platform.OS === "web";
+
+/* ----------------------- Helpers: storage ----------------------- */
+
+function getWebStorage(): Storage | null {
+  // ✅ localStorage -> sessionStorage -> null
+  try {
+    if (typeof window === "undefined") return null;
+
+    // localStorage test
+    const s = window.localStorage;
+    const k = "__mh_test__";
+    s.setItem(k, "1");
+    s.removeItem(k);
+    return s;
+  } catch {
+    try {
+      if (typeof window === "undefined") return null;
+      const s = window.sessionStorage;
+      const k = "__mh_test__";
+      s.setItem(k, "1");
+      s.removeItem(k);
+      return s;
+    } catch {
+      return null;
+    }
+  }
 }
 
-function formatDayLong(date: Date) {
-  return date.toLocaleDateString("pl-PL", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+async function storageGet(key: string): Promise<string | null> {
+  try {
+    if (isWeb) {
+      const s = getWebStorage();
+      return s ? s.getItem(key) : null;
+    }
+    return await AsyncStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
-function formatInputDate(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+async function storageSet(key: string, value: string): Promise<void> {
+  try {
+    if (isWeb) {
+      const s = getWebStorage();
+      if (s) s.setItem(key, value);
+      return;
+    }
+    await AsyncStorage.setItem(key, value);
+  } catch {}
 }
 
-function parseInputDate(value: string) {
-  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const [, year, month, day] = match;
-  const d = new Date(Number(year), Number(month) - 1, Number(day), 12);
-  return isNaN(d.getTime()) ? null : d;
+/* ----------------------- Helpers: normalize ----------------------- */
+
+function unwrapStoredString(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  let s = v.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s.length ? s : null;
 }
 
-function toSafeDate(v: any): Date | null {
-  if (!v) return null;
-  const d = v?.toDate?.() ? v.toDate() : new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+function normalizeStoredKey(v: unknown): string | null {
+  const s = unwrapStoredString(v);
+  return s ? s.toLowerCase() : null;
 }
 
-function hexToRgba(hex: string, alpha: number) {
-  const h = hex.replace("#", "").trim();
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  if (full.length !== 6) return hex;
-  const num = parseInt(full, 16);
-  if (Number.isNaN(num)) return hex;
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  return `rgba(${r},${g},${b},${alpha})`;
+function toTheme(v: unknown): Theme | null {
+  const key = normalizeStoredKey(v);
+  if (!key) return null;
+  return (THEMES_CYCLE as string[]).includes(key) ? (key as Theme) : null;
 }
 
-function withAlpha(color: string, alpha: number) {
-  if (!color) return `rgba(0,0,0,${alpha})`;
-  if (color.startsWith("#")) return hexToRgba(color, alpha);
-  return color;
+function toPattern(v: unknown): BackgroundPattern | null {
+  const key = normalizeStoredKey(v);
+  if (!key) return null;
+  return (PATTERNS_CYCLE as string[]).includes(key)
+    ? (key as BackgroundPattern)
+    : null;
 }
 
-// --- helpers do isDark (luminancja bg) ---
+/* ----------------------- WEB store (dla tej samej karty) ----------------------- */
+
+const WEB_THEME_EVENT = "missionhome:theme-change";
+
+/**
+ * Snapshot jako STRING (stabilny) — używamy go WYŁĄCZNIE do “pingowania” subskrypcji.
+ * Nie jest już źródłem prawdy o motywie (to jest Context).
+ */
+function readWebSnapshotKey(): string {
+  const s = getWebStorage();
+  if (!s) return "__no_storage__";
+  const t = toTheme(s.getItem(LS_THEME_KEY)) ?? "dark";
+  const p = toPattern(s.getItem(LS_PATTERN_KEY)) ?? "none";
+  return `${t}|${p}`;
+}
+
+function subscribeWebSnapshot(onStoreChange: () => void) {
+  if (!isWeb || typeof window === "undefined") return () => {};
+
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === LS_THEME_KEY || e.key === LS_PATTERN_KEY) onStoreChange();
+  };
+
+  const onCustom = () => onStoreChange();
+
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(WEB_THEME_EVENT, onCustom as any);
+
+  // w tej samej karcie storage event nie odpala → polling
+  const id = window.setInterval(onStoreChange, 250);
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(WEB_THEME_EVENT, onCustom as any);
+    window.clearInterval(id);
+  };
+}
+
+function emitWebThemeEvent() {
+  if (!isWeb || typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new Event(WEB_THEME_EVENT));
+  } catch {}
+}
+
+/* ----------------------- Provider ----------------------- */
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>("dark");
+  const [pattern, setPatternState] = useState<BackgroundPattern>("none");
+
+  // refs do porównań w sync
+  const themeRef = useRef<Theme>("dark");
+  const patternRef = useRef<BackgroundPattern>("none");
+
+  useEffect(() => {
+    themeRef.current = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    patternRef.current = pattern;
+  }, [pattern]);
+
+  // ✅ wczytanie ustawień (web/native)
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      const tRaw = await storageGet(LS_THEME_KEY);
+      const t = toTheme(tRaw);
+      if (alive && t) setThemeState(t);
+
+      const pRaw = await storageGet(LS_PATTERN_KEY);
+      const p = toPattern(pRaw);
+      if (alive && p) setPatternState(p);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ✅ setTheme / setPattern = jedyne miejsce, które ZAPISUJE do storage
+  const setTheme = useCallback((t: Theme) => {
+    setThemeState(t);
+    storageSet(LS_THEME_KEY, t);
+    emitWebThemeEvent(); // ta sama karta
+  }, []);
+
+  const setPattern = useCallback((p: BackgroundPattern) => {
+    setPatternState(p);
+    storageSet(LS_PATTERN_KEY, p);
+    emitWebThemeEvent(); // ta sama karta
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const currentIndex = THEMES_CYCLE.indexOf(prev);
+      const nextIndex = (currentIndex + 1) % THEMES_CYCLE.length;
+      const next = THEMES_CYCLE[nextIndex];
+      storageSet(LS_THEME_KEY, next);
+      emitWebThemeEvent();
+      return next;
+    });
+  }, []);
+
+  const togglePattern = useCallback(() => {
+    setPatternState((prev) => {
+      const currentIndex = PATTERNS_CYCLE.indexOf(prev);
+      const nextIndex = (currentIndex + 1) % PATTERNS_CYCLE.length;
+      const next = PATTERNS_CYCLE[nextIndex];
+      storageSet(LS_PATTERN_KEY, next);
+      emitWebThemeEvent();
+      return next;
+    });
+  }, []);
+
+  /**
+   * ✅ SYNC web:
+   * - między kartami: storage event
+   * - w tej samej karcie: custom event + polling (subscribeWebSnapshot)
+   */
+  useEffect(() => {
+    if (!isWeb) return;
+
+    const s = getWebStorage();
+    if (!s || typeof window === "undefined") return;
+
+    const syncFromStorage = () => {
+      const t = toTheme(s.getItem(LS_THEME_KEY));
+      if (t && t !== themeRef.current) setThemeState(t);
+
+      const p = toPattern(s.getItem(LS_PATTERN_KEY));
+      if (p && p !== patternRef.current) setPatternState(p);
+    };
+
+    // start
+    syncFromStorage();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LS_THEME_KEY || e.key === LS_PATTERN_KEY) {
+        syncFromStorage();
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+
+    const id = window.setInterval(syncFromStorage, 250);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      theme,
+      toggleTheme,
+      setTheme,
+      pattern,
+      togglePattern,
+      setPattern,
+    }),
+    [theme, toggleTheme, setTheme, pattern, togglePattern, setPattern]
+  );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
+  return ctx;
+}
+
+/* ----------------------- Snapshot keys (WEB) ----------------------- */
+
+/**
+ * ✅ KLUCZOWA ZMIANA:
+ * - Na WEB nadal subskrybujemy zmiany (żeby “pingować” rerender),
+ * - ale ŹRÓDŁEM PRAWDY jest Context (ctx.theme/ctx.pattern), NIE localStorage.
+ */
+function useThemeSnapshotKeys(): { theme: Theme; pattern: BackgroundPattern } {
+  const ctx = useTheme();
+
+  if (!isWeb || typeof window === "undefined") {
+    return { theme: ctx.theme, pattern: ctx.pattern };
+  }
+
+  // subskrypcja tylko po to, żeby odświeżyć komponenty, gdy storage zmieni się w innej karcie
+  useSyncExternalStore(
+    subscribeWebSnapshot,
+    readWebSnapshotKey,
+    () => "__no_storage__"
+  );
+
+  // ✅ SOURCE OF TRUTH:
+  return { theme: ctx.theme, pattern: ctx.pattern };
+}
+
+/* ----------------------- Color utils ----------------------- */
+
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
@@ -90,785 +642,149 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 }
 function relativeLuminance(hex: string) {
   const rgb = hexToRgb(hex);
-  if (!rgb) return 1;
+  if (!rgb) return 1; // jak nie umiemy policzyć, traktuj jako jasne
   const srgb = [rgb.r, rgb.g, rgb.b].map((v) => v / 255);
   const lin = srgb.map((c) =>
     c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
   );
+  // WCAG
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-function isTheme(v: unknown): v is Theme {
-  return (
-    typeof v === "string" &&
-    Object.prototype.hasOwnProperty.call(THEME_COLORS_MAP, v)
-  );
+function getActiveThemeColors(theme: Theme): ThemeColors {
+  return THEME_COLORS[theme];
 }
 
-/* ----------------------- Difficulty ----------------------- */
-
-const DIFFICULTY_OPTIONS = [
-  { type: "easy", label: "Łatwe", exp: 25 },
-  { type: "medium", label: "Średnie", exp: 50 },
-  { type: "hard", label: "Trudne", exp: 100 },
-];
-
-/* ----------------------- Repeat options ----------------------- */
-
-const REPEAT_OPTIONS: { type: RepeatType; label: string }[] = [
-  { type: "none", label: "Brak" },
-  { type: "daily", label: "Codziennie" },
-  { type: "weekly", label: "Co tydzień" },
-  { type: "monthly", label: "Co miesiąc" },
-];
-
-/* ----------------------- Types ----------------------- */
-
-type AssigneeChip = {
-  id: string; // "self" albo uid
-  label: string;
-  avatarUrl: string | null;
-  level: number;
-  userId: string | null;
-  isSelf: boolean;
-};
-
-/* ----------------------- COMPONENT ----------------------- */
-
-export default function EditMissionScreen() {
-  const router = useRouter();
-  const { members, loading: famLoading } = useFamily();
-  const params = useLocalSearchParams<{ date?: string; missionId?: string }>();
-
-  // ✅ to działa wszędzie, ale u Ciebie potrafi się rozjechać między providerami:
-  const { colors: ctxColors } = useThemeColors();
-
-  // ✅ twarde źródło prawdy na WEB (dokładnie jak ThemeProvider zapisuje)
-  const LS_THEME_KEY = "missionhome_theme";
-  const [lsTheme, setLsTheme] = useState<Theme | null>(null);
-
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    if (typeof window === "undefined") return;
-
-    const read = () => {
-      const t = window.localStorage.getItem(LS_THEME_KEY);
-      if (isTheme(t)) setLsTheme(t);
-      else setLsTheme(null);
+/**
+ * ✅ Patterny tła (web: backgroundImage; native: tylko backgroundColor)
+ */
+function getPatternStyle(
+  pattern: BackgroundPattern,
+  isDark: boolean,
+  colors: ThemeColors
+): Pick<CSSProperties, "backgroundImage" | "backgroundSize" | "backgroundPosition"> {
+  if (pattern === "none") {
+    return {
+      backgroundImage: "none",
+      backgroundSize: undefined,
+      backgroundPosition: undefined,
     };
+  }
 
-    read();
+  const inkA = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+  const inkB = isDark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.035)";
+  const accent = colors.accent;
 
-    // storage event nie odpala w tej samej karcie -> polling (lekki i pewny)
-    const id = window.setInterval(read, 250);
+  switch (pattern) {
+    case "dots":
+      return {
+        backgroundImage: `radial-gradient(${inkA} 1px, transparent 1px)`,
+        backgroundSize: "18px 18px",
+        backgroundPosition: "0 0",
+      };
 
-    // w innych kartach zadziała też event
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === LS_THEME_KEY) read();
-    };
-    window.addEventListener("storage", onStorage);
+    case "grid":
+      return {
+        backgroundImage: `
+          linear-gradient(${inkA} 1px, transparent 1px),
+          linear-gradient(90deg, ${inkA} 1px, transparent 1px)
+        `,
+        backgroundSize: "22px 22px",
+        backgroundPosition: "0 0, 0 0",
+      };
 
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, []);
+    case "diagonal":
+      return {
+        backgroundImage: `repeating-linear-gradient(
+          45deg,
+          ${inkB},
+          ${inkB} 10px,
+          transparent 10px,
+          transparent 20px
+        )`,
+        backgroundSize: "auto",
+        backgroundPosition: "0 0",
+      };
 
-  // ✅ finalne kolory: jeśli web+localStorage ma theme -> używamy go, inaczej bierzemy z contextu
+    case "zigzag":
+      return {
+        backgroundImage: `
+          linear-gradient(135deg, ${inkA} 25%, transparent 25%),
+          linear-gradient(225deg, ${inkA} 25%, transparent 25%),
+          linear-gradient(45deg, ${inkA} 25%, transparent 25%),
+          linear-gradient(315deg, ${inkA} 25%, transparent 25%)
+        `,
+        backgroundSize: "28px 28px",
+        backgroundPosition: "0 0, 0 14px, 14px -14px, -14px 0px",
+      };
+
+    case "waves":
+      return {
+        backgroundImage: `
+          radial-gradient(circle at 20% 10%, ${inkB} 0 10px, transparent 11px),
+          radial-gradient(circle at 80% 30%, ${inkB} 0 10px, transparent 11px),
+          radial-gradient(circle at 30% 80%, ${inkB} 0 12px, transparent 13px),
+          radial-gradient(circle at 70% 90%, ${inkB} 0 12px, transparent 13px)
+        `,
+        backgroundSize: "120px 120px",
+        backgroundPosition: "0 0",
+      };
+
+    case "honeycomb":
+      return {
+        backgroundImage: `
+          linear-gradient(30deg, ${inkA} 12%, transparent 12.5%, transparent 87%, ${inkA} 87.5%, ${inkA}),
+          linear-gradient(150deg, ${inkA} 12%, transparent 12.5%, transparent 87%, ${inkA} 87.5%, ${inkA}),
+          linear-gradient(90deg, ${inkA} 12%, transparent 12.5%, transparent 87%, ${inkA} 87.5%, ${inkA})
+        `,
+        backgroundSize: "44px 76px",
+        backgroundPosition: "0 0, 0 0, 0 0",
+      };
+
+    case "confetti":
+      return {
+        backgroundImage: `
+          radial-gradient(${accent}22 2px, transparent 3px),
+          radial-gradient(${inkA} 2px, transparent 3px),
+          radial-gradient(${inkB} 2px, transparent 3px)
+        `,
+        backgroundSize: "46px 46px, 36px 36px, 28px 28px",
+        backgroundPosition: "0 0, 14px 10px, 22px 18px",
+      };
+  }
+}
+
+export function useThemeColors() {
+  const { theme } = useThemeSnapshotKeys();
+
   const colors = useMemo(() => {
-    if (lsTheme) return THEME_COLORS_MAP[lsTheme];
-    return ctxColors;
-  }, [lsTheme, ctxColors]);
+    const active = getActiveThemeColors(theme);
+    return { ...BASE_COLORS, ...active } as ThemeColors;
+  }, [theme]);
 
-  // ✅ isDark liczone zawsze z finalnego bg
   const isDark = useMemo(() => {
     const L = clamp01(relativeLuminance(colors.bg));
     return L < 0.42;
   }, [colors.bg]);
 
-  const C = useMemo(() => {
-    // delikatne “panele” robimy z tekstu jako overlay, żeby brały tint z tła/karty
-    const surface = isDark ? withAlpha(colors.text, 0.055) : withAlpha(colors.text, 0.08);
-    const inputBg = isDark ? withAlpha(colors.text, 0.07) : withAlpha(colors.text, 0.1);
-
-    const accentSoft = withAlpha(colors.accent, 0.14);
-    const placeholder = isDark ? withAlpha(colors.text, 0.35) : withAlpha(colors.text, 0.45);
-
-    const onAccent = "#041b11";
-
-    const disabledBg = isDark ? withAlpha(colors.text, 0.04) : withAlpha(colors.text, 0.06);
-    const disabledText = isDark ? withAlpha(colors.text, 0.35) : withAlpha(colors.text, 0.45);
-
-    return {
-      surface,
-      inputBg,
-      accentSoft,
-      placeholder,
-      onAccent,
-      disabledBg,
-      disabledText,
-    };
-  }, [colors, isDark]);
-
-  const missionId = params.missionId ? String(params.missionId) : null;
-
-  const currentUser = auth.currentUser;
-  const myUid = currentUser?.uid ?? null;
-  const myDisplayName = currentUser?.displayName || "Ty";
-  const myPhotoURL = currentUser?.photoURL || null;
-
-  const initialDate = params.date ? new Date(params.date) : new Date();
-
-  const [title, setTitle] = useState("");
-  const [assignedToId, setAssignedToId] = useState<string>("self");
-
-  const [chosenDate, setChosenDate] = useState(initialDate);
-  const [inputDate, setInputDate] = useState(formatInputDate(initialDate));
-  const [currentMonth, setCurrentMonth] = useState(startOfMonth(initialDate));
-
-  const [repeatType, setRepeatType] = useState<RepeatType>("none");
-  const [difficulty, setDifficulty] = useState("easy");
-
-  const [saving, setSaving] = useState(false);
-  const [loadingMission, setLoadingMission] = useState(false);
-
-  const [loadedMission, setLoadedMission] = useState<any>(null);
-
-  const isWeb = Platform.OS === "web";
-
-  // żeby nie nadpisywać formularza w trakcie edycji
-  const hydratedOnce = useRef(false);
-
-  /* ---------- LISTA DOMOWNIKÓW ---------- */
-
-  const myMemberEntry = useMemo(() => {
-    if (!members || !myUid) return null;
-    return (
-      members.find((m: any) => {
-        const uid = String(m.uid || m.userId || m.id || "");
-        return uid === myUid;
-      }) || null
-    );
-  }, [members, myUid]);
-
-  const memberChips: AssigneeChip[] = useMemo(() => {
-    const chips: AssigneeChip[] = [];
-
-    const myLevel = (myMemberEntry as any)?.level ?? 1;
-    const myAvatar =
-      (myMemberEntry as any)?.avatarUrl ||
-      (myMemberEntry as any)?.photoURL ||
-      myPhotoURL ||
-      null;
-
-    chips.push({
-      id: "self",
-      label: "Ty",
-      avatarUrl: myAvatar,
-      level: myLevel,
-      userId: myUid,
-      isSelf: true,
-    });
-
-    if (members && members.length > 0) {
-      members.forEach((m: any) => {
-        const uid = String(m.uid || m.userId || m.id || "");
-        if (!uid) return;
-        if (myUid && uid === myUid) return;
-
-        const label = m.displayName || m.username || m.name || "Bez nazwy";
-        const avatarUrl = m.avatarUrl || m.photoURL || null;
-        const level = m.level ?? 1;
-
-        chips.push({
-          id: uid,
-          label,
-          avatarUrl,
-          level,
-          userId: uid,
-          isSelf: false,
-        });
-      });
-    }
-
-    // fallback chip (gdy assignedTo nie ma w members)
-    const assignedToUserId = loadedMission?.assignedToUserId
-      ? String(loadedMission.assignedToUserId)
-      : null;
-
-    const assignedToName = loadedMission?.assignedToName
-      ? String(loadedMission.assignedToName)
-      : null;
-
-    const assignedToAvatarUrl = loadedMission?.assignedToAvatarUrl
-      ? String(loadedMission.assignedToAvatarUrl)
-      : null;
-
-    if (assignedToUserId && (!myUid || assignedToUserId !== myUid)) {
-      const exists = chips.some((c) => c.id === assignedToUserId);
-      if (!exists) {
-        chips.push({
-          id: assignedToUserId,
-          label: assignedToName || "Nieznany użytkownik",
-          avatarUrl: assignedToAvatarUrl || null,
-          level: 1,
-          userId: assignedToUserId,
-          isSelf: false,
-        });
-      }
-    }
-
-    return chips;
-  }, [members, myUid, myMemberEntry, myPhotoURL, loadedMission]);
-
-  const selected = memberChips.find((m) => m.id === assignedToId) || memberChips[0];
-
-  /* ---------- LOAD MISSION ---------- */
-
-  useEffect(() => {
-    if (!missionId) return;
-    if (hydratedOnce.current) return;
-
-    let alive = true;
-
-    (async () => {
-      try {
-        setLoadingMission(true);
-
-        const snap = await getDoc(doc(db, "missions", missionId));
-        if (!snap.exists()) {
-          alert("Nie znaleziono zadania do edycji.");
-          router.back();
-          return;
-        }
-
-        const data = { id: snap.id, ...snap.data() } as any;
-        if (!alive) return;
-
-        setLoadedMission(data);
-
-        const due = toSafeDate(data?.dueDate) || new Date();
-        const rep = (data?.repeat?.type ?? "none") as RepeatType;
-        const diff = (data?.expMode ?? "easy") as string;
-
-        setTitle(String(data?.title ?? ""));
-        setRepeatType(rep);
-        setDifficulty(diff);
-
-        setChosenDate(due);
-        setInputDate(formatInputDate(due));
-        setCurrentMonth(startOfMonth(due));
-
-        const assId = data?.assignedToUserId ? String(data.assignedToUserId) : null;
-        if (assId && myUid && assId === myUid) setAssignedToId("self");
-        else if (assId) setAssignedToId(assId);
-        else setAssignedToId("self");
-
-        hydratedOnce.current = true;
-      } catch (e) {
-        console.error(e);
-        alert("Błąd ładowania zadania.");
-        router.back();
-      } finally {
-        if (alive) setLoadingMission(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [missionId, router, myUid]);
-
-  /* ---------- KALENDARZ ---------- */
-
-  const daysGrid = useMemo(() => {
-    const days: (Date | null)[] = [];
-    const firstDay = new Date(currentMonth);
-    const weekday = firstDay.getDay();
-
-    const offset = weekday === 0 ? 6 : weekday - 1;
-    for (let i = 0; i < offset; i++) days.push(null);
-
-    const nextMonth = new Date(currentMonth);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(0);
-    const lastDay = nextMonth.getDate();
-
-    for (let d = 1; d <= lastDay; d++) {
-      const date = new Date(currentMonth);
-      date.setDate(d);
-      days.push(date);
-    }
-
-    return days;
-  }, [currentMonth]);
-
-  /* ---------- ZAPIS ---------- */
-
-  const handleSave = async () => {
-    if (!title.trim() || saving) return;
-
-    if (!myUid) {
-      alert("Musisz być zalogowany, żeby zapisać zadanie.");
-      return;
-    }
-
-    const expValue = DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
-
-    const assignee = selected;
-
-    const assignedToUserId = assignee.isSelf ? myUid : assignee.userId;
-    if (!assignedToUserId) {
-      alert("Nie udało się ustalić osoby przypisanej do zadania.");
-      return;
-    }
-
-    const assignedToName = assignee.isSelf ? myDisplayName : assignee.label;
-
-    try {
-      setSaving(true);
-
-      if (missionId) {
-        await updateDoc(doc(db, "missions", missionId), {
-          title: title.trim(),
-          assignedToUserId,
-          assignedToName,
-          assignedToAvatarUrl: assignee.avatarUrl ?? null,
-          dueDate: chosenDate,
-          repeat: { type: repeatType },
-          expValue,
-          expMode: difficulty,
-          updatedAt: serverTimestamp(),
-        });
-
-        router.back();
-        return;
-      }
-
-      await createMission({
-        title: title.trim(),
-        assignedToUserId,
-        assignedToName,
-        assignedByUserId: myUid,
-        assignedByName: myDisplayName || "Ty",
-        assignedByAvatarUrl: myPhotoURL,
-        assignedToAvatarUrl: assignee.avatarUrl,
-        dueDate: chosenDate,
-        repeat: { type: repeatType },
-        expValue,
-        expMode: difficulty,
-      });
-
-      router.back();
-    } catch (e) {
-      console.error(e);
-      alert("Błąd zapisu!");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /* ---------- LOADING ---------- */
-
-  if (famLoading || loadingMission) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.bg,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
-
-  /* ---------- UI ---------- */
-
-  const headerTitle = missionId ? "Edytuj zadanie" : "Dodaj zadanie";
-
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{
-        padding: 16,
-        maxWidth: 900,
-        width: "100%",
-        alignSelf: isWeb ? "center" : "stretch",
-      }}
-    >
-      <View
-        style={{
-          backgroundColor: colors.card,
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 16,
-        }}
-      >
-        {/* HEADER */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
-          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
-            {headerTitle}
-          </Text>
-        </View>
-
-        {/* ASSIGNED TO */}
-        <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 6 }}>
-          Przypisane do
-        </Text>
-
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            padding: 12,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: C.surface,
-            marginBottom: 12,
-            gap: 12,
-          }}
-        >
-          {selected.avatarUrl ? (
-            <Image
-              source={{ uri: selected.avatarUrl }}
-              style={{ width: 42, height: 42, borderRadius: 999 }}
-            />
-          ) : (
-            <View
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 999,
-                backgroundColor: C.accentSoft,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: colors.accent, fontWeight: "700" }}>
-                {selected.label?.[0] ?? "?"}
-              </Text>
-            </View>
-          )}
-
-          <View>
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700" }}>
-              {selected.label}
-            </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-              Poziom {selected.level}
-            </Text>
-          </View>
-        </View>
-
-        {/* MEMBER CHIPS */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-          {memberChips.map((m) => {
-            const active = m.id === selected.id;
-            return (
-              <TouchableOpacity
-                key={m.id}
-                onPress={() => setAssignedToId(m.id)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? colors.accent : colors.border,
-                  backgroundColor: active ? C.accentSoft : "transparent",
-                }}
-              >
-                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
-                  {m.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* TRUDNOŚĆ */}
-        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
-          Trudność zadania
-        </Text>
-
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-          {DIFFICULTY_OPTIONS.map((opt) => {
-            const active = difficulty === opt.type;
-            return (
-              <TouchableOpacity
-                key={opt.type}
-                onPress={() => setDifficulty(opt.type)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? colors.accent : colors.border,
-                  backgroundColor: active ? C.accentSoft : "transparent",
-                }}
-              >
-                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
-                  {opt.label} ({opt.exp} EXP)
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* REPEAT */}
-        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
-          Cykliczność
-        </Text>
-
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-          {REPEAT_OPTIONS.map((o) => {
-            const active = o.type === repeatType;
-            return (
-              <TouchableOpacity
-                key={o.type}
-                onPress={() => setRepeatType(o.type)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active ? colors.accent : colors.border,
-                  backgroundColor: active ? C.accentSoft : "transparent",
-                }}
-              >
-                <Text style={{ color: active ? colors.accent : colors.text, fontSize: 13 }}>
-                  {o.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* TITLE INPUT */}
-        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
-          Nazwa zadania
-        </Text>
-
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Np. Umyć naczynia"
-          placeholderTextColor={C.placeholder}
-          style={{
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 10,
-            marginBottom: 20,
-            backgroundColor: C.inputBg,
-            color: colors.text,
-          }}
-        />
-
-        {/* DATE INPUT */}
-        <Text style={{ color: colors.textMuted, marginBottom: 6, fontSize: 13 }}>
-          Data (RRRR-MM-DD)
-        </Text>
-
-        <TextInput
-          value={inputDate}
-          onChangeText={(t) => {
-            setInputDate(t);
-            const valid = parseInputDate(t);
-            if (valid) {
-              setChosenDate(valid);
-              setCurrentMonth(startOfMonth(valid));
-            }
-          }}
-          placeholder="2025-01-01"
-          placeholderTextColor={C.placeholder}
-          style={{
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 10,
-            marginBottom: 14,
-            backgroundColor: C.inputBg,
-            color: colors.text,
-          }}
-        />
-
-        <Text style={{ color: colors.text, marginBottom: 10, fontSize: 15 }}>
-          {formatDayLong(chosenDate)}
-        </Text>
-
-        {/* KALENDARZ */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: C.surface,
-            marginBottom: 24,
-          }}
-        >
-          {/* Month Navigation */}
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              alignItems: "center",
-            }}
-          >
-            <TouchableOpacity
-              onPress={() =>
-                setCurrentMonth((prev) => {
-                  const d = new Date(prev);
-                  d.setMonth(d.getMonth() - 1);
-                  return startOfMonth(d);
-                })
-              }
-              style={{
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <Ionicons name="chevron-back" size={16} color={colors.text} />
-            </TouchableOpacity>
-
-            <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
-              {currentMonth.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
-            </Text>
-
-            <TouchableOpacity
-              onPress={() =>
-                setCurrentMonth((prev) => {
-                  const d = new Date(prev);
-                  d.setMonth(d.getMonth() + 1);
-                  return startOfMonth(d);
-                })
-              }
-              style={{
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <Ionicons name="chevron-forward" size={16} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Week labels */}
-          <View style={{ flexDirection: "row", marginBottom: 6 }}>
-            {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
-              <Text
-                key={d}
-                style={{
-                  flex: 1,
-                  textAlign: "center",
-                  color: colors.textMuted,
-                  fontSize: 11,
-                }}
-              >
-                {d}
-              </Text>
-            ))}
-          </View>
-
-          {/* Days Grid */}
-          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-            {daysGrid.map((d, i) => {
-              if (!d) return <View key={i} style={{ width: "14.28%", height: 34 }} />;
-
-              const selectedDay = d.toDateString() === chosenDate.toDateString();
-
-              return (
-                <TouchableOpacity
-                  key={i}
-                  onPress={() => {
-                    setChosenDate(d);
-                    setInputDate(formatInputDate(d));
-                  }}
-                  style={{
-                    width: "14.28%",
-                    height: 34,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 999,
-                      backgroundColor: selectedDay ? colors.accent : "transparent",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: selectedDay ? C.onAccent : colors.text,
-                        fontSize: 13,
-                        fontWeight: selectedDay ? "700" : "400",
-                      }}
-                    >
-                      {d.getDate()}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* SAVE BUTTONS */}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.textMuted, fontSize: 14 }}>Anuluj</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={!title.trim() || saving}
-            style={{
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: title.trim() && !saving ? colors.accent : C.disabledBg,
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            <Text
-              style={{
-                color: title.trim() && !saving ? C.onAccent : C.disabledText,
-                fontSize: 14,
-                fontWeight: "700",
-              }}
-            >
-              {saving ? "Zapisywanie..." : "Zapisz"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </ScrollView>
-  );
+  return { isDark, colors };
 }
 
-// app/editmission.tsx
+/**
+ * ✅ Hook do łatwego podpięcia tła (kolor + wzorek)
+ */
+export function useThemeBackground() {
+  const { pattern } = useThemeSnapshotKeys();
+  const { isDark, colors } = useThemeColors();
+
+  const backgroundStyle = useMemo<CSSProperties>(() => {
+    const p = getPatternStyle(pattern, isDark, colors);
+    return {
+      backgroundColor: colors.bg,
+      ...p,
+    };
+  }, [pattern, isDark, colors]);
+
+  return { backgroundStyle, pattern };
+}
+// src/context/ThemeContext.tsx

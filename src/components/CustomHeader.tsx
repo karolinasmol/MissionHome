@@ -1,5 +1,6 @@
 // src/components/CustomHeader.tsx
-// UPDATED: Added "Profil" button in profile dropdown (routes to /profile)
+// UPDATED: Theme button in header is now ONLY the palette icon (no theme name).
+// UPDATED: Theme names in dropdown are colorized to match the theme look (heuristic by label/key + fallback).
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -18,13 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
-import {
-  useTheme,
-  useThemeColors,
-  THEMES,
-  THEME_LABELS,
-  Theme,
-} from "../context/ThemeContext";
+import { useTheme, useThemeColors, THEMES, THEME_LABELS, Theme } from "../context/ThemeContext";
 import { auth, db } from "../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -72,8 +67,6 @@ export default function CustomHeader() {
   const palette = useMemo(() => makePalette({ isDark, colors }), [isDark, colors]);
   const styles = useMemo(() => makeStyles(palette), [palette]);
 
-  const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
-  const themeLabelUpper = String(themeLabel).toUpperCase();
   const AVAILABLE_THEMES = THEMES as Theme[];
 
   /* ========== AUTH ========== */
@@ -267,19 +260,16 @@ export default function CustomHeader() {
             <Text style={styles.logoBottom}>Home</Text>
           </Pressable>
 
-          {/* THEME BUTTON (native) */}
+          {/* THEME BUTTON (native) — ONLY ICON */}
           <Pressable
             onPress={() => {
               closeAll();
               setThemeOpen(true);
             }}
-            style={({ pressed }) => [styles.themeBtn, pressed && { opacity: 0.9 }]}
+            style={({ pressed }) => [styles.themeIconBtn, pressed && { opacity: 0.9 }]}
+            accessibilityLabel="Zmień motyw"
           >
-            <Ionicons name="color-palette" size={16} color={palette.muted} />
-            <Text style={styles.themeBtnText} numberOfLines={1}>
-              {themeLabelUpper}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={palette.muted} />
+            <Ionicons name="color-palette" size={18} color={palette.navIcon} />
           </Pressable>
         </View>
 
@@ -351,6 +341,18 @@ export default function CustomHeader() {
             <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ paddingBottom: 6 }}>
               {AVAILABLE_THEMES.map((t) => {
                 const active = t === theme;
+                const labelUpper = String(THEME_LABELS?.[t] ?? t).toUpperCase();
+
+                // heuristic “looks-like” color for each theme (by key/label); fallback is stable
+                const themeColor = active
+                  ? palette.navIconActive
+                  : guessThemeColor({
+                      themeKey: String(t),
+                      labelUpper,
+                      isDark,
+                      fallbackSeed: String(t),
+                    });
+
                 return (
                   <Pressable
                     key={String(t)}
@@ -361,12 +363,12 @@ export default function CustomHeader() {
                       pressed && { opacity: 0.9 },
                     ]}
                   >
-                    <Text
-                      style={[styles.themeRowText, active && { color: palette.navIconActive }]}
-                      numberOfLines={1}
-                    >
-                      {String(THEME_LABELS?.[t] ?? t).toUpperCase()}
-                    </Text>
+                    <View style={styles.themeRowLeft}>
+                      <View style={[styles.themeSwatch, { backgroundColor: themeColor }]} />
+                      <Text style={[styles.themeRowText, { color: themeColor }]} numberOfLines={1}>
+                        {labelUpper}
+                      </Text>
+                    </View>
 
                     {active ? (
                       <Ionicons name="checkmark" size={16} color={palette.navIconActive} />
@@ -408,9 +410,7 @@ export default function CustomHeader() {
                   <Ionicons
                     name={item.icon}
                     size={18}
-                    color={
-                      pathname.startsWith(item.route) ? palette.navIconActive : palette.navIcon
-                    }
+                    color={pathname.startsWith(item.route) ? palette.navIconActive : palette.navIcon}
                   />
                   <Text
                     style={[
@@ -563,10 +563,7 @@ export default function CustomHeader() {
                       <View style={{ flex: 1 }}>
                         <Text
                           numberOfLines={1}
-                          style={[
-                            styles.notifRowTitle,
-                            { fontWeight: unread ? "900" : "700" },
-                          ]}
+                          style={[styles.notifRowTitle, { fontWeight: unread ? "900" : "700" }]}
                         >
                           {n.title || "Powiadomienie"}
                         </Text>
@@ -606,6 +603,41 @@ function hexToRgba(hex: string, alpha: number) {
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function hashStringToIndex(s: string, mod: number) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return mod ? h % mod : 0;
+}
+
+function guessThemeColor({
+  themeKey,
+  labelUpper,
+  isDark,
+  fallbackSeed,
+}: {
+  themeKey: string;
+  labelUpper: string;
+  isDark: boolean;
+  fallbackSeed: string;
+}) {
+  const key = `${themeKey} ${labelUpper}`.toUpperCase();
+
+  // keyword-based (matches typical theme names/labels)
+  if (/(OCEAN|SEA|MORZ|AQUA|TURQUOISE|CYAN|TEAL)/.test(key)) return "#22d3ee";
+  if (/(FOREST|JUNGLE|LAS|GREEN|EMERALD)/.test(key)) return "#22c55e";
+  if (/(SUNSET|ZACH(O|Ó)D|ORANGE|AMBER|GOLD|SUN)/.test(key)) return "#f59e0b";
+  if (/(ROSE|PINK|MAGENTA|FUCHSIA)/.test(key)) return "#ec4899";
+  if (/(PURPLE|VIOLET|LAVENDER|INDIGO)/.test(key)) return "#8b5cf6";
+  if (/(MIDNIGHT|NIGHT|NOC|DARK|BLACK)/.test(key)) return "#60a5fa";
+  if (/(ICE|FROST|SNOW|WINTER)/.test(key)) return "#93c5fd";
+  if (/(SAND|DESERT|BEIGE|EARTH|BRONZE)/.test(key)) return "#d97706";
+  if (/(MONO|GRAY|GREY|SZAR|GRAPHITE)/.test(key)) return isDark ? "#cbd5e1" : "#475569";
+
+  // stable fallback palette
+  const fallback = ["#22d3ee", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#60a5fa", "#10b981"];
+  return fallback[hashStringToIndex(fallbackSeed, fallback.length)];
 }
 
 function makePalette({ isDark, colors }: any) {
@@ -669,24 +701,16 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     logoTop: { fontSize: 18, fontWeight: "900", color: p.text, lineHeight: 18 },
     logoBottom: { fontSize: 18, fontWeight: "900", color: "#1dd4c7", lineHeight: 18 },
 
-    themeBtn: {
-      flexDirection: "row",
+    // NEW: icon-only theme button
+    themeIconBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      justifyContent: "center",
       alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 999,
       borderWidth: 1,
       borderColor: p.border,
       backgroundColor: "transparent",
-      maxWidth: 170,
-    },
-    themeBtnText: {
-      color: p.muted,
-      fontWeight: "900",
-      fontSize: 12,
-      letterSpacing: 0.35,
-      maxWidth: 110,
     },
 
     actions: { flexDirection: "row", alignItems: "center" },
@@ -814,12 +838,22 @@ function makeStyles(p: ReturnType<typeof makePalette>) {
     themeRowActive: {
       backgroundColor: p.accentSoft,
     },
+    themeRowLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      flex: 1,
+      paddingRight: 10,
+    },
+    themeSwatch: {
+      width: 10,
+      height: 10,
+      borderRadius: 999,
+    },
     themeRowText: {
       fontSize: 12,
       fontWeight: "900",
-      color: p.menuText,
       flex: 1,
-      paddingRight: 10,
     },
 
     /* ===== NAV MENU ROW ===== */

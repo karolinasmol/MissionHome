@@ -5,12 +5,13 @@ import {
   TouchableOpacity,
   TextInput,
   SafeAreaView,
-  ScrollView,
   Platform,
   KeyboardAvoidingView,
   Image,
   Animated,
   useWindowDimensions,
+  FlatList,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -27,9 +28,10 @@ import {
   doc,
   setDoc,
   getDoc,
+  Timestamp,
 } from "firebase/firestore";
 
-function conversationIdFor(a, b) {
+function conversationIdFor(a: string, b: string) {
   return [a, b].sort().join("_");
 }
 
@@ -117,44 +119,33 @@ function containsBadWords(message: string) {
   const m = message.toLowerCase();
   return badWords.some((w) => m.includes(w));
 }
-
 function containsThreats(message: string) {
   const m = message.toLowerCase();
   return threatPhrases.some((t) => m.includes(t));
 }
-
 function containsAddressLike(message: string) {
-  // bardzo prosty heurystyczny wzorzec na coś "adresopodobnego"
   const addrRegex =
     /\b(ul\.?|al\.?|os\.?|pl\.?|plac|ulicy)\s+[0-9A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż.\-]+/i;
   return addrRegex.test(message);
 }
-
 function containsPhoneLike(message: string) {
-  // szukamy ciągu cyfr wyglądającego na numer tel. (9–12 cyfr z opcjonalnym + i separatorami)
   const phoneRegex = /(\+?\d[\s\-]?){9,12}/;
   return phoneRegex.test(message);
 }
-
 function containsEmailLike(message: string) {
-  const emailRegex =
-    /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+  const emailRegex = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
   return emailRegex.test(message);
 }
-
 function containsUntrustedLink(message: string) {
   const urlRegex = /(https?:\/\/[^\s]+)/gi;
   const urls = message.toLowerCase().match(urlRegex);
   if (!urls) return false;
 
   return urls.some((url) => {
-    const isTrusted = trustedDomains.some((domain) =>
-      url.includes(domain)
-    );
+    const isTrusted = trustedDomains.some((domain) => url.includes(domain));
     return !isTrusted;
   });
 }
-
 function isMessageAllowed(rawMessage: string) {
   const message = rawMessage.trim();
   if (!message) return true;
@@ -171,27 +162,72 @@ function isMessageAllowed(rawMessage: string) {
 
 /* ------------------ LAYOUT HOOK ------------------ */
 function useChatLayout() {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
 
   const isDesktop = width >= 900;
   const headerHeight = 56;
   const isVerySmallWidth = width < 360;
 
-  const drawerWidth = isDesktop
-    ? 280
-    : Math.min(260, Math.max(200, width * 0.7));
+  const messageMaxWidth = isVerySmallWidth ? "80%" : "86%";
+  const keyboardOffset = headerHeight + 10;
 
-  const messageMaxWidth = isVerySmallWidth ? "78%" : "85%";
+  return { messageMaxWidth, headerHeight, keyboardOffset, isDesktop };
+}
 
-  const keyboardOffset = headerHeight + 8;
+/* ------------------ HELPERS ------------------ */
+function safeToDate(ts: any): Date | null {
+  try {
+    if (!ts) return null;
+    if (ts instanceof Date) return ts;
+    if (ts instanceof Timestamp) return ts.toDate();
+    if (typeof ts?.toDate === "function") return ts.toDate();
+    return null;
+  } catch {
+    return null;
+  }
+}
 
-  return {
-    drawerWidth,
-    messageMaxWidth,
-    headerHeight,
-    keyboardOffset,
-    isDesktop,
-  };
+function formatTimePL(ts: any) {
+  const d = safeToDate(ts);
+  if (!d) return "";
+  return d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDayLabelPL(ts: any) {
+  const d = safeToDate(ts);
+  if (!d) return "";
+  return d.toLocaleDateString("pl-PL", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+type ChatMsg = {
+  id: string;
+  sender: string;
+  text: string;
+  createdAt?: any;
+};
+
+type ChatItem =
+  | { type: "sep"; id: string; label: string }
+  | { type: "msg"; id: string; msg: ChatMsg };
+
+function buildChatItems(messagesDesc: ChatMsg[]): ChatItem[] {
+  const items: ChatItem[] = [];
+  let lastDay = "";
+
+  for (let i = 0; i < messagesDesc.length; i++) {
+    const m = messagesDesc[i];
+    const label = formatDayLabelPL(m.createdAt);
+    if (label && label !== lastDay) {
+      lastDay = label;
+      items.push({ type: "sep", id: `sep-${label}-${m.id}`, label });
+    }
+    items.push({ type: "msg", id: m.id, msg: m });
+  }
+  return items;
 }
 
 export default function MessagesMobile() {
@@ -206,30 +242,51 @@ export default function MessagesMobile() {
 
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<any[]>([]);
-  const scrollRef = useRef<ScrollView | null>(null);
-
-  const {
-    drawerWidth,
-    messageMaxWidth,
-    headerHeight,
-    keyboardOffset,
-    isDesktop,
-  } = useChatLayout();
-
-  const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [blockedModalOpen, setBlockedModalOpen] = useState(false);
 
-  const toggleDrawer = () => {
-    if (isDesktop) return;
-    Animated.timing(drawerX, {
-      toValue: drawerOpen ? -drawerWidth : 0,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-    setDrawerOpen(!drawerOpen);
+  const { messageMaxWidth, headerHeight, keyboardOffset, isDesktop } =
+    useChatLayout();
+
+  const listRef = useRef<FlatList<ChatItem> | null>(null);
+  const inputRef = useRef<TextInput | null>(null);
+
+  /* ------------------ FAMILY PICKER (COMPACT MODAL) ------------------ */
+  const [familyPickerOpen, setFamilyPickerOpen] = useState(false);
+  const pickerY = useRef(new Animated.Value(40)).current; // start slightly down
+  const pickerOpacity = useRef(new Animated.Value(0)).current;
+
+  const openPicker = () => {
+    setFamilyPickerOpen(true);
+    pickerY.setValue(40);
+    pickerOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(pickerOpacity, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pickerY, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const closePicker = () => {
+    Animated.parallel([
+      Animated.timing(pickerOpacity, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pickerY, {
+        toValue: 30,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setFamilyPickerOpen(false));
   };
 
   /* ------------------ PREMIUM CHECK ------------------ */
@@ -272,10 +329,18 @@ export default function MessagesMobile() {
   /* ------------------ FAMILY MEMBERS ------------------ */
   const familyMembers = useMemo(() => {
     if (!members || !myUid) return [];
-    return members.filter(
-      (m) => String(m.uid || m.userId || m.id) !== String(myUid)
-    );
+    return members
+      .filter((m) => String(m.uid || m.userId || m.id) !== String(myUid))
+      .slice(0, 6); // max 6
   }, [members, myUid]);
+
+  const selectedMember = useMemo(() => {
+    if (!selectedUid) return null;
+    return (
+      familyMembers.find((x) => String(x.uid || x.userId || x.id) === selectedUid) ??
+      null
+    );
+  }, [familyMembers, selectedUid]);
 
   /* ------------------ LOAD MESSAGES ------------------ */
   useEffect(() => {
@@ -288,27 +353,31 @@ export default function MessagesMobile() {
 
     const qy = query(
       collection(db, `messages/${convId}/messages`),
-      orderBy("createdAt", "asc")
+      orderBy("createdAt", "desc")
     );
 
     const unsub = onSnapshot(qy, (snap) => {
-      const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as ChatMsg[];
       setMessages(arr);
 
-      setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
     });
 
     return () => unsub();
   }, [myUid, selectedUid]);
 
+  const chatItems = useMemo(() => buildChatItems(messages), [messages]);
+
   /* ------------------ SEND MESSAGE ------------------ */
   const sendMessage = async () => {
     if (!myUid || !selectedUid) return;
-    if (!text.trim()) return;
 
-    if (!isMessageAllowed(text)) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (!isMessageAllowed(trimmed)) {
       setBlockedModalOpen(true);
       return;
     }
@@ -328,14 +397,14 @@ export default function MessagesMobile() {
 
       await addDoc(collection(db, `messages/${convId}/messages`), {
         sender: myUid,
-        text: text.trim(),
+        text: trimmed,
         createdAt: serverTimestamp(),
       });
 
       setText("");
 
       requestAnimationFrame(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       });
     } catch (err) {
       console.log("MESSAGE ERROR:", err);
@@ -353,10 +422,506 @@ export default function MessagesMobile() {
           justifyContent: "center",
         }}
       >
-        <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
+        <View
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 999,
+            borderWidth: 2,
+            borderColor: colors.border,
+            borderTopColor: colors.accent,
+            marginBottom: 12,
+          }}
+        />
+        <Text style={{ color: colors.textMuted, fontWeight: "800" }}>
+          Ładowanie…
+        </Text>
       </SafeAreaView>
     );
   }
+
+  const renderAvatar = (
+    pURL?: string | null,
+    fallbackLetter?: string,
+    size = 40
+  ) => {
+    if (pURL) {
+      return (
+        <Image
+          source={{ uri: pURL }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        />
+      );
+    }
+
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 999,
+          backgroundColor: colors.bg,
+          justifyContent: "center",
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.text, fontWeight: "1000" }}>
+          {(fallbackLetter ?? "?").toUpperCase()}
+        </Text>
+      </View>
+    );
+  };
+
+  const canSend = !!text.trim() && !!selectedUid;
+
+  const bubbleRadii = (isMine: boolean, joinTop: boolean, joinBottom: boolean) => {
+    const R = 18;
+    const s = 8;
+    const tl = isMine ? R : joinTop ? s : R;
+    const tr = isMine ? (joinTop ? s : R) : R;
+    const bl = isMine ? R : joinBottom ? s : R;
+    const br = isMine ? (joinBottom ? s : R) : R;
+    return {
+      borderTopLeftRadius: tl,
+      borderTopRightRadius: tr,
+      borderBottomLeftRadius: bl,
+      borderBottomRightRadius: br,
+    };
+  };
+
+  const renderItem = ({ item, index }: { item: ChatItem; index: number }) => {
+    if (item.type === "sep") {
+      return (
+        <View
+          style={{
+            alignSelf: "center",
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.bg,
+            marginVertical: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 12,
+              fontWeight: "1000",
+            }}
+          >
+            {item.label}
+          </Text>
+        </View>
+      );
+    }
+
+    const msg = item.msg;
+    const isMine = msg.sender === myUid;
+
+    const prev = chatItems[index - 1];
+    const next = chatItems[index + 1];
+    const prevMsg = prev?.type === "msg" ? prev.msg : null;
+    const nextMsg = next?.type === "msg" ? next.msg : null;
+
+    const joinBottom = !!prevMsg && prevMsg.sender === msg.sender;
+    const joinTop = !!nextMsg && nextMsg.sender === msg.sender;
+
+    const time = formatTimePL(msg.createdAt);
+
+    return (
+      <View
+        style={{
+          alignSelf: isMine ? "flex-end" : "flex-start",
+          maxWidth: messageMaxWidth,
+          marginBottom: joinTop ? 6 : 10,
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: isMine ? colors.accent : colors.card,
+            borderWidth: 1,
+            borderColor: isMine ? colors.accent + "55" : colors.border,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            ...bubbleRadii(isMine, joinTop, joinBottom),
+            shadowColor: "#000",
+            shadowOpacity: Platform.OS === "ios" ? 0.08 : 0,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 6 },
+            elevation: Platform.OS === "android" ? 1 : 0,
+          }}
+        >
+          <Text
+            style={{
+              color: isMine ? "#022c22" : colors.text,
+              fontWeight: "800",
+              fontSize: 14,
+              lineHeight: 19,
+            }}
+          >
+            {msg.text}
+          </Text>
+
+          {!!time && (
+            <Text
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: isMine ? "#01403A" : colors.textMuted,
+                alignSelf: "flex-end",
+                fontWeight: "900",
+              }}
+            >
+              {time}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const FamilyDock = () => {
+    return (
+      <View
+        style={{
+          marginTop: 10,
+          padding: 10,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <TouchableOpacity
+          onPress={openPicker}
+          activeOpacity={0.85}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.bg,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 10,
+          }}
+        >
+          <Ionicons name="people" size={18} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={{ flex: 1, flexDirection: "row", gap: 10 as any }}>
+          {familyMembers.map((m) => {
+            const uid = String(m.uid || m.userId || m.id);
+            const pURL = m.photoURL || m.avatarUrl;
+            const isActive = selectedUid === uid;
+            const name = m.displayName || "Członek";
+
+            return (
+              <TouchableOpacity
+                key={uid}
+                onPress={() => {
+                  setSelectedUid(uid);
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                activeOpacity={0.85}
+                style={{ alignItems: "center" }}
+              >
+                <View
+                  style={{
+                    padding: 2,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: isActive ? colors.accent : "transparent",
+                    backgroundColor: "transparent",
+                  }}
+                >
+                  {renderAvatar(pURL, name[0], 38)}
+                </View>
+
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    marginTop: 5,
+                    maxWidth: 62,
+                    color: isActive ? colors.text : colors.textMuted,
+                    fontSize: 11,
+                    fontWeight: isActive ? "1000" : "800",
+                    textAlign: "center",
+                  }}
+                >
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={{ marginLeft: 10, alignItems: "flex-end" }}>
+          <View
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: !isPremium ? colors.accent + "66" : colors.border,
+              backgroundColor: !isPremium ? colors.accent + "14" : colors.bg,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6 as any,
+            }}
+          >
+            <Ionicons
+              name={!isPremium ? "sparkles" : "checkmark-circle"}
+              size={14}
+              color={!isPremium ? colors.accent : colors.textMuted}
+            />
+            <Text
+              style={{
+                color: !isPremium ? colors.accent : colors.textMuted,
+                fontWeight: "1000",
+                fontSize: 12,
+              }}
+            >
+              {!isPremium ? "Dołącz do Rodziny, aby móc wysyłać wiadomości" : "Premium"}
+            </Text>
+          </View>
+
+          <Text
+            style={{
+              marginTop: 6,
+              color: colors.textMuted,
+              fontSize: 11,
+              fontWeight: "800",
+            }}
+          >
+            {selectedMember?.displayName ? "Rozmowa aktywna" : "Wybierz osobę"}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const FamilyPicker = () => {
+    if (!familyPickerOpen) return null;
+
+    return (
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 500,
+          opacity: pickerOpacity,
+        }}
+      >
+        <Pressable
+          onPress={closePicker}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15,23,42,0.55)",
+          }}
+        />
+
+        <Animated.View
+          style={{
+            position: "absolute",
+            left: 14,
+            right: 14,
+            top: headerHeight + 14,
+            transform: [{ translateY: pickerY }],
+          }}
+        >
+          <View
+            style={{
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              padding: 14,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <View>
+                <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 16 }}>
+                  Wybierz rozmowę
+                </Text>
+                <Text style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+                  Maks 6 osób — szybki przełącznik
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={closePicker}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="close" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                gap: 10 as any,
+              }}
+            >
+              {familyMembers.map((m) => {
+                const uid = String(m.uid || m.userId || m.id);
+                const pURL = m.photoURL || m.avatarUrl;
+                const name = m.displayName || "Członek";
+                const isActive = selectedUid === uid;
+
+                return (
+                  <TouchableOpacity
+                    key={uid}
+                    onPress={() => {
+                      setSelectedUid(uid);
+                      closePicker();
+                      requestAnimationFrame(() => inputRef.current?.focus());
+                    }}
+                    activeOpacity={0.85}
+                    style={{
+                      width: "48%",
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: isActive ? colors.accent + "66" : colors.border,
+                      backgroundColor: isActive ? colors.accent + "18" : colors.bg,
+                      padding: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        padding: 2,
+                        borderRadius: 999,
+                        borderWidth: 2,
+                        borderColor: isActive ? colors.accent : "transparent",
+                      }}
+                    >
+                      {renderAvatar(pURL, name[0], 40)}
+                    </View>
+
+                    <View style={{ marginLeft: 10, flex: 1 }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ color: colors.text, fontWeight: "1100", fontSize: 14 }}
+                      >
+                        {name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}
+                      >
+                        Kliknij, aby pisać
+                      </Text>
+                    </View>
+
+                    <Ionicons
+                      name={isActive ? "checkmark-circle" : "chatbubble-ellipses-outline"}
+                      size={18}
+                      color={isActive ? colors.accent : colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    );
+  };
+
+  const renderChatHeader = () => {
+    if (!selectedMember) return null;
+
+    const pURL = selectedMember.photoURL || selectedMember.avatarUrl;
+    const name = selectedMember.displayName || "Rozmowa";
+
+    return (
+      <View
+        style={{
+          marginTop: 10,
+          padding: 12,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.bg,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+          <View style={{ padding: 2, borderRadius: 999, borderWidth: 2, borderColor: colors.accent + "55" }}>
+            {renderAvatar(pURL, name[0], 42)}
+          </View>
+          <View style={{ marginLeft: 10, flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 16 }} numberOfLines={1}>
+              {name}
+            </Text>
+            <Text style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+              Prywatna rozmowa
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          onPress={openPicker}
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.card,
+            alignItems: "center",
+            justifyContent: "center",
+            marginLeft: 10,
+          }}
+        >
+          <Ionicons name="swap-horizontal" size={18} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   /* ------------------ MAIN UI ------------------ */
   return (
@@ -366,461 +931,314 @@ export default function MessagesMobile() {
         style={{
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 10,
-          paddingVertical: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
           height: headerHeight,
+          backgroundColor: colors.bg,
         }}
       >
-        {!isDesktop && (
-          <TouchableOpacity onPress={toggleDrawer}>
-            <Ionicons name="menu" size={26} color={colors.text} />
-          </TouchableOpacity>
-        )}
-
-        <Text
+        <TouchableOpacity
+          onPress={openPicker}
           style={{
-            color: colors.text,
-            fontSize: 17,
-            fontWeight: "800",
-            marginLeft: !isDesktop ? 12 : 0,
-          }}
-        >
-          Wiadomości
-        </Text>
-      </View>
-
-      {/* MOBILE DRAWER */}
-      {!isDesktop && (
-        <Animated.View
-          style={{
-            position: "absolute",
-            top: headerHeight,
-            bottom: 0,
-            left: 0,
-            width: drawerWidth,
-            backgroundColor: colors.card,
-            borderRightWidth: 1,
+            width: 40,
+            height: 40,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 1,
             borderColor: colors.border,
-            padding: 10,
-            transform: [{ translateX: drawerX }],
-            zIndex: 20,
+            backgroundColor: colors.card,
           }}
+          activeOpacity={0.85}
         >
+          <Ionicons name="people" size={18} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text style={{ color: colors.text, fontSize: 17, fontWeight: "1100" }}>
+            Wiadomości
+          </Text>
           <Text
             style={{
-              color: colors.text,
+              marginTop: 1,
+              color: colors.textMuted,
+              fontSize: 12,
               fontWeight: "800",
-              fontSize: 15,
-              marginBottom: 10,
             }}
+            numberOfLines={1}
           >
-            Rodzina
+            {selectedMember?.displayName
+              ? `Rozmowa: ${selectedMember.displayName}`
+              : "Wybierz osobę z docka"}
           </Text>
+        </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {familyMembers.map((m) => {
-              const uid = m.uid || m.userId || m.id;
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.card,
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-back" size={18} color={colors.text} />
+        </TouchableOpacity>
+      </View>
 
-              const pURL = m.photoURL || m.avatarUrl;
+      {/* FAMILY DOCK (COMPACT, ALWAYS) */}
+      <View style={{ paddingHorizontal: 12 }}>
+        <FamilyDock />
+      </View>
 
-              return (
-                <TouchableOpacity
-                  key={uid}
-                  onPress={() => {
-                    setSelectedUid(String(uid));
-                    toggleDrawer();
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    padding: 8,
-                    borderRadius: 8,
-                    marginBottom: 6,
-                    backgroundColor:
-                      selectedUid === String(uid)
-                        ? colors.accent + "22"
-                        : "transparent",
-                    borderWidth: 1,
-                    borderColor:
-                      selectedUid === String(uid)
-                        ? colors.accent
-                        : colors.border,
-                  }}
-                >
-                  {pURL ? (
-                    <Image
-                      source={{ uri: pURL }}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 999,
-                        marginRight: 10,
-                      }}
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 999,
-                        backgroundColor: colors.bg,
-                        justifyContent: "center",
-                        alignItems: "center",
-                        marginRight: 10,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      }}
-                    >
-                      <Text style={{ color: colors.text, fontWeight: "700" }}>
-                        {m.displayName?.[0] ?? "?"}
-                      </Text>
-                    </View>
-                  )}
-
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 13,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {m.displayName || "Członek"}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </Animated.View>
-      )}
-
-      {/* CHAT WINDOW */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={keyboardOffset}
       >
-        <View
-          style={{
-            flex: 1,
-            flexDirection: isDesktop ? "row" : "column",
-          }}
-        >
-          {/* DESKTOP SIDE LIST */}
-          {isDesktop && (
+        <View style={{ flex: 1, paddingHorizontal: 12, paddingTop: 8 }}>
+          {!selectedUid ? (
             <View
               style={{
-                width: drawerWidth,
-                backgroundColor: colors.card,
-                borderRightWidth: 1,
-                borderColor: colors.border,
-                padding: 10,
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: 20,
               }}
             >
+              <View
+                style={{
+                  width: 78,
+                  height: 78,
+                  borderRadius: 22,
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <Ionicons name="chatbubbles-outline" size={36} color={colors.textMuted} />
+              </View>
+
               <Text
                 style={{
                   color: colors.text,
-                  fontWeight: "800",
-                  fontSize: 15,
-                  marginBottom: 10,
+                  fontWeight: "1100",
+                  fontSize: 16,
+                  textAlign: "center",
                 }}
               >
-                Rodzina
+                Wybierz osobę z docka
               </Text>
 
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {familyMembers.map((m) => {
-                  const uid = m.uid || m.userId || m.id;
+              <Text
+                style={{
+                  marginTop: 6,
+                  color: colors.textMuted,
+                  textAlign: "center",
+                  fontWeight: "800",
+                }}
+              >
+                Masz max 6 osób, więc dock jest najszybszy.
+              </Text>
 
-                  const pURL = m.photoURL || m.avatarUrl;
-
-                  return (
-                    <TouchableOpacity
-                      key={uid}
-                      onPress={() => setSelectedUid(String(uid))}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        padding: 8,
-                        borderRadius: 8,
-                        marginBottom: 6,
-                        backgroundColor:
-                          selectedUid === String(uid)
-                            ? colors.accent + "22"
-                            : "transparent",
-                        borderWidth: 1,
-                        borderColor:
-                          selectedUid === String(uid)
-                            ? colors.accent
-                            : colors.border,
-                      }}
-                    >
-                      {pURL ? (
-                        <Image
-                          source={{ uri: pURL }}
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 999,
-                            marginRight: 10,
-                          }}
-                        />
-                      ) : (
-                        <View
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 999,
-                            backgroundColor: colors.bg,
-                            justifyContent: "center",
-                            alignItems: "center",
-                            marginRight: 10,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                          }}
-                        >
-                          <Text style={{ color: colors.text, fontWeight: "700" }}>
-                            {m.displayName?.[0] ?? "?"}
-                          </Text>
-                        </View>
-                      )}
-
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 13,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {m.displayName || "Członek"}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+              <TouchableOpacity
+                onPress={openPicker}
+                style={{
+                  marginTop: 16,
+                  backgroundColor: colors.accent,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 14,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8 as any,
+                }}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="swap-horizontal" size={18} color="#022c22" />
+                <Text style={{ color: "#022c22", fontWeight: "1100" }}>
+                  Otwórz wybór rozmowy
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
+          ) : (
+            <>
+              {renderChatHeader()}
 
-          {/* CHAT PANEL */}
-          <View
-            style={{
-              flex: 1,
-              paddingHorizontal: 10,
-              paddingTop: 8,
-            }}
-          >
-            {!selectedUid ? (
+              {/* MESSAGES */}
               <View
                 style={{
                   flex: 1,
-                  alignItems: "center",
-                  justifyContent: "center",
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                  paddingHorizontal: 10,
+                  paddingTop: 8,
+                  overflow: "hidden",
+                  marginTop: 10,
                 }}
               >
-                <Ionicons
-                  name="chatbubbles-outline"
-                  size={44}
-                  color={colors.textMuted}
-                />
-                <Text
-                  style={{
-                    marginTop: 10,
-                    color: colors.textMuted,
-                    textAlign: "center",
+                <FlatList
+                  ref={(r) => (listRef.current = r)}
+                  data={chatItems}
+                  keyExtractor={(it) => it.id}
+                  renderItem={renderItem}
+                  inverted
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{
+                    paddingTop: 12,
+                    paddingBottom: 12,
                   }}
-                >
-                  Wybierz osobę, aby rozpocząć rozmowę
-                </Text>
+                  onScrollBeginDrag={() => inputRef.current?.blur()}
+                />
               </View>
-            ) : (
-              <>
-                {/* ----------------- CHAT HEADER WITH AVATAR ----------------- */}
+
+              {/* INPUT */}
+              <View
+                style={{
+                  marginTop: 10,
+                  marginBottom: 8,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: !isPremium ? colors.accent + "66" : colors.border,
+                  backgroundColor: !isPremium ? colors.accent + "10" : colors.card,
+                  padding: 10,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.bg,
+                      paddingHorizontal: 12,
+                      paddingVertical: Platform.OS === "ios" ? 10 : 6,
+                      marginRight: 10,
+                    }}
+                  >
+                    <TextInput
+                      ref={(r) => (inputRef.current = r)}
+                      placeholder="Napisz wiadomość…"
+                      placeholderTextColor={colors.textMuted}
+                      value={text}
+                      onChangeText={setText}
+                      style={{
+                        color: colors.text,
+                        fontSize: 15,
+                        fontWeight: "800",
+                        maxHeight: 110,
+                      }}
+                      multiline
+                      blurOnSubmit={false}
+                      returnKeyType="send"
+                      onSubmitEditing={() => sendMessage()}
+                      onKeyPress={(e) => {
+                        if (Platform.OS === "web") {
+                          // @ts-ignore
+                          const isEnter = e?.nativeEvent?.key === "Enter";
+                          // @ts-ignore
+                          const shift = e?.nativeEvent?.shiftKey === true;
+                          if (isEnter && !shift) {
+                            // @ts-ignore
+                            e.preventDefault?.();
+                            sendMessage();
+                          }
+                        }
+                      }}
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={sendMessage}
+                    activeOpacity={0.85}
+                    disabled={!canSend}
+                    style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: 16,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: canSend ? colors.accent : colors.border,
+                      borderWidth: 1,
+                      borderColor: canSend ? colors.accent + "66" : colors.border,
+                    }}
+                  >
+                    <Ionicons
+                      name="send"
+                      size={18}
+                      color={canSend ? "#022c22" : colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                </View>
+
                 <View
                   style={{
+                    marginTop: 8,
                     flexDirection: "row",
                     alignItems: "center",
-                    paddingBottom: 6,
-                    borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
-                    marginBottom: 6,
+                    justifyContent: "space-between",
                   }}
                 >
-                  {(() => {
-                    const member = familyMembers.find(
-                      (x) =>
-                        String(x.uid || x.userId || x.id) === selectedUid
-                    );
-
-                    const pURL = member?.photoURL || member?.avatarUrl;
-
-                    if (pURL) {
-                      return (
-                        <Image
-                          source={{ uri: pURL }}
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                          }}
-                        />
-                      );
-                    }
-
-                    return (
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 999,
-                          backgroundColor: colors.bg,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Text style={{ color: colors.text, fontWeight: "700" }}>
-                          {member?.displayName?.[0] ?? "?"}
-                        </Text>
-                      </View>
-                    );
-                  })()}
-
                   <Text
                     style={{
-                      marginLeft: 12,
-                      color: colors.text,
-                      fontSize: 17,
+                      color: colors.textMuted,
+                      fontSize: 12,
                       fontWeight: "800",
                     }}
                   >
-                    {
-                      familyMembers.find(
-                        (x) =>
-                          String(x.uid || x.userId || x.id) === selectedUid
-                      )?.displayName
-                    }
+                    Enter = wyślij • Shift+Enter = nowa linia
                   </Text>
-                </View>
 
-                {/* ----------------- MESSAGES ----------------- */}
-                <ScrollView
-                  ref={scrollRef}
-                  style={{ flex: 1 }}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{ paddingBottom: 10 }}
-                  onContentSizeChange={() =>
-                    scrollRef.current?.scrollToEnd({ animated: true })
-                  }
-                >
-                  {messages.map((msg) => {
-                    const isMine = msg.sender === myUid;
-
-                    const time =
-                      msg.createdAt?.toDate?.()?.toLocaleString("pl-PL", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        day: "2-digit",
-                        month: "2-digit",
-                      }) ?? "";
-
-                    return (
-                      <View
-                        key={msg.id}
-                        style={{
-                          alignSelf: isMine ? "flex-end" : "flex-start",
-                          backgroundColor: isMine ? colors.accent : colors.bg,
-                          padding: 10,
-                          borderRadius: 14,
-                          maxWidth: messageMaxWidth,
-                          marginBottom: 10,
-                          borderWidth: 1,
-                          borderColor: isMine
-                            ? colors.accent + "55"
-                            : colors.border,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: isMine ? "#022c22" : colors.text,
-                            fontWeight: "600",
-                            fontSize: 14,
-                          }}
-                        >
-                          {msg.text}
-                        </Text>
-
-                        <Text
-                          style={{
-                            marginTop: 4,
-                            fontSize: 10,
-                            color: isMine ? "#01403A" : colors.textMuted,
-                            alignSelf: "flex-end",
-                          }}
-                        >
-                          {time}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* ----------------- INPUT FIELD ----------------- */}
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    borderWidth: 1,
-                    borderColor: !isPremium ? colors.accent : colors.border,
-                    backgroundColor: !isPremium
-                      ? colors.accent + "11"
-                      : colors.bg,
-                    borderRadius: 999,
-                    paddingHorizontal: 14,
-                    paddingVertical: Platform.OS === "ios" ? 10 : 6,
-                    marginTop: 4,
-                    marginBottom: 6,
-                  }}
-                >
-                  <TextInput
-                    placeholder="Napisz wiadomość…"
-                    placeholderTextColor={colors.textMuted}
-                    value={text}
-                    onChangeText={setText}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setText("");
+                      inputRef.current?.focus();
+                    }}
                     style={{
-                      flex: 1,
-                      color: colors.text,
-                      fontSize: 15,
-                      paddingVertical: Platform.OS === "ios" ? 4 : 0,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.bg,
                     }}
-                    multiline={false}
-                    blurOnSubmit={false}
-                    returnKeyType="send"
-                    onSubmitEditing={sendMessage}
-                    onKeyPress={(e) => {
-                      if (e.nativeEvent.key === "Enter") {
-                        // na webie unikamy nowej linii
-                        // @ts-ignore
-                        e.preventDefault?.();
-                        sendMessage();
-                      }
-                    }}
-                  />
-
-                  <TouchableOpacity onPress={sendMessage}>
-                    <Ionicons name="send" size={20} color={colors.accent} />
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontWeight: "1000",
+                        fontSize: 12,
+                      }}
+                    >
+                      Wyczyść
+                    </Text>
                   </TouchableOpacity>
                 </View>
-              </>
-            )}
-          </View>
+              </View>
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* ----------------- BLOCKED MESSAGE MODAL ----------------- */}
+      {/* FAMILY PICKER MODAL */}
+      <FamilyPicker />
+
+      {/* BLOCKED MESSAGE MODAL */}
       {blockedModalOpen && (
         <View
           style={{
@@ -832,7 +1250,7 @@ export default function MessagesMobile() {
             backgroundColor: "rgba(15,23,42,0.75)",
             justifyContent: "center",
             alignItems: "center",
-            zIndex: 300,
+            zIndex: 700,
             paddingHorizontal: 18,
           }}
         >
@@ -841,23 +1259,19 @@ export default function MessagesMobile() {
               width: "100%",
               maxWidth: 420,
               backgroundColor: colors.card,
-              borderRadius: 16,
+              borderRadius: 18,
               padding: 18,
               borderWidth: 1,
               borderColor: colors.border,
             }}
           >
             <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 8,
-              }}
+              style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}
             >
               <View
                 style={{
-                  width: 34,
-                  height: 34,
+                  width: 36,
+                  height: 36,
                   borderRadius: 999,
                   alignItems: "center",
                   justifyContent: "center",
@@ -867,20 +1281,10 @@ export default function MessagesMobile() {
                   marginRight: 10,
                 }}
               >
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={18}
-                  color="#fbbf24"
-                />
+                <Ionicons name="alert-circle-outline" size={18} color="#fbbf24" />
               </View>
 
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "900",
-                }}
-              >
+              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "1100" }}>
                 ⚠️ System przeciążony emocjami
               </Text>
             </View>
@@ -888,31 +1292,29 @@ export default function MessagesMobile() {
             <Text
               style={{
                 color: colors.text,
-                opacity: 0.85,
-                marginBottom: 12,
+                opacity: 0.88,
+                marginBottom: 14,
+                fontWeight: "800",
+                lineHeight: 19,
               }}
             >
-              Wykryto słowa, których mój procesor nie uniesie.
+              Wykryto treść, której nie puszczę dalej.
               {"\n"}
-              Zrestartuj kulturę osobistą i spróbuj ponownie.
+              Zmień wiadomość na spokojniejszą i spróbuj ponownie.
             </Text>
 
             <TouchableOpacity
               onPress={() => setBlockedModalOpen(false)}
               style={{
                 backgroundColor: colors.accent,
-                paddingVertical: 10,
-                borderRadius: 12,
+                paddingVertical: 12,
+                borderRadius: 14,
                 alignItems: "center",
               }}
+              activeOpacity={0.85}
             >
-              <Text
-                style={{
-                  color: "#022c22",
-                  fontWeight: "800",
-                }}
-              >
-                Resetuję kulturę
+              <Text style={{ color: "#022c22", fontWeight: "1100" }}>
+                Okej, poprawiam
               </Text>
             </TouchableOpacity>
           </View>

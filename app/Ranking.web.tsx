@@ -1,3 +1,4 @@
+// app/Ranking.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
@@ -198,20 +199,141 @@ export default function RankingScreen() {
 
   const resetNow = useCallback(() => setCursorDate(new Date()), []);
 
+  // ✅ orby jak w app/index.tsx (z blur na web)
+  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
+
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      {/* 🔥 TŁO: orby/gradienty jak w app/index.tsx */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 0,
+        }}
+      >
+        {/* orb 1 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 320,
+            height: 320,
+            borderRadius: 999,
+            backgroundColor: colors.accent + "28",
+            top: -150,
+            left: -120,
+            opacity: 1,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 2 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 260,
+            height: 260,
+            borderRadius: 999,
+            backgroundColor: "#22c55e22",
+            top: -90,
+            right: -120,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 3 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 220,
+            height: 220,
+            borderRadius: 999,
+            backgroundColor: "#a855f720",
+            top: 210,
+            left: -90,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 4 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 300,
+            height: 300,
+            borderRadius: 999,
+            backgroundColor: "#0ea5e920",
+            top: 420,
+            right: -150,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 5 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 180,
+            height: 180,
+            borderRadius: 999,
+            backgroundColor: "#f9731620",
+            top: 720,
+            left: 40,
+            ...(orbBlur as any),
+          }}
+        />
+      </View>
+
       {busy ? (
-        <View style={styles.center}>
+        <View style={[styles.center, { zIndex: 1 }]}>
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
         <ScrollView
-          style={{ flex: 1 }}
+          style={{ flex: 1, zIndex: 1 }}
           contentContainerStyle={[styles.scroll, { paddingBottom: 24 }]}
           showsVerticalScrollIndicator={false}
         >
           {/* HEADER CARD */}
-          <View style={[styles.topBarCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.topBarCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                position: "relative",
+                overflow: "hidden",
+              },
+            ]}
+          >
+            {/* dekoracyjne kółka (jak w kalendarzu/family) */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: -80,
+                right: -70,
+                width: 180,
+                height: 180,
+                borderRadius: 999,
+                backgroundColor: colors.accent,
+                opacity: 0.1,
+              }}
+            />
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: -90,
+                left: -70,
+                width: 200,
+                height: 200,
+                borderRadius: 999,
+                backgroundColor: colors.accent,
+                opacity: 0.07,
+              }}
+            />
+
             <View style={styles.heroTop}>
               <TouchableOpacity
                 onPress={() => router.back()}

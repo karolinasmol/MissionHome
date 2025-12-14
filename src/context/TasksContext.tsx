@@ -1,10 +1,12 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
+  useMemo,
   useState,
   ReactNode,
-  useMemo,
 } from "react";
+import { useThemeColors, ThemeColors } from "./ThemeContext";
 
 export type RepeatType = "none" | "daily" | "weekly" | "monthly";
 
@@ -50,19 +52,49 @@ type UserProgress = {
   nextLevelExp: number;
 };
 
+type TasksUI = {
+  colors: ThemeColors;
+  isDark: boolean;
+
+  screenBg: string;
+  cardBg: string;
+  text: string;
+  textMuted: string;
+  border: string;
+  accent: string;
+
+  overdue: string;
+  dueSoon: string;
+  ok: string;
+};
+
 type TasksContextValue = {
   chores: Chore[];
   addChore: (input: Omit<Chore, "id">) => void;
   removeChore: (id: string) => void;
-  userProgress: UserProgress; // ⭐ DODANE
+  userProgress: UserProgress;
+
+  // ✅ spójne z aktualnym motywem z ThemeContext
+  ui: TasksUI;
+
+  // ✅ helper: stan terminu
+  getChoreState: (chore: Chore) => "overdue" | "dueSoon" | "ok";
 };
 
 const TasksContext = createContext<TasksContextValue | undefined>(undefined);
 
+function parseIso(iso: string) {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
+}
+
 export function TasksProvider({ children }: { children: ReactNode }) {
   const [chores, setChores] = useState<Chore[]>(INITIAL_CHORES);
 
-  const addChore = (input: Omit<Chore, "id">) => {
+  // ✅ źródło prawdy o kolorach: ThemeContext
+  const { isDark, colors } = useThemeColors();
+
+  const addChore = useCallback((input: Omit<Chore, "id">) => {
     setChores((prev) => [
       {
         ...input,
@@ -70,11 +102,11 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       },
       ...prev,
     ]);
-  };
+  }, []);
 
-  const removeChore = (id: string) => {
+  const removeChore = useCallback((id: string) => {
     setChores((prev) => prev.filter((c) => c.id !== id));
-  };
+  }, []);
 
   // ⭐ tymczasowy mock exp/level — aż podłączymy Firestore
   const userProgress: UserProgress = {
@@ -83,14 +115,48 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     nextLevelExp: 100,
   };
 
+  const ui = useMemo<TasksUI>(() => {
+    return {
+      colors,
+      isDark,
+
+      screenBg: colors.bg,
+      cardBg: colors.card,
+      text: colors.text,
+      textMuted: colors.textMuted,
+      border: colors.border,
+      accent: colors.accent,
+
+      // czytelne statusy na każdym motywie
+      overdue: isDark ? "#ff5c7a" : "#b00020",
+      dueSoon: isDark ? "#ffcc66" : "#8a5a00",
+      ok: colors.accent,
+    };
+  }, [colors, isDark]);
+
+  const getChoreState = useCallback((chore: Chore) => {
+    const due = parseIso(chore.dueDate);
+    if (!due) return "ok";
+
+    const now = Date.now();
+    if (due < now) return "overdue";
+
+    const in24h = now + 24 * 60 * 60 * 1000;
+    if (due <= in24h) return "dueSoon";
+
+    return "ok";
+  }, []);
+
   const value = useMemo(
     () => ({
       chores,
       addChore,
       removeChore,
       userProgress,
+      ui,
+      getChoreState,
     }),
-    [chores]
+    [chores, addChore, removeChore, userProgress, ui, getChoreState]
   );
 
   return (
@@ -100,8 +166,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
 export function useTasks() {
   const ctx = useContext(TasksContext);
-  if (!ctx) {
-    throw new Error("useTasks must be used within TasksProvider");
-  }
+  if (!ctx) throw new Error("useTasks must be used within TasksProvider");
   return ctx;
 }
+// src/context/TasksContext.tsx

@@ -581,6 +581,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  /**
+   * ✅ KLUCZ: wypchnięcie theme do DOM na WEB
+   * Dzięki temu komponenty web (np. Cookie modal) mogą czytać aktualny motyw z CSS vars / dataset / klasy.
+   */
+  useEffect(() => {
+    applyWebThemeToDom(theme, pattern);
+  }, [theme, pattern]);
+
   const value = useMemo(
     () => ({
       theme,
@@ -617,11 +625,7 @@ function useThemeSnapshotKeys(): { theme: Theme; pattern: BackgroundPattern } {
   }
 
   // subskrypcja tylko po to, żeby odświeżyć komponenty, gdy storage zmieni się w innej karcie
-  useSyncExternalStore(
-    subscribeWebSnapshot,
-    readWebSnapshotKey,
-    () => "__no_storage__"
-  );
+  useSyncExternalStore(subscribeWebSnapshot, readWebSnapshotKey, () => "__no_storage__");
 
   // ✅ SOURCE OF TRUTH:
   return { theme: ctx.theme, pattern: ctx.pattern };
@@ -653,6 +657,60 @@ function relativeLuminance(hex: string) {
 
 function getActiveThemeColors(theme: Theme): ThemeColors {
   return THEME_COLORS[theme];
+}
+
+/**
+ * ✅ WEB: helper – dobór koloru tekstu pod tło (biały/ciemny)
+ */
+function onColorForHex(hex: string) {
+  const L = clamp01(relativeLuminance(hex));
+  return L > 0.6 ? "#0b1020" : "#ffffff";
+}
+
+/**
+ * ✅ WEB: wypchnięcie motywu do DOM (dataset + class + CSS variables)
+ * Dzięki temu komponenty webowe mogą czytać temat z CSS vars / data-theme.
+ */
+function applyWebThemeToDom(theme: Theme, pattern: BackgroundPattern) {
+  if (!isWeb || typeof document === "undefined") return;
+
+  const root = document.documentElement;
+  const c = getActiveThemeColors(theme);
+  const isDark = clamp01(relativeLuminance(c.bg)) < 0.42;
+
+  // dataset + class (do wykrywania)
+  root.dataset.theme = theme;
+  root.dataset.pattern = pattern;
+  root.dataset.colorScheme = isDark ? "dark" : "light";
+  root.classList.toggle("dark", isDark);
+  root.style.colorScheme = isDark ? "dark" : "light";
+
+  // CSS variables (tokeny dla web UI)
+  const vars: Record<string, string> = {
+    "--background": c.bg,
+    "--foreground": c.text,
+
+    "--card": c.card,
+    "--card-foreground": c.text,
+
+    "--muted": c.card,
+    "--muted-foreground": c.textMuted,
+
+    "--border": c.border,
+    "--input": c.border,
+
+    "--primary": c.accent,
+    "--primary-foreground": onColorForHex(c.accent),
+
+    "--secondary": c.card,
+    "--secondary-foreground": c.text,
+
+    "--ring": c.accent,
+  };
+
+  for (const [k, v] of Object.entries(vars)) {
+    root.style.setProperty(k, v);
+  }
 }
 
 /**

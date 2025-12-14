@@ -1,5 +1,5 @@
 // src/components/CookieBanner.web.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export type CookieConsent = {
@@ -67,7 +67,436 @@ export function saveConsentToStorage(consent: CookieConsent) {
   }
 }
 
+/**
+ * THEME (TYLKO MODAL):
+ * Poprzednio wykrywanie brało głównie prefers-color-scheme => u Ciebie nie działa,
+ * bo motyw aplikacji może nie zmieniać klas/atrybutów na <html>.
+ *
+ * Nowe podejście:
+ * - sprawdza theme na <html> i <body> (dataset + classList)
+ * - jeśli brak, to bierze realny kolor tła (computed background-color) i liczy jasność
+ * - CSS vars czyta z: <html> -> <body> -> #root/#__next
+ * - reaguje na zmiany: obserwuje <html>, <body>, root + media query
+ */
+
+type ThemeTokens = {
+  isDark: boolean;
+
+  modalBg: string;
+  modalText: string;
+  modalTextMuted: string;
+  modalTextSubtle: string;
+
+  border: string;
+  borderSubtle: string;
+  surface2: string;
+
+  backdrop: string;
+
+  primaryBg: string;
+  primaryText: string;
+
+  secondaryBorder: string;
+  secondaryText: string;
+
+  checkboxBg: string;
+  checkboxBorder: string;
+  checkboxActiveBg: string;
+  checkboxActiveBorder: string;
+};
+
+function safeTrim(x: string | null | undefined) {
+  const v = (x ?? "").trim();
+  return v.length ? v : null;
+}
+
+function getRootCandidate(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  return (
+    document.getElementById("root") ||
+    document.getElementById("__next") ||
+    document.body ||
+    null
+  );
+}
+
+function getCssVar(names: string[], fallback: string): string {
+  if (typeof window === "undefined" || typeof document === "undefined") return fallback;
+
+  const root = getRootCandidate();
+  const els: HTMLElement[] = [document.documentElement, document.body, root].filter(
+    (x): x is HTMLElement => !!x
+  );
+
+  for (const el of els) {
+    const cs = window.getComputedStyle(el);
+    for (const n of names) {
+      const v = safeTrim(cs.getPropertyValue(n));
+      if (v) return v;
+    }
+  }
+  return fallback;
+}
+
+function hasClassToken(el: Element, token: string) {
+  // ważne: className.includes("dark") potrafi fałszować; tu sprawdzamy token w classList
+  return (el as HTMLElement).classList?.contains?.(token) ?? false;
+}
+
+function parseRgb(input: string): { r: number; g: number; b: number; a: number } | null {
+  // rgb(255, 255, 255) / rgba(255, 255, 255, 0.5)
+  const m = input
+    .replace(/\s+/g, "")
+    .match(/^rgba?\((\d{1,3}),(\d{1,3}),(\d{1,3})(?:,([0-9.]+))?\)$/i);
+  if (!m) return null;
+
+  const r = Math.min(255, Math.max(0, Number(m[1])));
+  const g = Math.min(255, Math.max(0, Number(m[2])));
+  const b = Math.min(255, Math.max(0, Number(m[3])));
+  const a = m[4] == null ? 1 : Math.min(1, Math.max(0, Number(m[4])));
+
+  return { r, g, b, a };
+}
+
+function relLuminance({ r, g, b }: { r: number; g: number; b: number }) {
+  // sRGB -> luminance
+  const srgb = [r, g, b].map((v) => v / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+}
+
+function getBgColorCandidate(): string | null {
+  if (typeof window === "undefined" || typeof document === "undefined") return null;
+
+  const candidates: (HTMLElement | null)[] = [document.body, document.documentElement, getRootCandidate()];
+  for (const el of candidates) {
+    if (!el) continue;
+    const bg = safeTrim(window.getComputedStyle(el).backgroundColor);
+    if (!bg) continue;
+
+    const rgb = parseRgb(bg);
+    if (!rgb) continue;
+
+    // jeśli transparent, szukamy dalej
+    if (rgb.a === 0) continue;
+
+    return bg;
+  }
+  return null;
+}
+
+function detectIsDark(): boolean {
+  if (typeof window === "undefined" || typeof document === "undefined") return false;
+
+  const html = document.documentElement;
+  const body = document.body;
+
+  const htmlTheme = html.getAttribute("data-theme") || html.getAttribute("data-color-scheme");
+  const bodyTheme = body?.getAttribute("data-theme") || body?.getAttribute("data-color-scheme");
+
+  const pickTheme = (t: string | null) => {
+    if (!t) return null;
+    const v = t.toLowerCase();
+    if (v.includes("dark")) return true;
+    if (v.includes("light")) return false;
+    return null;
+  };
+
+  const byAttr = pickTheme(htmlTheme) ?? pickTheme(bodyTheme);
+  if (byAttr !== null) return byAttr;
+
+  if (hasClassToken(html, "dark") || hasClassToken(body, "dark")) return true;
+  if (hasClassToken(html, "light") || hasClassToken(body, "light")) return false;
+
+  // color-scheme CSS (czasem ustawiane przez appkę)
+  const csHtml = window.getComputedStyle(html).colorScheme?.toLowerCase?.() ?? "";
+  const csBody = body ? window.getComputedStyle(body).colorScheme?.toLowerCase?.() ?? "" : "";
+  const cs = `${csHtml} ${csBody}`;
+  if (cs.includes("dark")) return true;
+  if (cs.includes("light")) return false;
+
+  // realny kolor tła (najpewniejsze)
+  const bg = getBgColorCandidate();
+  if (bg) {
+    const rgb = parseRgb(bg);
+    if (rgb) {
+      const lum = relLuminance(rgb);
+      // próg: < 0.5 traktujemy jako dark
+      return lum < 0.5;
+    }
+  }
+
+  // ostatecznie system
+  return !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+}
+
+function computeModalThemeTokens(): ThemeTokens {
+  const isDark = detectIsDark();
+
+  const dark = {
+    modalBg: "#020617",
+    modalText: "#E5E7EB",
+    modalTextMuted: "#CBD5E1",
+    modalTextSubtle: "#94A3B8",
+    border: "rgba(148,163,184,0.18)",
+    borderSubtle: "rgba(148,163,184,0.12)",
+    surface2: "rgba(15,23,42,0.55)",
+    backdrop: "rgba(2,6,23,0.72)",
+    primaryBg: "#2563EB",
+    primaryText: "#FFFFFF",
+    secondaryBorder: "rgba(229,231,235,0.9)",
+    secondaryText: "#E5E7EB",
+    checkboxBg: "rgba(2,6,23,0.4)",
+    checkboxBorder: "rgba(148,163,184,0.35)",
+  };
+
+  const light = {
+    modalBg: "#FFFFFF",
+    modalText: "#111827",
+    modalTextMuted: "#374151",
+    modalTextSubtle: "#6B7280",
+    border: "rgba(17,24,39,0.12)",
+    borderSubtle: "rgba(17,24,39,0.10)",
+    surface2: "rgba(15,23,42,0.04)",
+    backdrop: "rgba(17,24,39,0.45)",
+    primaryBg: "#2563EB",
+    primaryText: "#FFFFFF",
+    secondaryBorder: "rgba(17,24,39,0.22)",
+    secondaryText: "#111827",
+    checkboxBg: "rgba(17,24,39,0.04)",
+    checkboxBorder: "rgba(17,24,39,0.22)",
+  };
+
+  const d = isDark ? dark : light;
+
+  // Czytamy vars, ale tylko jako nadpisanie (fallbacki z d są kluczowe)
+  const modalBg = getCssVar(["--card", "--surface", "--background"], d.modalBg);
+  const modalText = getCssVar(["--foreground"], d.modalText);
+  const border = getCssVar(["--border"], d.border);
+
+  const primaryBg = getCssVar(["--primary"], d.primaryBg);
+  const primaryText = getCssVar(["--primary-foreground"], d.primaryText);
+
+  const surface2 = getCssVar(["--muted"], d.surface2);
+  const subtle = getCssVar(["--muted-foreground"], d.modalTextSubtle);
+
+  return {
+    isDark,
+
+    modalBg,
+    modalText,
+    modalTextMuted: d.modalTextMuted,
+    modalTextSubtle: subtle,
+
+    border,
+    borderSubtle: d.borderSubtle,
+    surface2,
+
+    backdrop: d.backdrop,
+
+    primaryBg,
+    primaryText,
+
+    secondaryBorder: d.secondaryBorder,
+    secondaryText: d.secondaryText,
+
+    checkboxBg: d.checkboxBg,
+    checkboxBorder: d.checkboxBorder,
+    checkboxActiveBg: primaryBg,
+    checkboxActiveBorder: primaryBg,
+  };
+}
+
+function useModalThemeTokens() {
+  const [tokens, setTokens] = useState<ThemeTokens>(() => computeModalThemeTokens());
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const update = () => setTokens(computeModalThemeTokens());
+
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const mqHandler = () => update();
+
+    try {
+      mq?.addEventListener?.("change", mqHandler);
+    } catch {
+      // @ts-expect-error
+      mq?.addListener?.(mqHandler);
+    }
+
+    const root = getRootCandidate();
+
+    const obs = new MutationObserver(() => update());
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-theme", "data-color-scheme"],
+    });
+
+    const obsBody = new MutationObserver(() => update());
+    if (document.body) {
+      obsBody.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class", "style", "data-theme", "data-color-scheme"],
+      });
+    }
+
+    const obsRoot = new MutationObserver(() => update());
+    if (root) {
+      obsRoot.observe(root, {
+        attributes: true,
+        attributeFilter: ["class", "style", "data-theme", "data-color-scheme"],
+      });
+    }
+
+    // na wypadek, gdyby motyw zmieniał CSS variables bez atrybutów:
+    const interval = window.setInterval(update, 800);
+
+    return () => {
+      obs.disconnect();
+      obsBody.disconnect();
+      obsRoot.disconnect();
+      window.clearInterval(interval);
+
+      try {
+        mq?.removeEventListener?.("change", mqHandler);
+      } catch {
+        // @ts-expect-error
+        mq?.removeListener?.(mqHandler);
+      }
+    };
+  }, []);
+
+  return tokens;
+}
+
+function createModalStyles(t: ThemeTokens) {
+  return StyleSheet.create({
+    overlay: {
+      position: "fixed" as any,
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 10000,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 16,
+    },
+    backdropClickCatcher: {
+      position: "absolute" as any,
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: t.backdrop,
+    },
+    modal: {
+      maxWidth: 520,
+      width: "100%",
+      backgroundColor: t.modalBg,
+      borderRadius: 16,
+      paddingHorizontal: 22,
+      paddingVertical: 18,
+      borderWidth: 1,
+      borderColor: t.border,
+      shadowColor: "#000000",
+      shadowOpacity: t.isDark ? 0.35 : 0.18,
+      shadowOffset: { width: 0, height: 16 },
+      shadowRadius: 30,
+      elevation: 10,
+      zIndex: 1,
+    },
+    modalTitle: {
+      fontSize: 16,
+      fontWeight: "800",
+      color: t.modalText,
+      marginBottom: 6,
+    },
+    modalSubtitle: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: t.modalTextMuted,
+      marginBottom: 12,
+    },
+    list: {
+      gap: 10,
+      marginBottom: 16,
+    },
+
+    categoryRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: t.borderSubtle,
+      backgroundColor: t.surface2,
+    },
+    categoryRowPressed: {
+      backgroundColor: t.isDark ? "rgba(15,23,42,0.85)" : "rgba(15,23,42,0.07)",
+      borderColor: t.border,
+    },
+    categoryTextWrapper: {
+      flex: 1,
+      paddingRight: 10,
+    },
+    categoryLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: t.modalText,
+      marginBottom: 3,
+    },
+    categoryDescription: {
+      fontSize: 12,
+      color: t.modalTextSubtle,
+      lineHeight: 16,
+    },
+
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: t.checkboxBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: 8,
+      backgroundColor: t.checkboxBg,
+    },
+    checkboxActive: {
+      backgroundColor: t.checkboxActiveBg,
+      borderColor: t.checkboxActiveBorder,
+    },
+    checkboxLocked: {
+      borderStyle: "dashed",
+      opacity: 0.8,
+    },
+    checkboxTick: {
+      color: t.primaryText,
+      fontSize: 14,
+      fontWeight: "900",
+      transform: [{ translateY: -0.5 }],
+    },
+
+    // modal-only secondary (nie rusza bannera)
+    modalSecondaryButton: {
+      backgroundColor: "transparent",
+      borderColor: t.secondaryBorder,
+    },
+    modalSecondaryButtonText: {
+      color: t.secondaryText,
+      fontSize: 13,
+      fontWeight: "500",
+    },
+  });
+}
+
 const CookieBanner: React.FC = () => {
+  // motyw tylko dla modala
+  const modalTheme = useModalThemeTokens();
+  const modalStyles = useMemo(() => createModalStyles(modalTheme), [modalTheme]);
+
   const [hasStoredConsent, setHasStoredConsent] = useState(false);
   const [bannerVisible, setBannerVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -206,39 +635,46 @@ const CookieBanner: React.FC = () => {
         </View>
       )}
 
-      {/* Okno ustawień */}
+      {/* Okno ustawień (THEMED) */}
       {settingsOpen && (
-        <View style={styles.overlay}>
-          <Pressable style={styles.backdropClickCatcher} onPress={() => setSettingsOpen(false)} />
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Ustawienia plików cookie</Text>
-            <Text style={styles.modalSubtitle}>Twój obecny stan</Text>
+        <View style={modalStyles.overlay}>
+          <Pressable
+            style={modalStyles.backdropClickCatcher}
+            onPress={() => setSettingsOpen(false)}
+          />
+          <View style={modalStyles.modal}>
+            <Text style={modalStyles.modalTitle}>Ustawienia plików cookie</Text>
+            <Text style={modalStyles.modalSubtitle}>Twój obecny stan</Text>
 
-            <View style={styles.list}>
+            <View style={modalStyles.list}>
               <CategoryRow
                 label="Niezbędne"
                 description="Wymagane do prawidłowego działania serwisu. Zawsze aktywne."
                 active
                 locked
                 onToggle={() => {}}
+                modalStyles={modalStyles}
               />
               <CategoryRow
                 label="Funkcjonalne"
                 description="Ułatwiają korzystanie z serwisu (np. preferencje, wygoda)."
                 active={consent.functional}
                 onToggle={() => toggleCategory("functional")}
+                modalStyles={modalStyles}
               />
               <CategoryRow
                 label="Analityczne"
                 description="Pomagają nam zrozumieć, jak używasz MissionHome i poprawiać produkt."
                 active={consent.analytics}
                 onToggle={() => toggleCategory("analytics")}
+                modalStyles={modalStyles}
               />
               <CategoryRow
                 label="Marketingowe"
                 description="Umożliwiają dopasowanie komunikacji i ofert."
                 active={consent.marketing}
                 onToggle={() => toggleCategory("marketing")}
+                modalStyles={modalStyles}
               />
             </View>
 
@@ -247,12 +683,12 @@ const CookieBanner: React.FC = () => {
                 onPress={handleRejectNonEssential}
                 style={({ pressed }) => [
                   styles.button,
-                  styles.secondaryButton,
                   styles.modalButton,
+                  modalStyles.modalSecondaryButton,
                   pressed && styles.buttonPressed,
                 ]}
               >
-                <Text style={styles.secondaryButtonText}>Anulowanie zgody</Text>
+                <Text style={modalStyles.modalSecondaryButtonText}>Anulowanie zgody</Text>
               </Pressable>
 
               <Pressable
@@ -271,7 +707,7 @@ const CookieBanner: React.FC = () => {
         </View>
       )}
 
-      {/* Przycisk Cookies (po zapisaniu zgody) */}
+      {/* Przycisk Cookies (po zapisaniu zgody) - bez zmian */}
       {hasStoredConsent && !settingsOpen && (
         <View style={[styles.cookieButtonWrapper, bannerVisible && styles.cookieWithBanner]}>
           <Pressable
@@ -293,30 +729,38 @@ type CategoryRowProps = {
   active: boolean;
   locked?: boolean;
   onToggle: () => void;
+  modalStyles: ReturnType<typeof createModalStyles>;
 };
 
-const CategoryRow: React.FC<CategoryRowProps> = ({ label, description, active, locked, onToggle }) => {
+const CategoryRow: React.FC<CategoryRowProps> = ({
+  label,
+  description,
+  active,
+  locked,
+  onToggle,
+  modalStyles,
+}) => {
   return (
     <Pressable
       onPress={!locked ? onToggle : undefined}
       style={({ pressed }) => [
-        styles.categoryRow,
-        pressed && !locked && styles.categoryRowPressed,
+        modalStyles.categoryRow,
+        pressed && !locked && modalStyles.categoryRowPressed,
       ]}
     >
-      <View style={styles.categoryTextWrapper}>
-        <Text style={styles.categoryLabel}>{label}</Text>
-        <Text style={styles.categoryDescription}>{description}</Text>
+      <View style={modalStyles.categoryTextWrapper}>
+        <Text style={modalStyles.categoryLabel}>{label}</Text>
+        <Text style={modalStyles.categoryDescription}>{description}</Text>
       </View>
 
       <View
         style={[
-          styles.checkbox,
-          active && styles.checkboxActive,
-          locked && styles.checkboxLocked,
+          modalStyles.checkbox,
+          active && modalStyles.checkboxActive,
+          locked && modalStyles.checkboxLocked,
         ]}
       >
-        {active && <Text style={styles.checkboxTick}>✓</Text>}
+        {active && <Text style={modalStyles.checkboxTick}>✓</Text>}
       </View>
     </Pressable>
   );
@@ -404,115 +848,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // ====== MODAL (ciemny) ======
-  overlay: {
-    position: "fixed" as any,
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 10000,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  backdropClickCatcher: {
-    position: "absolute" as any,
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: "rgba(2,6,23,0.72)",
-  },
-  modal: {
-    maxWidth: 520,
-    width: "100%",
-    backgroundColor: "#020617",
-    borderRadius: 16,
-    paddingHorizontal: 22,
-    paddingVertical: 18,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.18)",
-    shadowColor: "#000000",
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 16 },
-    shadowRadius: 30,
-    elevation: 10,
-    zIndex: 1,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#E5E7EB",
-    marginBottom: 6,
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#CBD5E1",
-    marginBottom: 12,
-  },
-  list: {
-    gap: 10,
-    marginBottom: 16,
-  },
-
-  categoryRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.12)",
-    backgroundColor: "rgba(15,23,42,0.55)",
-  },
-  categoryRowPressed: {
-    backgroundColor: "rgba(15,23,42,0.85)",
-    borderColor: "rgba(148,163,184,0.18)",
-  },
-  categoryTextWrapper: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  categoryLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#E5E7EB",
-    marginBottom: 3,
-  },
-  categoryDescription: {
-    fontSize: 12,
-    color: "#94A3B8",
-    lineHeight: 16,
-  },
-
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-    backgroundColor: "rgba(2,6,23,0.4)",
-  },
-  checkboxActive: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
-  },
-  checkboxLocked: {
-    borderStyle: "dashed",
-    opacity: 0.8,
-  },
-  checkboxTick: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "900",
-    transform: [{ translateY: -0.5 }],
-  },
-
+  // wspólne dla modala (layout) – kolory są w modalStyles
   modalButtonsRow: {
     flexDirection: "row",
     justifyContent: "flex-end",

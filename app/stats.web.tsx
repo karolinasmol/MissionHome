@@ -377,8 +377,16 @@ export default function StatsScreen() {
         }));
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(completed), "Wykonane");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(uncompleted), "Niewykonane");
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(completed),
+        "Wykonane"
+      );
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(uncompleted),
+        "Niewykonane"
+      );
 
       if (Platform.OS === "web") {
         const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
@@ -451,8 +459,14 @@ export default function StatsScreen() {
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   };
 
-  const weekAgg = useMemo(() => aggregateByTitle(weekCompleted).slice(0, 5), [weekCompleted]);
-  const monthAgg = useMemo(() => aggregateByTitle(monthCompleted).slice(0, 5), [monthCompleted]);
+  const weekAgg = useMemo(
+    () => aggregateByTitle(weekCompleted).slice(0, 5),
+    [weekCompleted]
+  );
+  const monthAgg = useMemo(
+    () => aggregateByTitle(monthCompleted).slice(0, 5),
+    [monthCompleted]
+  );
 
   const maxWeekAgg = useMemo(() => (weekAgg[0]?.count ?? 1), [weekAgg]);
   const maxMonthAgg = useMemo(() => (monthAgg[0]?.count ?? 1), [monthAgg]);
@@ -477,7 +491,10 @@ export default function StatsScreen() {
       const memberDoc = membersById.get(id);
 
       const nameFromMember =
-        memberDoc?.displayName || memberDoc?.username || memberDoc?.email || null;
+        memberDoc?.displayName ||
+        memberDoc?.username ||
+        memberDoc?.email ||
+        null;
 
       const label =
         nameFromMember ||
@@ -485,7 +502,8 @@ export default function StatsScreen() {
         m.assignedByName ||
         (id === "unknown" ? "Nieprzypisane" : "Członek rodziny");
 
-      const initial = (label?.trim?.()[0] || "?").toString().toUpperCase() ?? "?";
+      const initial =
+        (label?.trim?.()[0] || "?").toString().toUpperCase() ?? "?";
 
       const current =
         map.get(id) || {
@@ -562,7 +580,10 @@ export default function StatsScreen() {
   }, [normalizedMissions]);
 
   // ----- highlights -----
-  const topMember = useMemo(() => (memberStats.length > 0 ? memberStats[0] : null), [memberStats]);
+  const topMember = useMemo(
+    () => (memberStats.length > 0 ? memberStats[0] : null),
+    [memberStats]
+  );
   const mostFrequentTask = useMemo(
     () => (monthAgg.length > 0 ? monthAgg[0] : weekAgg[0] || null),
     [monthAgg, weekAgg]
@@ -725,7 +746,9 @@ export default function StatsScreen() {
   };
 
   const toggleHide = (id: TileId) => {
-    setTiles((prev) => prev.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t)));
+    setTiles((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, hidden: !t.hidden } : t))
+    );
   };
 
   const toggleWide = (id: TileId) => {
@@ -797,7 +820,8 @@ export default function StatsScreen() {
         row.by.set(who.id, p);
 
         const date: Date | null = m.completedAtJs ?? null;
-        if (date && (!row.lastDone || date.getTime() > row.lastDone.getTime())) row.lastDone = date;
+        if (date && (!row.lastDone || date.getTime() > row.lastDone.getTime()))
+          row.lastDone = date;
 
         row.events.push({
           id: String(m.id ?? `${key}-${row.events.length}`),
@@ -904,15 +928,24 @@ export default function StatsScreen() {
                   </View>
 
                   <View style={styles.kpiTripleTexts}>
-                    <Text style={[styles.kpiTripleLabel, { color: colors.text }]} numberOfLines={1}>
+                    <Text
+                      style={[styles.kpiTripleLabel, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
                       {r.label}
                     </Text>
-                    <Text style={[styles.kpiTripleHint, { color: colors.textMuted }]} numberOfLines={1}>
+                    <Text
+                      style={[styles.kpiTripleHint, { color: colors.textMuted }]}
+                      numberOfLines={1}
+                    >
                       {r.hint}
                     </Text>
                   </View>
 
-                  <Text style={[styles.kpiTripleValue, { color: colors.text }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.kpiTripleValue, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
                     {r.value}
                   </Text>
                 </View>
@@ -935,8 +968,18 @@ export default function StatsScreen() {
           scroll
         >
           <View style={{ marginTop: 8 }}>
-            <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
-              <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+            <View
+              style={[
+                styles.searchWrap,
+                { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` },
+              ]}
+            >
+              <Ionicons
+                name="search-outline"
+                size={16}
+                color={colors.textMuted}
+                style={{ marginRight: 8 }}
+              />
               <TextInput
                 value={missionQuery}
                 onChangeText={setMissionQuery}
@@ -947,16 +990,24 @@ export default function StatsScreen() {
                 autoCapitalize="none"
               />
               {!!missionQuery && (
-                <Pressable onPress={() => setMissionQuery("")} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+                <Pressable
+                  onPress={() => setMissionQuery("")}
+                  hitSlop={10}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
+                >
                   <Ionicons name="close-circle" size={18} color={colors.textMuted} />
                 </Pressable>
               )}
             </View>
 
             {loading ? (
-              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Ładowanie…</Text>
+              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>
+                Ładowanie…
+              </Text>
             ) : top.length === 0 ? (
-              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Brak pasujących misji.</Text>
+              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>
+                Brak pasujących misji.
+              </Text>
             ) : (
               <View style={{ marginTop: 10 }}>
                 {top.map((t) => (
@@ -989,7 +1040,9 @@ export default function StatsScreen() {
                         {t.label}
                       </Text>
                       <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
+                        {t.completed > 0
+                          ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}`
+                          : "jeszcze nie wykonano"}
                       </Text>
                     </View>
 
@@ -1001,10 +1054,19 @@ export default function StatsScreen() {
                   onPress={() => setDetailsOpen(true)}
                   style={({ pressed }) => [
                     styles.linkBtn,
-                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: `${colors.textMuted}08`,
+                      opacity: pressed ? 0.85 : 1,
+                    },
                   ]}
                 >
-                  <Ionicons name="list-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                  <Ionicons
+                    name="list-outline"
+                    size={16}
+                    color={colors.textMuted}
+                    style={{ marginRight: 8 }}
+                  />
                   <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>
                     Pokaż listę ({filteredStats.length})
                   </Text>
@@ -1044,7 +1106,8 @@ export default function StatsScreen() {
                 <Text style={[styles.achText, { color: colors.text }]}>
                   {topMember ? (
                     <>
-                      Najbardziej aktywny: <Text style={{ fontWeight: "900" }}>{topMember.label}</Text>
+                      Najbardziej aktywny:{" "}
+                      <Text style={{ fontWeight: "900" }}>{topMember.label}</Text>
                     </>
                   ) : (
                     "Brak danych o aktywnych domownikach."
@@ -1067,7 +1130,8 @@ export default function StatsScreen() {
                 <Text style={[styles.achText, { color: colors.text }]}>
                   {mostFrequentTask ? (
                     <>
-                      Najczęściej: <Text style={{ fontWeight: "900" }}>{mostFrequentTask.label}</Text>
+                      Najczęściej:{" "}
+                      <Text style={{ fontWeight: "900" }}>{mostFrequentTask.label}</Text>
                     </>
                   ) : (
                     "Brak jeszcze najczęściej wykonywanego zadania."
@@ -1087,7 +1151,9 @@ export default function StatsScreen() {
                 >
                   <Ionicons name="flame-outline" size={16} color="#ef4444" />
                 </View>
-                <Text style={[styles.achText, { color: colors.text }]}>{dominantDifficultyLabel}</Text>
+                <Text style={[styles.achText, { color: colors.text }]}>
+                  {dominantDifficultyLabel}
+                </Text>
               </View>
             </View>
           )}
@@ -1113,23 +1179,41 @@ export default function StatsScreen() {
             <View style={{ marginTop: 10 }}>
               {list.map((row, idx) => {
                 const tint =
-                  idx === 0 ? "#facc15" : idx === 1 ? "#a5b4fc" : idx === 2 ? "#f97316" : colors.accent;
+                  idx === 0
+                    ? "#facc15"
+                    : idx === 1
+                    ? "#a5b4fc"
+                    : idx === 2
+                    ? "#f97316"
+                    : colors.accent;
+
                 const pct = Math.min(
                   100,
                   Math.round((row.weekCount / (list[0]?.weekCount || 1)) * 100)
                 );
+
                 return (
                   <View key={row.id} style={{ marginBottom: 10 }}>
                     <View style={styles.memberTop}>
-                      <View style={[styles.avatar, { borderColor: colors.border, backgroundColor: `${tint}14` }]}>
-                        <Text style={[styles.avatarText, { color: tint }]}>{row.avatarInitial}</Text>
+                      <View
+                        style={[
+                          styles.avatar,
+                          { borderColor: colors.border, backgroundColor: `${tint}14` },
+                        ]}
+                      >
+                        <Text style={[styles.avatarText, { color: tint }]}>
+                          {row.avatarInitial}
+                        </Text>
                       </View>
 
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
                           {idx + 1}. {row.label}
                         </Text>
-                        <Text style={[styles.memberMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        <Text
+                          style={[styles.memberMeta, { color: colors.textMuted }]}
+                          numberOfLines={1}
+                        >
                           {row.weekCount} tydz. • {row.monthCount} mies.
                         </Text>
                       </View>
@@ -1149,8 +1233,20 @@ export default function StatsScreen() {
                       />
                     </View>
 
-                    <View style={[styles.miniTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                      <View style={{ height: "100%", width: `${pct}%`, backgroundColor: tint, borderRadius: 999 }} />
+                    <View
+                      style={[
+                        styles.miniTrack,
+                        { backgroundColor: trackColor, borderColor: colors.border },
+                      ]}
+                    >
+                      <View
+                        style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          backgroundColor: tint,
+                          borderRadius: 999,
+                        }}
+                      />
                     </View>
                   </View>
                 );
@@ -1188,10 +1284,24 @@ export default function StatsScreen() {
                           <Text style={[styles.freqLabel, { color: colors.text }]} numberOfLines={1}>
                             {idx + 1}. {r.label}
                           </Text>
-                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
+                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>
+                            {r.count}×
+                          </Text>
                         </View>
-                        <View style={[styles.miniTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                          <View style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }} />
+                        <View
+                          style={[
+                            styles.miniTrack,
+                            { backgroundColor: trackColor, borderColor: colors.border },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              height: "100%",
+                              width: `${pct}%`,
+                              backgroundColor: colors.accent,
+                              borderRadius: 999,
+                            }}
+                          />
                         </View>
                       </View>
                     );
@@ -1216,10 +1326,24 @@ export default function StatsScreen() {
                           <Text style={[styles.freqLabel, { color: colors.text }]} numberOfLines={1}>
                             {idx + 1}. {r.label}
                           </Text>
-                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
+                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>
+                            {r.count}×
+                          </Text>
                         </View>
-                        <View style={[styles.miniTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                          <View style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.accent, borderRadius: 999 }} />
+                        <View
+                          style={[
+                            styles.miniTrack,
+                            { backgroundColor: trackColor, borderColor: colors.border },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              height: "100%",
+                              width: `${pct}%`,
+                              backgroundColor: colors.accent,
+                              borderRadius: 999,
+                            }}
+                          />
                         </View>
                       </View>
                     );
@@ -1280,7 +1404,12 @@ export default function StatsScreen() {
               <View key={row.key} style={{ marginBottom: 12 }}>
                 <View style={styles.diffTop}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Ionicons name={row.icon} size={16} color={row.color} style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name={row.icon}
+                      size={16}
+                      color={row.color}
+                      style={{ marginRight: 8 }}
+                    />
                     <Text style={[styles.diffLabel, { color: colors.text }]}>{row.label}</Text>
                   </View>
                   <Text style={[styles.diffMeta, { color: colors.textMuted }]}>
@@ -1289,7 +1418,9 @@ export default function StatsScreen() {
                 </View>
 
                 <View style={[styles.diffTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                  <Animated.View style={[styles.diffFill, { width: row.width, backgroundColor: row.color }]} />
+                  <Animated.View
+                    style={[styles.diffFill, { width: row.width, backgroundColor: row.color }]}
+                  />
                 </View>
               </View>
             ))}
@@ -1299,432 +1430,616 @@ export default function StatsScreen() {
     );
   };
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        style={{ flex: 1, backgroundColor: colors.bg }}
-        contentInsetAdjustmentBehavior="automatic"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingVertical: 14, alignItems: "center" }}
-      >
-        <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 16 }}>
-          {/* HERO (fixed) */}
-          <View style={[styles.hero, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            <View style={[styles.heroTop, isNarrow && styles.heroTopNarrow]}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
-                  Statystyki
-                </Text>
-                <Text style={[styles.heroSubtitle, { color: colors.textMuted }]} numberOfLines={2}>
-                  Nowoczesny dashboard dla Twojej misji domowej.
-                </Text>
+  // ✅ blur na web jak w achievements/index/ranking
+  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
-                <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 10 }}>
-                  <View style={{ marginRight: 8, marginBottom: 8 }}>
-                    <Chip
-                      colors={colors}
-                      icon="calendar-outline"
-                      text={`Tydzień: ${formatDateShort(weekStart)}–${formatDateShort(addDays(weekEnd, -1))}`}
-                    />
+  return (
+    <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      {/* 🔥 TŁO: orby/gradienty 1:1 jak w Osiągnięciach */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 0,
+        }}
+      >
+        {/* orb 1 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 320,
+            height: 320,
+            borderRadius: 999,
+            backgroundColor: colors.accent + "28",
+            top: -150,
+            left: -120,
+            opacity: 1,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 2 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 260,
+            height: 260,
+            borderRadius: 999,
+            backgroundColor: "#22c55e22",
+            top: -90,
+            right: -120,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 3 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 220,
+            height: 220,
+            borderRadius: 999,
+            backgroundColor: "#a855f720",
+            top: 210,
+            left: -90,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 4 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 300,
+            height: 300,
+            borderRadius: 999,
+            backgroundColor: "#0ea5e920",
+            top: 420,
+            right: -150,
+            ...(orbBlur as any),
+          }}
+        />
+        {/* orb 5 */}
+        <View
+          style={{
+            position: "absolute",
+            width: 180,
+            height: 180,
+            borderRadius: 999,
+            backgroundColor: "#f9731620",
+            top: 720,
+            left: 40,
+            ...(orbBlur as any),
+          }}
+        />
+      </View>
+
+      <SafeAreaView style={{ flex: 1, backgroundColor: "transparent", zIndex: 1 }}>
+        <ScrollView
+          style={{ flex: 1, backgroundColor: "transparent", zIndex: 1 }}
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: 14, alignItems: "center" }}
+        >
+          <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 16 }}>
+            {/* HERO (fixed) */}
+            <View style={[styles.hero, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              {/* dekoracyjne kółka jak w Family */}
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: -80,
+                  right: -70,
+                  width: 180,
+                  height: 180,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  opacity: 0.1,
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: -90,
+                  left: -70,
+                  width: 200,
+                  height: 200,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  opacity: 0.07,
+                }}
+              />
+
+              <View style={[styles.heroTop, isNarrow && styles.heroTopNarrow]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
+                    Statystyki
+                  </Text>
+                  <Text style={[styles.heroSubtitle, { color: colors.textMuted }]} numberOfLines={2}>
+                    Nowoczesny dashboard dla Twojej misji domowej.
+                  </Text>
+
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 10 }}>
+                    <View style={{ marginRight: 8, marginBottom: 8 }}>
+                      <Chip
+                        colors={colors}
+                        icon="calendar-outline"
+                        text={`Tydzień: ${formatDateShort(weekStart)}–${formatDateShort(
+                          addDays(weekEnd, -1)
+                        )}`}
+                      />
+                    </View>
+                    <View style={{ marginRight: 8, marginBottom: 8 }}>
+                      <Chip
+                        colors={colors}
+                        icon="stats-chart-outline"
+                        text={`Miesiąc: ${formatDateShort(monthStart)}–${formatDateShort(monthEnd)}`}
+                      />
+                    </View>
+                    <View style={{ marginRight: 8, marginBottom: 8 }}>
+                      <Chip colors={colors} icon="sparkles-outline" text={badgeText} />
+                    </View>
                   </View>
-                  <View style={{ marginRight: 8, marginBottom: 8 }}>
-                    <Chip
-                      colors={colors}
-                      icon="stats-chart-outline"
-                      text={`Miesiąc: ${formatDateShort(monthStart)}–${formatDateShort(monthEnd)}`}
+                </View>
+
+                <View style={[styles.heroActionsCol, isNarrow && styles.heroActionsColNarrow]}>
+                  <PrimaryButton
+                    colors={colors}
+                    icon="download-outline"
+                    label="Export"
+                    onPress={handleExport}
+                    style={isNarrow ? styles.heroActionPillNarrow : undefined}
+                  />
+
+                  <Pressable
+                    onPress={() => setEditOpen(true)}
+                    style={({ pressed }) => [
+                      styles.heroActionPill,
+                      isNarrow && styles.heroActionPillNarrow,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: `${colors.textMuted}08`,
+                        opacity: pressed ? 0.85 : 1,
+                        marginTop: isNarrow ? 0 : 10,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="options-outline"
+                      size={16}
+                      color={colors.textMuted}
+                      style={{ marginRight: 8 }}
                     />
-                  </View>
-                  <View style={{ marginRight: 8, marginBottom: 8 }}>
-                    <Chip colors={colors} icon="sparkles-outline" text={badgeText} />
+                    <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 13, letterSpacing: -0.1 }}>
+                      Dostosuj kafelki
+                    </Text>
+                  </Pressable>
+
+                  <View
+                    style={[
+                      styles.heroActionPill,
+                      isNarrow ? styles.heroActionPillNarrowFull : null,
+                      {
+                        marginTop: isNarrow ? 0 : 10,
+                        backgroundColor: `${colors.accent}14`,
+                        borderColor: `${colors.accent}33`,
+                        justifyContent: "center",
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.heroBadgeText, { color: colors.accent }]}>
+                      Skuteczność: {completionRate}%
+                    </Text>
                   </View>
                 </View>
               </View>
 
-              <View style={[styles.heroActionsCol, isNarrow && styles.heroActionsColNarrow]}>
-                <PrimaryButton
-                  colors={colors}
-                  icon="download-outline"
-                  label="Export"
-                  onPress={handleExport}
-                  style={isNarrow ? styles.heroActionPillNarrow : undefined}
-                />
+              <View style={{ marginTop: 14 }}>
+                <View style={styles.heroProgressRow}>
+                  <Text style={[styles.microLabel, { color: colors.textMuted }]}>Progres wszystkich zadań</Text>
+                  <Text style={[styles.microValue, { color: colors.text }]}>
+                    {totalCompleted}/{normalizedMissions.length}
+                  </Text>
+                </View>
+
+                <View style={[styles.progressTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
+                  <Animated.View
+                    style={[styles.progressFill, { width: completionWidth, backgroundColor: colors.accent }]}
+                  />
+                </View>
+
+                <Text style={[styles.microHint, { color: colors.textMuted }]}>
+                  To jest globalny wynik (nie tylko bieżący tydzień/miesiąc).
+                </Text>
+              </View>
+            </View>
+
+            {/* Custom tiles (editable) */}
+            <View
+              style={{
+                marginTop: 12,
+                flexDirection: "row",
+                flexWrap: "wrap",
+                marginHorizontal: -6,
+                alignItems: "stretch",
+              }}
+            >
+              {visibleTiles.map((t) => (
+                <View
+                  key={t.id}
+                  style={{
+                    paddingHorizontal: 6,
+                    marginBottom: 12,
+                    flexBasis: t.wide ? "100%" : itemBasis,
+                    flexGrow: t.wide ? 0 : 1,
+                    alignSelf: "stretch",
+                  }}
+                >
+                  {renderTile(t)}
+                </View>
+              ))}
+            </View>
+
+            {/* Historia (fixed) */}
+            <View style={{ marginTop: 0 }}>
+              <Card
+                colors={colors}
+                title="Historia zadań"
+                subtitle="Ostatnio wykonane na górze."
+                style={{ marginBottom: 24 }}
+              >
+                {loading ? (
+                  <ActivityIndicator color={colors.accent} />
+                ) : missionsSorted.length === 0 ? (
+                  <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>
+                    Nie dodano jeszcze żadnych zadań.
+                  </Text>
+                ) : (
+                  <View style={{ marginTop: 8 }}>
+                    {missionsSorted.map((m: any, idx: number) => {
+                      const lastDone = m.completedAtJs as Date | null;
+                      const lastBy =
+                        m.assignedToName || m.assignedByName || "Nieznany członek rodziny";
+                      const isDone = !!m.completed;
+
+                      return (
+                        <View key={m.id}>
+                          {idx !== 0 && (
+                            <View style={{ marginVertical: 10 }}>
+                              <Divider colors={colors} />
+                            </View>
+                          )}
+
+                          <View style={styles.historyRow}>
+                            <View
+                              style={[
+                                styles.statusDot,
+                                {
+                                  borderColor: isDone
+                                    ? "rgba(34,197,94,0.55)"
+                                    : "rgba(148,163,184,0.55)",
+                                  backgroundColor: isDone
+                                    ? "rgba(34,197,94,0.14)"
+                                    : "transparent",
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name={isDone ? "checkmark" : "ellipse-outline"}
+                                size={14}
+                                color={isDone ? "#22c55e" : colors.textMuted}
+                              />
+                            </View>
+
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text
+                                style={[styles.historyTitle, { color: colors.text }]}
+                                numberOfLines={2}
+                              >
+                                {m.title || "Bez nazwy"}
+                              </Text>
+
+                              <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
+                                Ostatnio wykonane:{" "}
+                                <Text style={{ color: colors.text }}>
+                                  {formatDateTimeShort(lastDone)}
+                                </Text>
+                              </Text>
+
+                              <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
+                                Wykonawca: <Text style={{ color: colors.text }}>{lastBy}</Text>
+                              </Text>
+                            </View>
+
+                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </Card>
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Edit modal */}
+        <Modal visible={editOpen} animationType="slide" transparent onRequestClose={() => setEditOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Dostosuj kafelki</Text>
+                <Pressable
+                  onPress={() => setEditOpen(false)}
+                  hitSlop={10}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="close" size={22} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={{ padding: 14 }} showsVerticalScrollIndicator={false}>
+                {tiles.map((t) => (
+                  <View
+                    key={t.id}
+                    style={[
+                      styles.editRow,
+                      { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
+                    ]}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                        {t.id === "summary"
+                          ? "Podsumowanie"
+                          : t.id === "mission-search"
+                          ? "Wyszukaj misję"
+                          : t.id === "achievements"
+                          ? "Osiągnięcia"
+                          : t.id === "leaderboard"
+                          ? "Leaderboard"
+                          : t.id === "freq"
+                          ? "Najczęstsze zadania"
+                          : "Trudność"}
+                      </Text>
+                      <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                        {t.hidden ? "Ukryty" : t.wide ? "Szeroki (pełny rząd)" : "Normalny"}
+                      </Text>
+                    </View>
+
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <Pressable
+                        onPress={() => moveTile(t.id, -1)}
+                        hitSlop={10}
+                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
+                      >
+                        <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => moveTile(t.id, 1)}
+                        hitSlop={10}
+                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
+                      >
+                        <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => toggleWide(t.id)}
+                        hitSlop={10}
+                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
+                      >
+                        <Ionicons
+                          name={t.wide ? "contract-outline" : "expand-outline"}
+                          size={18}
+                          color={colors.textMuted}
+                        />
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => toggleHide(t.id)}
+                        hitSlop={10}
+                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
+                      >
+                        <Ionicons
+                          name={t.hidden ? "eye-outline" : "eye-off-outline"}
+                          size={18}
+                          color={colors.textMuted}
+                        />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
 
                 <Pressable
-                  onPress={() => setEditOpen(true)}
+                  onPress={resetTiles}
                   style={({ pressed }) => [
-                    styles.heroActionPill,
-                    isNarrow && styles.heroActionPillNarrow,
+                    styles.resetBtn,
                     {
                       borderColor: colors.border,
                       backgroundColor: `${colors.textMuted}08`,
                       opacity: pressed ? 0.85 : 1,
-                      marginTop: isNarrow ? 0 : 10,
                     },
                   ]}
                 >
-                  <Ionicons name="options-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                  <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 13, letterSpacing: -0.1 }}>
-                    Dostosuj kafelki
-                  </Text>
+                  <Ionicons
+                    name="refresh-outline"
+                    size={16}
+                    color={colors.textMuted}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Reset układu</Text>
                 </Pressable>
-
-                <View
-                  style={[
-                    styles.heroActionPill,
-                    isNarrow ? styles.heroActionPillNarrowFull : null,
-                    {
-                      marginTop: isNarrow ? 0 : 10,
-                      backgroundColor: `${colors.accent}14`,
-                      borderColor: `${colors.accent}33`,
-                      justifyContent: "center",
-                    },
-                  ]}
-                >
-                  <Text style={[styles.heroBadgeText, { color: colors.accent }]}>
-                    Skuteczność: {completionRate}%
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={{ marginTop: 14 }}>
-              <View style={styles.heroProgressRow}>
-                <Text style={[styles.microLabel, { color: colors.textMuted }]}>Progres wszystkich zadań</Text>
-                <Text style={[styles.microValue, { color: colors.text }]}>
-                  {totalCompleted}/{normalizedMissions.length}
-                </Text>
-              </View>
-
-              <View style={[styles.progressTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                <Animated.View style={[styles.progressFill, { width: completionWidth, backgroundColor: colors.accent }]} />
-              </View>
-
-              <Text style={[styles.microHint, { color: colors.textMuted }]}>
-                To jest globalny wynik (nie tylko bieżący tydzień/miesiąc).
-              </Text>
-            </View>
-          </View>
-
-          {/* Custom tiles (editable) */}
-          <View
-            style={{
-              marginTop: 12,
-              flexDirection: "row",
-              flexWrap: "wrap",
-              marginHorizontal: -6,
-              alignItems: "stretch",
-            }}
-          >
-            {visibleTiles.map((t) => (
-              <View
-                key={t.id}
-                style={{
-                  paddingHorizontal: 6,
-                  marginBottom: 12,
-                  flexBasis: t.wide ? "100%" : itemBasis,
-                  flexGrow: t.wide ? 0 : 1,
-                  alignSelf: "stretch",
-                }}
-              >
-                {renderTile(t)}
-              </View>
-            ))}
-          </View>
-
-          {/* Historia (fixed) */}
-          <View style={{ marginTop: 0 }}>
-            <Card
-              colors={colors}
-              title="Historia zadań"
-              subtitle="Ostatnio wykonane na górze."
-              style={{ marginBottom: 24 }}
-            >
-              {loading ? (
-                <ActivityIndicator color={colors.accent} />
-              ) : missionsSorted.length === 0 ? (
-                <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>
-                  Nie dodano jeszcze żadnych zadań.
-                </Text>
-              ) : (
-                <View style={{ marginTop: 8 }}>
-                  {missionsSorted.map((m: any, idx: number) => {
-                    const lastDone = m.completedAtJs as Date | null;
-                    const lastBy =
-                      m.assignedToName || m.assignedByName || "Nieznany członek rodziny";
-                    const isDone = !!m.completed;
-
-                    return (
-                      <View key={m.id}>
-                        {idx !== 0 && (
-                          <View style={{ marginVertical: 10 }}>
-                            <Divider colors={colors} />
-                          </View>
-                        )}
-
-                        <View style={styles.historyRow}>
-                          <View
-                            style={[
-                              styles.statusDot,
-                              {
-                                borderColor: isDone
-                                  ? "rgba(34,197,94,0.55)"
-                                  : "rgba(148,163,184,0.55)",
-                                backgroundColor: isDone ? "rgba(34,197,94,0.14)" : "transparent",
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name={isDone ? "checkmark" : "ellipse-outline"}
-                              size={14}
-                              color={isDone ? "#22c55e" : colors.textMuted}
-                            />
-                          </View>
-
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[styles.historyTitle, { color: colors.text }]} numberOfLines={2}>
-                              {m.title || "Bez nazwy"}
-                            </Text>
-
-                            <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                              Ostatnio wykonane:{" "}
-                              <Text style={{ color: colors.text }}>{formatDateTimeShort(lastDone)}</Text>
-                            </Text>
-
-                            <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                              Wykonawca: <Text style={{ color: colors.text }}>{lastBy}</Text>
-                            </Text>
-                          </View>
-
-                          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </Card>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* Edit modal */}
-      <Modal visible={editOpen} animationType="slide" transparent onRequestClose={() => setEditOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Dostosuj kafelki</Text>
-              <Pressable onPress={() => setEditOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                <Ionicons name="close" size={22} color={colors.textMuted} />
-              </Pressable>
-            </View>
-
-            <ScrollView style={{ padding: 14 }} showsVerticalScrollIndicator={false}>
-              {tiles.map((t) => (
-                <View
-                  key={t.id}
-                  style={[styles.editRow, { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` }]}
-                >
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                      {t.id === "summary"
-                        ? "Podsumowanie"
-                        : t.id === "mission-search"
-                        ? "Wyszukaj misję"
-                        : t.id === "achievements"
-                        ? "Osiągnięcia"
-                        : t.id === "leaderboard"
-                        ? "Leaderboard"
-                        : t.id === "freq"
-                        ? "Najczęstsze zadania"
-                        : "Trudność"}
-                    </Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
-                      {t.hidden ? "Ukryty" : t.wide ? "Szeroki (pełny rząd)" : "Normalny"}
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <Pressable onPress={() => moveTile(t.id, -1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                      <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
-                    </Pressable>
-                    <Pressable onPress={() => moveTile(t.id, 1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                      <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                    </Pressable>
-
-                    <Pressable onPress={() => toggleWide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                      <Ionicons name={t.wide ? "contract-outline" : "expand-outline"} size={18} color={colors.textMuted} />
-                    </Pressable>
-
-                    <Pressable onPress={() => toggleHide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
-                      <Ionicons name={t.hidden ? "eye-outline" : "eye-off-outline"} size={18} color={colors.textMuted} />
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-
-              <Pressable
-                onPress={resetTiles}
-                style={({ pressed }) => [
-                  styles.resetBtn,
-                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Ionicons name="refresh-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Reset układu</Text>
-              </Pressable>
-            </ScrollView>
-
-            <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
-              <Pressable
-                onPress={() => setEditOpen(false)}
-                style={({ pressed }) => [
-                  styles.modalCloseBtn,
-                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Mission details modal */}
-      <Modal visible={detailsOpen} animationType="slide" transparent onRequestClose={() => setDetailsOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Misje — szczegóły</Text>
-              <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                <Ionicons name="close" size={22} color={colors.textMuted} />
-              </Pressable>
-            </View>
-
-            <View style={{ padding: 14 }}>
-              <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
-                <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
-                <TextInput
-                  value={missionQuery}
-                  onChangeText={setMissionQuery}
-                  placeholder="Szukaj misji…"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.searchInput, { color: colors.text }]}
-                  autoCorrect={false}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              <View style={{ height: 12 }} />
-
-              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-                {filteredStats.slice(0, 30).map((t) => {
-                  const isActive = selectedKey === t.key;
-                  return (
-                    <Pressable
-                      key={t.key}
-                      onPress={() => setSelectedKey(t.key)}
-                      style={({ pressed }) => [
-                        styles.searchRow,
-                        {
-                          borderColor: colors.border,
-                          backgroundColor: isActive ? `${colors.accent}14` : `${colors.textMuted}08`,
-                          opacity: pressed ? 0.9 : 1,
-                          marginBottom: 8,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.searchDot, { borderColor: colors.border }]}>
-                        <Ionicons
-                          name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
-                          size={14}
-                          color={t.completed > 0 ? colors.accent : colors.textMuted}
-                        />
-                      </View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
-                          {t.label}
-                        </Text>
-                        <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                          {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                    </Pressable>
-                  );
-                })}
               </ScrollView>
 
-              <View style={{ marginTop: 12 }}>
-                <Divider colors={colors} />
+              <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+                <Pressable
+                  onPress={() => setEditOpen(false)}
+                  style={({ pressed }) => [
+                    styles.modalCloseBtn,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: `${colors.textMuted}08`,
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
+                </Pressable>
               </View>
-
-              {!selected ? (
-                <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 12 }]}>
-                  Wybierz misję z listy, żeby zobaczyć: ile razy, kto i kiedy.
-                </Text>
-              ) : (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }} numberOfLines={2}>
-                    {selected.label}
-                  </Text>
-                  <Text style={{ color: colors.textMuted, marginTop: 6, fontWeight: "800" }}>
-                    Wykonano: <Text style={{ color: colors.text }}>{selected.completed}×</Text> • Ostatnio:{" "}
-                    <Text style={{ color: colors.text }}>{formatDateTimeShort(selected.lastDone)}</Text>
-                  </Text>
-
-                  <View style={{ marginTop: 10 }}>
-                    <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Historia (ostatnie 12)</Text>
-                    <View style={{ marginTop: 8 }}>
-                      {selected.events.slice(0, 12).map((e: any) => (
-                        <View
-                          key={e.id}
-                          style={[
-                            styles.eventRow,
-                            { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
-                          ]}
-                        >
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                              {e.userName}
-                            </Text>
-                            <Text style={{ color: colors.textMuted, marginTop: 2, fontSize: 11 }} numberOfLines={1}>
-                              {formatDateTimeShort(e.date)}
-                            </Text>
-                          </View>
-                          <Text style={{ color: colors.textMuted, fontWeight: "900" }}>+{e.exp}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                </View>
-              )}
-            </View>
-
-            <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
-              <Pressable
-                onPress={() => setDetailsOpen(false)}
-                style={({ pressed }) => [
-                  styles.modalCloseBtn,
-                  { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
-              </Pressable>
             </View>
           </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+        </Modal>
+
+        {/* Mission details modal */}
+        <Modal visible={detailsOpen} animationType="slide" transparent onRequestClose={() => setDetailsOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Misje — szczegóły</Text>
+                <Pressable
+                  onPress={() => setDetailsOpen(false)}
+                  hitSlop={10}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="close" size={22} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              <View style={{ padding: 14 }}>
+                <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` }]}>
+                  <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
+                  <TextInput
+                    value={missionQuery}
+                    onChangeText={setMissionQuery}
+                    placeholder="Szukaj misji…"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.searchInput, { color: colors.text }]}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <View style={{ height: 12 }} />
+
+                <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                  {filteredStats.slice(0, 30).map((t) => {
+                    const isActive = selectedKey === t.key;
+                    return (
+                      <Pressable
+                        key={t.key}
+                        onPress={() => setSelectedKey(t.key)}
+                        style={({ pressed }) => [
+                          styles.searchRow,
+                          {
+                            borderColor: colors.border,
+                            backgroundColor: isActive ? `${colors.accent}14` : `${colors.textMuted}08`,
+                            opacity: pressed ? 0.9 : 1,
+                            marginBottom: 8,
+                          },
+                        ]}
+                      >
+                        <View style={[styles.searchDot, { borderColor: colors.border }]}>
+                          <Ionicons
+                            name={t.completed > 0 ? "checkmark" : "ellipse-outline"}
+                            size={14}
+                            color={t.completed > 0 ? colors.accent : colors.textMuted}
+                          />
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={[styles.searchTitle, { color: colors.text }]} numberOfLines={1}>
+                            {t.label}
+                          </Text>
+                          <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                            {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                <View style={{ marginTop: 12 }}>
+                  <Divider colors={colors} />
+                </View>
+
+                {!selected ? (
+                  <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 12 }]}>
+                    Wybierz misję z listy, żeby zobaczyć: ile razy, kto i kiedy.
+                  </Text>
+                ) : (
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }} numberOfLines={2}>
+                      {selected.label}
+                    </Text>
+                    <Text style={{ color: colors.textMuted, marginTop: 6, fontWeight: "800" }}>
+                      Wykonano: <Text style={{ color: colors.text }}>{selected.completed}×</Text> • Ostatnio:{" "}
+                      <Text style={{ color: colors.text }}>{formatDateTimeShort(selected.lastDone)}</Text>
+                    </Text>
+
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Historia (ostatnie 12)</Text>
+                      <View style={{ marginTop: 8 }}>
+                        {selected.events.slice(0, 12).map((e: any) => (
+                          <View
+                            key={e.id}
+                            style={[
+                              styles.eventRow,
+                              { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
+                            ]}
+                          >
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                                {e.userName}
+                              </Text>
+                              <Text style={{ color: colors.textMuted, marginTop: 2, fontSize: 11 }} numberOfLines={1}>
+                                {formatDateTimeShort(e.date)}
+                              </Text>
+                            </View>
+                            <Text style={{ color: colors.textMuted, fontWeight: "900" }}>+{e.exp}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ padding: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}>
+                <Pressable
+                  onPress={() => setDetailsOpen(false)}
+                  style={({ pressed }) => [
+                    styles.modalCloseBtn,
+                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
+                  ]}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
 /* ----------------------- Styles ----------------------- */
 
 const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+    minHeight: Platform.OS === "web" ? ("100dvh" as any) : undefined,
+  },
+
   hero: {
     borderWidth: 1,
     borderRadius: 24,
     padding: 16,
+    position: "relative",
+    overflow: "hidden",
     ...(Platform.OS === "ios"
       ? { shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } }
       : { elevation: 2 }),

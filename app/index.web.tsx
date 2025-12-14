@@ -1,5 +1,5 @@
 // app/index.tsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,16 @@ import {
   Image,
   Platform,
   Animated,
+  useWindowDimensions,
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+
+import WelcomeTutorialModal from "../src/components/WelcomeTutorialModal";
+// ❌ USUNIĘTE: import GuidedTourOverlay z komponentów, bo masz definicję w tym pliku
+// import GuidedTourOverlay from "../src/components/GuidedTourOverlay";
+
 import { useThemeColors } from "../src/context/ThemeContext";
 
 import {
@@ -188,8 +194,7 @@ function filterMissionsForDate(allMissions: any[], selectedDate: Date) {
       return false;
     }
 
-    const dueRaw =
-      m.dueDate?.toDate?.() ? m.dueDate.toDate() : new Date(m.dueDate);
+    const dueRaw = m.dueDate?.toDate?.() ? m.dueDate.toDate() : new Date(m.dueDate);
     const due = startOfDay(dueRaw);
 
     const repeat = m.repeat?.type ?? "none";
@@ -270,15 +275,11 @@ function useFireworkManager() {
       const angle = Math.random() * Math.PI * 2;
       const isCore = i < coreCount;
 
-      const distance = isCore
-        ? 10 + Math.random() * 18 // krótki wybuch przy guziku
-        : 40 + Math.random() * 80; // dalszy rozprysk
+      const distance = isCore ? 10 + Math.random() * 18 : 40 + Math.random() * 80;
 
-      const duration = isCore
-        ? 350 + Math.random() * 200
-        : 800 + Math.random() * 400;
+      const duration = isCore ? 350 + Math.random() * 200 : 800 + Math.random() * 400;
 
-      const delay = isCore ? 0 : 120 + Math.random() * 120; // druga faza lekko opóźniona
+      const delay = isCore ? 0 : 120 + Math.random() * 120;
 
       newParticles.push({
         id: `${missionId}_${Date.now()}_${i}`,
@@ -338,6 +339,439 @@ function useFireworkManager() {
 }
 
 /* --------------------------------------------------------- */
+/* ------------------- GUIDED TOUR OVERLAY ------------------ */
+/* --------------------------------------------------------- */
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+type TourStep = {
+  id: "hud" | "week" | "add" | "checkbox" | "settings";
+  title: string;
+  body: string;
+};
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+async function measureRect(node: any): Promise<Rect | null> {
+  return new Promise((resolve) => {
+    try {
+      if (!node || !node.measureInWindow) return resolve(null);
+      node.measureInWindow((x: number, y: number, width: number, height: number) => {
+        if ([x, y, width, height].some((v) => typeof v !== "number" || Number.isNaN(v))) {
+          resolve(null);
+        } else {
+          resolve({ x, y, width, height });
+        }
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function GuidedTourOverlay({
+  visible,
+  colors,
+  steps,
+  getNodeForStep,
+  getScreenNode, // ✅ node ekranu (container Home), żeby skorygować offset
+  onFinish,
+}: {
+  visible: boolean;
+  colors: any;
+  steps: TourStep[];
+  getNodeForStep: (id: TourStep["id"]) => any;
+  getScreenNode: () => any; // ✅ WYMAGANE
+  onFinish: () => void;
+}) {
+  const { width: W, height: H } = useWindowDimensions();
+  const [idx, setIdx] = useState(0);
+
+  const [target, setTarget] = useState<Rect | null>(null);
+  const [bubbleH, setBubbleH] = useState(0);
+
+  const fade = useRef(new Animated.Value(0)).current;
+
+  const step = steps[idx];
+  const isSettingsStep = step?.id === "settings";
+
+  const refresh = useCallback(async () => {
+    if (!visible || !step) return;
+
+    // pozwól layoutowi się „uspokoić”
+    await new Promise((r) => setTimeout(r, 60));
+
+    // ✅ SPECJALNY TRYB DLA KROKU 5:
+    // Header jest poza ekranem Home (layout / root), więc nie próbujemy go mierzyć.
+    // Po prostu celujemy w górny prawy róg okna (tam gdzie avatar / dropdown).
+    if (step.id === "settings") {
+      const anchorW = Platform.OS === "web" ? 220 : 180;
+      const anchorH = 44;
+
+      setTarget({
+        x: W - anchorW - 14,
+        y: 8, // przy samej górze
+        width: anchorW,
+        height: anchorH,
+      });
+      return;
+    }
+
+    // ✅ 1) zmierz pozycję kontenera ekranu
+    const screenNode = getScreenNode?.();
+    const screenRect = await measureRect(screenNode);
+    const offX = screenRect?.x ?? 0;
+    const offY = screenRect?.y ?? 0;
+
+    // ✅ 2) zmierz element docelowy
+    const node = getNodeForStep(step.id);
+    const rect = await measureRect(node);
+
+    if (!rect) {
+      // fallback: środek ekranu
+      setTarget({
+        x: W / 2 - 120,
+        y: H / 2 - 40,
+        width: 240,
+        height: 80,
+      });
+      return;
+    }
+
+    // ✅ 3) przelicz na układ współrzędnych EKRANU
+    setTarget({
+      x: rect.x - offX,
+      y: rect.y - offY,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, [visible, step?.id, getNodeForStep, getScreenNode, W, H, step]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    setIdx(0);
+    setTarget(null);
+    setBubbleH(0);
+
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    refresh();
+  }, [idx, visible, refresh]);
+
+  if (!visible || !step) return null;
+
+  const safeTarget: Rect = target ?? {
+    x: W / 2 - 120,
+    y: H / 2 - 40,
+    width: 240,
+    height: 80,
+  };
+
+  const pad = 14;
+  const hlPad = 8;
+
+  const hlX = clamp(safeTarget.x - hlPad, pad, W - pad);
+  const hlY = clamp(safeTarget.y - hlPad, pad, H - pad);
+  const hlW = clamp(safeTarget.width + hlPad * 2, 64, W - pad * 2);
+  const hlH = clamp(safeTarget.height + hlPad * 2, 48, H - pad * 2);
+
+  const bubbleW = clamp(Math.min(420, W - pad * 2), 260, 520);
+
+  // domyślnie pod elementem, a jak brak miejsca to nad
+  const preferBelow = hlY + hlH + 12 + bubbleH < H - pad;
+  const bubbleTopDefault = preferBelow ? hlY + hlH + 12 : Math.max(pad, hlY - 12 - bubbleH);
+  const bubbleLeftDefault = clamp(hlX + hlW / 2 - bubbleW / 2, pad, W - pad - bubbleW);
+
+  // ✅ dla settings: dymek zawsze w prawym górnym rogu (pod headerem), a strzałka leci do góry
+  const bubbleTop = isSettingsStep ? clamp(86, pad, H - pad - bubbleH) : bubbleTopDefault;
+  const bubbleLeft = isSettingsStep
+    ? clamp(W - pad - bubbleW, pad, W - pad - bubbleW)
+    : bubbleLeftDefault;
+
+  const arrowSize = 10;
+  const arrowTop = preferBelow ? bubbleTop - arrowSize / 2 : bubbleTop + bubbleH - arrowSize / 2;
+  const arrowLeft = clamp(hlX + hlW / 2 - arrowSize / 2, pad, W - pad - arrowSize);
+
+  const isLast = idx === steps.length - 1;
+
+  // ✅ helper: prosta linia-strzałka (dla settings)
+  const renderLineArrow = () => {
+    const ax = clamp(W - pad - 44, pad, W - pad); // punkt celowania (góra/prawy)
+    const ay = 18; // przy topbarze
+
+    // start linii: z górnej krawędzi dymka, bliżej prawej strony
+    const sx = bubbleLeft + bubbleW - 60;
+    const sy = bubbleTop - 10;
+
+    const dx = ax - sx;
+    const dy = ay - sy;
+    const len = Math.max(24, Math.sqrt(dx * dx + dy * dy));
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = (angleRad * 180) / Math.PI;
+
+    return (
+      <>
+        {/* delikatny „punkt” na celu */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: ax - 10,
+            top: ay - 10,
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            backgroundColor: colors.accent + "22",
+            borderWidth: 1,
+            borderColor: colors.accent + "66",
+            opacity: fade,
+          }}
+        />
+
+        {/* linia */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: sx,
+            top: sy,
+            width: len,
+            height: 3,
+            borderRadius: 999,
+            backgroundColor: colors.accent,
+            transform: [{ rotate: `${angleDeg}deg` }],
+            opacity: fade,
+          }}
+        />
+
+        {/* grot */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: ax - 10,
+            top: ay - 10,
+            opacity: fade,
+            transform: [{ rotate: `${angleDeg}deg` }],
+          }}
+        >
+          <Ionicons name="arrow-forward" size={20} color={colors.accent} />
+        </Animated.View>
+      </>
+    );
+  };
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 12000,
+      }}
+    >
+      {/* tło */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(2,6,23,0.72)",
+          opacity: fade,
+        }}
+      />
+
+      {/* highlight (wyłączamy dla settings — tam jest strzałka do headera) */}
+      {!isSettingsStep && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: hlX,
+            top: hlY,
+            width: hlW,
+            height: hlH,
+            borderRadius: 18,
+            borderWidth: 2,
+            borderColor: colors.accent,
+            backgroundColor: "rgba(255,255,255,0.03)",
+            opacity: fade,
+          }}
+        />
+      )}
+
+      {/* dymek */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          left: bubbleLeft,
+          top: bubbleTop,
+          width: bubbleW,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          padding: 14,
+          opacity: fade,
+          ...(Platform.OS === "web"
+            ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.45)" } as any)
+            : {
+                shadowColor: "#000",
+                shadowOpacity: 0.28,
+                shadowRadius: 22,
+                shadowOffset: { width: 0, height: 12 },
+                elevation: 10,
+              }),
+        }}
+        onLayout={(e) => setBubbleH(e.nativeEvent.layout.height)}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.accent + "22",
+              borderWidth: 1,
+              borderColor: colors.accent + "55",
+              marginRight: 10,
+            }}
+          >
+            <Ionicons name="navigate-outline" size={16} color={colors.accent} />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}>{step.title}</Text>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 11,
+                marginTop: 2,
+                fontWeight: "800",
+              }}
+            >
+              Krok {idx + 1}/{steps.length}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={onFinish}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+              alignItems: "center",
+              justifyContent: "center",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+            }}
+          >
+            <Ionicons name="close" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        <Text
+          style={{
+            color: colors.textMuted,
+            fontSize: 13,
+            marginTop: 10,
+            lineHeight: 18,
+            fontWeight: "700",
+          }}
+        >
+          {step.body}
+        </Text>
+
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+          <TouchableOpacity
+            disabled={idx === 0}
+            onPress={() => setIdx((p) => Math.max(0, p - 1))}
+            style={{
+              flex: 1,
+              opacity: idx === 0 ? 0.5 : 1,
+              paddingVertical: 11,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+              alignItems: "center",
+              justifyContent: "center",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Wstecz</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (isLast) onFinish();
+              else setIdx((p) => Math.min(steps.length - 1, p + 1));
+            }}
+            style={{
+              flex: 1,
+              paddingVertical: 11,
+              borderRadius: 999,
+              backgroundColor: colors.accent,
+              alignItems: "center",
+              justifyContent: "center",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+            }}
+          >
+            <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>
+              {isLast ? "Koniec" : "Dalej"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      {/* strzałka (romb) – tylko dla zwykłych kroków */}
+      {!isSettingsStep && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: arrowLeft,
+            top: arrowTop,
+            width: arrowSize,
+            height: arrowSize,
+            backgroundColor: colors.card,
+            borderLeftWidth: 1,
+            borderTopWidth: 1,
+            borderColor: colors.border,
+            transform: [{ rotate: preferBelow ? "45deg" : "225deg" }],
+            opacity: fade,
+          }}
+        />
+      )}
+
+      {/* ✅ KROK 5: strzałka do headera (zamiast ramki, bo header jest poza ekranem) */}
+      {isSettingsStep ? renderLineArrow() : null}
+    </View>
+  );
+}
+
+/* --------------------------------------------------------- */
 /* --------------------- MAIN COMPONENT --------------------- */
 /* --------------------------------------------------------- */
 
@@ -347,11 +781,26 @@ export default function HomeScreen() {
   const { missions, loading } = useMissions();
   const { members } = useFamily();
 
-  const { particles: fireworkParticles, shoot: triggerFirework } =
-    useFireworkManager();
+  const { particles: fireworkParticles, shoot: triggerFirework } = useFireworkManager();
+
+  // ✅ ref do kontenera ekranu (żeby GuidedTourOverlay liczył poprawnie offset)
+  const screenRef = useRef<any>(null);
 
   // refy do checkboxów (bez dodatkowych hooków w mapie)
   const checkboxRefs = useRef<Record<string, any>>({});
+
+  // ✅ anchor checkboxa dla tutorialu, gdy nie ma żadnych zadań
+  const demoCheckboxAnchorRef = useRef<any>(null);
+
+  // ✅ FIX: refs do animacji kart (musi istnieć w HomeScreen scope)
+  const animationRefs = useRef<Record<string, Animated.Value>>({});
+
+  // ✅ Anchory dla guided tour
+  const hudAnchorRef = useRef<any>(null);
+  const weekDaysAnchorRef = useRef<any>(null);
+  const addTaskAnchorRef = useRef<any>(null);
+
+  const [tourOpen, setTourOpen] = useState(false);
 
   console.log("🟦 RENDER HOME – missions count:", missions?.length);
 
@@ -368,12 +817,15 @@ export default function HomeScreen() {
     totalExp: number;
   } | null>(null);
 
+  // ✅ welcome modal
+  const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
+  const [welcomeModalReady, setWelcomeModalReady] = useState(false);
+
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
 
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart]
-  );
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [
+    weekStart,
+  ]);
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
@@ -428,7 +880,7 @@ export default function HomeScreen() {
   }, [missions, myUid, familyMemberIds]);
 
   /* --------------------------------------------------------- */
-  /* --------- NASŁUCH userStats z kolekcji "users" ---------- */
+  /* --------- NASŁUCH userStats + onboarding z "users" ------- */
   /* --------------------------------------------------------- */
 
   useEffect(() => {
@@ -436,17 +888,55 @@ export default function HomeScreen() {
 
     const userDocRef = doc(db, "users", myUid);
     const unsub = onSnapshot(userDocRef, (snap) => {
-      const data = snap.data();
+      const data = snap.data() as any;
       if (data) {
         setUserStats({
           level: (data.level as number | undefined) ?? 1,
           totalExp: (data.totalExp as number | undefined) ?? 0,
         });
+
+        const seen = !!data?.onboarding?.welcomeSeen;
+        setWelcomeModalOpen(!seen);
+        setWelcomeModalReady(true);
+      } else {
+        setWelcomeModalOpen(true);
+        setWelcomeModalReady(true);
       }
     });
 
     return unsub;
   }, [myUid]);
+
+  const markWelcomeSeen = async (action: "start" | "skip") => {
+    if (!myUid) return;
+
+    try {
+      await setDoc(
+        doc(db, "users", myUid),
+        {
+          onboarding: {
+            welcomeSeen: true,
+            welcomeSeenAt: serverTimestamp(),
+            welcomeAction: action,
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setWelcomeModalOpen(false);
+
+      if (action === "start") {
+        // ✅ zamiast route /tutorial -> odpalamy Guided Tour na ekranie głównym
+        setTourOpen(true);
+      } else {
+        router.replace("/"); // „Znam już aplikację” -> index
+      }
+    } catch (err: any) {
+      console.error("🟥 WELCOME MODAL save error:", err?.code, err?.message, err);
+      alert("Nie udało się zapisać statusu wprowadzenia. Spróbuj ponownie.");
+    }
+  };
 
   /* --------------------------------------------------------- */
   /* -------------- MAP ASSIGNED / CREATOR MEMBER ------------ */
@@ -462,7 +952,6 @@ export default function HomeScreen() {
     );
   }, [members, myUid]);
 
-  // 🔸 kto DODAŁ / PRZYPISAŁ zadanie
   const getCreatorMember = (m: any) => {
     const rawId = m?.assignedByUserId || m?.createdByUserId || null;
     const creatorId = rawId ? String(rawId) : null;
@@ -472,16 +961,9 @@ export default function HomeScreen() {
 
     if (myUid && creatorId === String(myUid)) {
       const avatarUrl =
-        (meFromMembers as any)?.avatarUrl ||
-        (meFromMembers as any)?.photoURL ||
-        myPhotoURL ||
-        null;
+        (meFromMembers as any)?.avatarUrl || (meFromMembers as any)?.photoURL || myPhotoURL || null;
 
-      const label =
-        creatorName ||
-        (meFromMembers as any)?.displayName ||
-        myDisplayName ||
-        "Ty";
+      const label = creatorName || (meFromMembers as any)?.displayName || myDisplayName || "Ty";
 
       return {
         id: "self",
@@ -498,8 +980,7 @@ export default function HomeScreen() {
     if (found) {
       return {
         id: creatorId!,
-        label:
-          found.displayName || found.username || creatorName || "Bez nazwy",
+        label: found.displayName || found.username || creatorName || "Bez nazwy",
         avatarUrl: found.avatarUrl || found.photoURL || null,
       };
     }
@@ -511,35 +992,20 @@ export default function HomeScreen() {
     };
   };
 
-  // 🔸 do kogo jest PRZYPISANE zadanie
   const getAssignedMember = (m: any) => {
     const assignedId = m?.assignedToUserId ? String(m.assignedToUserId) : null;
     const byId = m?.assignedByUserId || m?.createdByUserId || null;
-    const treatAsSelf =
-      !!myUid &&
-      (assignedId === String(myUid) || (!assignedId && byId === myUid));
+    const treatAsSelf = !!myUid && (assignedId === String(myUid) || (!assignedId && byId === myUid));
 
     if (treatAsSelf) {
-      const level =
-        (meFromMembers as any)?.level ??
-        (m.assignedToLevel as number | undefined) ??
-        1;
+      const level = (meFromMembers as any)?.level ?? (m.assignedToLevel as number | undefined) ?? 1;
       const totalExp =
-        (meFromMembers as any)?.totalExp ??
-        (m.assignedToTotalExp as number | undefined) ??
-        0;
+        (meFromMembers as any)?.totalExp ?? (m.assignedToTotalExp as number | undefined) ?? 0;
 
       const avatarUrl =
-        (meFromMembers as any)?.avatarUrl ||
-        (meFromMembers as any)?.photoURL ||
-        myPhotoURL ||
-        null;
+        (meFromMembers as any)?.avatarUrl || (meFromMembers as any)?.photoURL || myPhotoURL || null;
 
-      const label =
-        m.assignedToName ||
-        (meFromMembers as any)?.displayName ||
-        myDisplayName ||
-        "Ty";
+      const label = m.assignedToName || (meFromMembers as any)?.displayName || myDisplayName || "Ty";
 
       return {
         id: "self",
@@ -559,8 +1025,7 @@ export default function HomeScreen() {
       return {
         id: assignedId!,
         label: found.displayName || found.username || "Bez nazwy",
-        avatarUrl:
-          m.assignedToAvatarUrl || found.avatarUrl || found.photoURL || null,
+        avatarUrl: m.assignedToAvatarUrl || found.avatarUrl || found.photoURL || null,
         level: found.level ?? 1,
         totalExp: (found as any).totalExp ?? 0,
       };
@@ -579,10 +1044,10 @@ export default function HomeScreen() {
   /* ---------------------- DAY FILTER ------------------------ */
   /* --------------------------------------------------------- */
 
-  const missionsForDay = useMemo(
-    () => filterMissionsForDate(visibleMissions, selectedDate),
-    [visibleMissions, selectedDate]
-  );
+  const missionsForDay = useMemo(() => filterMissionsForDate(visibleMissions, selectedDate), [
+    visibleMissions,
+    selectedDate,
+  ]);
 
   const missionsForDaySorted = useMemo(() => {
     const list = [...missionsForDay];
@@ -657,14 +1122,8 @@ export default function HomeScreen() {
     };
   }, [members, missionsForDaySorted, myUid, myPhotoURL, myDisplayName]);
 
-  const hudLevel = Math.max(
-    1,
-    Number(userStats?.level ?? hudMember?.level ?? 1)
-  );
-  const hudTotalExp = Math.max(
-    0,
-    Number(userStats?.totalExp ?? hudMember?.totalExp ?? 0)
-  );
+  const hudLevel = Math.max(1, Number(userStats?.level ?? hudMember?.level ?? 1));
+  const hudTotalExp = Math.max(0, Number(userStats?.totalExp ?? hudMember?.totalExp ?? 0));
 
   const baseReq = hudLevel <= 1 ? 0 : requiredExpForLevel(hudLevel);
   const nextReq = requiredExpForLevel(hudLevel + 1);
@@ -685,12 +1144,6 @@ export default function HomeScreen() {
       return acc + ((m.expValue as number | undefined) ?? 0);
     }, 0);
   }, [missionsForDaySorted]);
-
-  /* --------------------------------------------------------- */
-  /* 🔹 ANIMACJE KART MISJI ---------------------------------- */
-  /* --------------------------------------------------------- */
-
-  const animationRefs = useRef<Record<string, Animated.Value>>({});
 
   /* --------------------------------------------------------- */
   /* -------------------- COMPLETE MISSION -------------------- */
@@ -734,8 +1187,6 @@ export default function HomeScreen() {
             completedDates: arrayUnion(todayKey),
             completedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-
-            // ✅ kto wykonał (per dzień)
             [`completedByByDate.${todayKey}`]: {
               userId: byUserId,
               name: byName,
@@ -749,8 +1200,6 @@ export default function HomeScreen() {
           completed: true,
           completedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-
-          // ✅ kto wykonał (jednorazowe)
           completedByUserId: byUserId,
           completedByName: byName,
         });
@@ -760,7 +1209,6 @@ export default function HomeScreen() {
       }
     };
 
-    // jeśli mamy animację dla tej karty – zrób mały bounce przed zapisem
     if (anim) {
       Animated.sequence([
         Animated.timing(anim, {
@@ -774,11 +1222,9 @@ export default function HomeScreen() {
           useNativeDriver: true,
         }),
       ]).start(() => {
-        // po animacji wykonaj zapis w Firestore
         doUpdate();
       });
     } else {
-      // fallback – bez animacji
       doUpdate();
     }
   };
@@ -817,12 +1263,7 @@ export default function HomeScreen() {
           await updateDoc(doc(db, "missions", mission.id), { archived: true });
         }
       } catch (err2: any) {
-        console.error(
-          "🟥 DELETE ERROR (fallback archived):",
-          err2?.code,
-          err2?.message,
-          err2
-        );
+        console.error("🟥 DELETE ERROR (fallback archived):", err2?.code, err2?.message, err2);
       }
 
       alert("Błąd podczas usuwania (sprawdź konsolę).");
@@ -838,9 +1279,7 @@ export default function HomeScreen() {
       }
 
       const missionRef = doc(db, "missions", mission.id);
-      const prevSkip: string[] = Array.isArray(mission.skipDates)
-        ? mission.skipDates
-        : [];
+      const prevSkip: string[] = Array.isArray(mission.skipDates) ? mission.skipDates : [];
       if (prevSkip.includes(dateKey)) {
         console.log("🟨 SKIP already contains date", dateKey);
         return;
@@ -877,31 +1316,16 @@ export default function HomeScreen() {
     if (!isRepeating) {
       Alert.alert("Usuń zadanie", "Czy na pewno chcesz usunąć to zadanie?", [
         { text: "Anuluj", style: "cancel" },
-        {
-          text: "Usuń",
-          style: "destructive",
-          onPress: () => deleteSeries(mission),
-        },
+        { text: "Usuń", style: "destructive", onPress: () => deleteSeries(mission) },
       ]);
       return;
     }
 
-    Alert.alert(
-      "Usuń zadanie cykliczne",
-      "To zadanie powtarza się w czasie. Co chcesz zrobić?",
-      [
-        { text: "Anuluj", style: "cancel" },
-        {
-          text: "Tylko ten dzień",
-          onPress: () => deleteOnlyToday(mission, dateKey),
-        },
-        {
-          text: "Całą serię",
-          style: "destructive",
-          onPress: () => deleteSeries(mission),
-        },
-      ]
-    );
+    Alert.alert("Usuń zadanie cykliczne", "To zadanie powtarza się w czasie. Co chcesz zrobić?", [
+      { text: "Anuluj", style: "cancel" },
+      { text: "Tylko ten dzień", onPress: () => deleteOnlyToday(mission, dateKey) },
+      { text: "Całą serię", style: "destructive", onPress: () => deleteSeries(mission) },
+    ]);
   };
 
   /* --------------------------------------------------------- */
@@ -913,11 +1337,7 @@ export default function HomeScreen() {
       pathname: "/editmission",
       params: {
         missionId: mission.id,
-        date: (
-          mission.dueDate.toDate?.()
-            ? mission.dueDate.toDate()
-            : new Date(mission.dueDate)
-        ).toISOString(),
+        date: (mission.dueDate.toDate?.() ? mission.dueDate.toDate() : new Date(mission.dueDate)).toISOString(),
       },
     });
   };
@@ -952,15 +1372,17 @@ export default function HomeScreen() {
         onPress={() => (to ? safePush(to) : undefined)}
         style={
           Platform.OS === "web"
-            ? ({ cursor: "pointer", marginLeft: 12 } as any)
-            : { marginLeft: 0, marginTop: 4 }
+            ? ({ cursor: "pointer", marginHorizontal: 8, marginVertical: 4 } as any)
+            : { marginHorizontal: 8, marginVertical: 4 }
         }
       >
         <Text
           style={{
             color: colors.textMuted,
             fontSize: 11,
-            fontWeight: "600",
+            fontWeight: "700",
+            letterSpacing: 0.2,
+            textAlign: "center",
           }}
         >
           {label}
@@ -973,108 +1395,197 @@ export default function HomeScreen() {
     return (
       <View
         style={{
-          marginTop: 32,
+          marginTop: 28,
           paddingVertical: 18,
           paddingHorizontal: 16,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.bg, // 🔥 tło takie samo jak cała strona
+          backgroundColor: "transparent",
         }}
       >
-        {/* LOGO + NAZWA */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 12,
-          }}
-        >
-          <View
+        <View style={{ alignItems: "center", maxWidth: 720 }}>
+          <Text
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.accent,
-              marginRight: 10,
+              color: colors.text,
+              fontSize: 15,
+              fontWeight: "900",
+              letterSpacing: 0.2,
+              textAlign: "center",
             }}
           >
-            <Ionicons name="home-outline" size={18} color="#022c22" />
+            MissionHome
+          </Text>
+
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 12,
+              marginTop: 4,
+              fontWeight: "700",
+              textAlign: "center",
+            }}
+          >
+            Wbijaj poziom w codzienności ✨
+          </Text>
+
+          <View
+            style={{
+              marginTop: 10,
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "center",
+            }}
+          >
+            <FooterLink label="O aplikacji" to="/about-app" />
+            <FooterLink label="Regulamin" to="/rules" />
+            <FooterLink label="Polityka prywatności" to="/privacy" />
+            <FooterLink label="Kontakt" to="/contact" />
           </View>
 
-          <View>
-            <Text
-              style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
-            >
-              MissionHome
-            </Text>
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 12,
-                marginTop: 1,
-                fontWeight: "700",
-              }}
-            >
-              Porządek w domu, exp w życiu ✨
-            </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              marginTop: 2,
+            }}
+          >
+            <FooterLink label="FAQ" to="/faq" />
+            <FooterLink label="Zgłoś błąd" to="/bug" />
+            <FooterLink label="Zgłoś pomysł" to="/idea" />
           </View>
-        </View>
 
-        {/* SOCIAL IKONY */}
-        <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          {(
-            ["logo-facebook", "logo-instagram", "logo-linkedin", "logo-youtube"] as const
-          ).map((icon) => (
-            <TouchableOpacity
-              key={icon}
-              activeOpacity={0.9}
-              style={{ marginHorizontal: 8 }}
-            >
-              <Ionicons name={icon as any} size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          ))}
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 11,
+              fontWeight: "800",
+              marginTop: 10,
+              textAlign: "center",
+              letterSpacing: 0.2,
+            }}
+          >
+            © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
+          </Text>
         </View>
-
-        {/* LINKI LINIA 1 */}
-        <View
-          style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}
-        >
-          <FooterLink label="O aplikacji" to="/about-app" />
-          <FooterLink label="Regulamin" to="/rules" />
-          <FooterLink label="Polityka prywatności" to="/privacy" />
-          <FooterLink label="Kontakt" to="/contact" />
-        </View>
-
-        {/* LINKI LINIA 2 */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-            marginTop: 6,
-          }}
-        >
-          <FooterLink label="FAQ" to="/faq" />
-          <FooterLink label="Zgłoś błąd" to="/bug" />
-          <FooterLink label="Zgłoś pomysł" to="/idea" />
-        </View>
-
-        {/* COPYRIGHT */}
-        <Text
-          style={{
-            color: colors.textMuted,
-            fontSize: 11,
-            fontWeight: "800",
-            marginTop: 12,
-            textAlign: "center",
-          }}
-        >
-          © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
-        </Text>
       </View>
     );
+  };
+
+  /* --------------------------------------------------------- */
+  /* ---------------------- UI HELPERS ------------------------ */
+  /* --------------------------------------------------------- */
+
+  const cardShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0px 10px 30px rgba(0,0,0,0.22)" } as any)
+      : {
+          shadowColor: "#000",
+          shadowOpacity: 0.14,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 10 },
+          elevation: 6,
+        };
+
+  const softShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0px 8px 22px rgba(0,0,0,0.18)" } as any)
+      : {
+          shadowColor: "#000",
+          shadowOpacity: 0.12,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: 8 },
+          elevation: 4,
+        };
+
+  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
+
+  /* --------------------------------------------------------- */
+  /* -------------------- TOUR: steps + node ------------------ */
+  /* --------------------------------------------------------- */
+
+  const TOUR_STEPS: TourStep[] = useMemo(
+    () => [
+      {
+        id: "hud",
+        title: "Tu widzisz swój progres",
+        body: "Poziom, EXP i streak. To jest Twój „panel gracza” — wszystko tu rośnie, gdy odhacasz zadania.",
+      },
+      {
+        id: "week",
+        title: "Wybierz dzień",
+        body: "Klikasz dzień tygodnia i widzisz zadania na konkretną datę. Prosto i bez gimnastyki.",
+      },
+      {
+        id: "add",
+        title: "Dodaj zadanie",
+        body: "Ten przycisk to Twoja fabryka misji. Dodaj coś małego na start i od razu zgarnij pierwsze EXP.",
+      },
+      {
+        id: "checkbox",
+        title: "Odhacz i zgarnij EXP",
+        body:
+          "Kliknij kółko po lewej przy zadaniu. Wykonane = EXP + streak + satysfakcja 💥\n\nPoniżej widzisz przykładowe zadanie, żebyś od razu wiedział o co chodzi.",
+      },
+      {
+        id: "settings",
+        title: "Ustawienia: profil, motyw i bezpieczeństwo",
+        body:
+          "W Ustawieniach ustawisz zdjęcie profilowe (żeby rodzina od razu Cię rozpoznawała).\n\nOd razu zobaczysz też motywy — możesz je zmieniać zarówno z headera, jak i w Ustawieniach.\n\nTo też miejsce na kluczowe kwestie związane z bezpieczeństwem konta.",
+      },
+    ],
+    []
+  );
+
+  const getNodeForStep = useCallback(
+    (id: TourStep["id"]) => {
+      if (id === "hud") return hudAnchorRef.current;
+      if (id === "week") return weekDaysAnchorRef.current;
+      if (id === "add") return addTaskAnchorRef.current;
+
+      // checkbox: pierwszy task z listy (jeśli jest)
+      if (id === "checkbox") {
+        const first = missionsForDaySorted?.[0];
+        if (first?.id && checkboxRefs.current[first.id]) {
+          return checkboxRefs.current[first.id];
+        }
+
+        // ✅ jeśli nie ma zadań -> użyj “demo checkboxa” (anchor do kroku 4/5)
+        if (demoCheckboxAnchorRef.current) return demoCheckboxAnchorRef.current;
+
+        // fallback: jak brak zadań, pokaż „Dodaj zadanie”
+        return addTaskAnchorRef.current;
+      }
+
+      // ✅ settings nie mierzymy node’a, bo header jest poza ekranem Home
+      if (id === "settings") return null;
+
+      return null;
+    },
+    [missionsForDaySorted]
+  );
+
+  const finishTour = async () => {
+    setTourOpen(false);
+
+    if (myUid) {
+      try {
+        await setDoc(
+          doc(db, "users", myUid),
+          {
+            onboarding: {
+              tourSeen: true,
+              tourSeenAt: serverTimestamp(),
+            },
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        // nie blokuj UX jeśli zapis nie wyjdzie
+        console.log("🟨 tourSeen save failed", e);
+      }
+    }
   };
 
   /* --------------------------------------------------------------------- */
@@ -1083,1246 +1594,9 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          flexGrow: 1,
-          width: "100%",
-          paddingVertical: 16,
-          alignItems: "center",
-        }}
-      >
-        <View
-          style={{
-            width: "100%",
-            maxWidth: 1344,
-            paddingHorizontal: 24,
-            flexGrow: 1,
-            alignSelf: "center",
-            ...(Platform.OS === "web"
-              ? ({ marginHorizontal: "auto" } as any)
-              : null),
-          }}
-        >
-          {/* HUD */}
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              padding: 14,
-              marginBottom: 16,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            {/* PLAYER HUD */}
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 12,
-              }}
-            >
-              {hudMember.avatarUrl ? (
-                <Image
-                  source={{ uri: hudMember.avatarUrl }}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 999,
-                    marginRight: 10,
-                  }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 999,
-                    backgroundColor: "#22d3ee33",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    marginRight: 10,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#22d3ee",
-                      fontWeight: "800",
-                      fontSize: 16,
-                    }}
-                  >
-                    {hudMember.label?.[0] ?? "?"}
-                  </Text>
-                </View>
-              )}
-
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: "800",
-                  }}
-                >
-                  {hudMember.id === "self" ? "Twój poziom" : hudMember.label}
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginTop: 4,
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                    LVL{" "}
-                    <Text style={{ color: colors.text, fontWeight: "800" }}>
-                      {hudLevel}
-                    </Text>
-                    {"  "}• EXP{" "}
-                    <Text style={{ color: colors.text, fontWeight: "800" }}>
-                      {hudTotalExp}
-                    </Text>
-                  </Text>
-
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 999,
-                      backgroundColor: colors.accent + "22",
-                      borderWidth: 1,
-                      borderColor: colors.accent + "66",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.accent,
-                        fontSize: 11,
-                        fontWeight: "800",
-                      }}
-                    >
-                      Do LVL {hudLevel + 1}: {hudToNext} EXP
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ marginTop: 8 }}>
-                  <View
-                    style={{
-                      height: 8,
-                      borderRadius: 999,
-                      backgroundColor: "#020617",
-                      overflow: "hidden",
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    }}
-                  >
-                    <View
-                      style={{
-                        height: "100%",
-                        width: `${hudProgress * 100}%`,
-                        borderRadius: 999,
-                        backgroundColor: colors.accent,
-                      }}
-                    />
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      marginTop: 6,
-                    }}
-                  >
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      Dziś zgarnięte:{" "}
-                      <Text
-                        style={{ color: colors.text, fontWeight: "800" }}
-                      >
-                        {dayEarned}
-                      </Text>{" "}
-                      / {dayPossible} EXP
-                    </Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      Próg LVL {hudLevel + 1}:{" "}
-                      <Text
-                        style={{ color: colors.text, fontWeight: "800" }}
-                      >
-                        {nextReq}
-                      </Text>
-                    </Text>
-                  </View>
-
-                  {/* STREAK */}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginTop: 8,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: "#f9731622",
-                        borderWidth: 1,
-                        borderColor: "#f9731688",
-                      }}
-                    >
-                      <Ionicons name="flame" size={14} color="#f97316" />
-                      <Text
-                        style={{
-                          marginLeft: 6,
-                          color: "#f97316",
-                          fontSize: 11,
-                          fontWeight: "800",
-                        }}
-                      >
-                        Streak: {streak}{" "}
-                        {streak === 1 ? "dzień z rzędu" : "dni z rzędu"}
-                      </Text>
-                    </View>
-
-                    {streak > 0 && (
-                      <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                        Trzymaj tempo! 🔥
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* header tygodnia + przyciski + DZIŚ */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginBottom: 8,
-                alignItems: "center",
-              }}
-            >
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedDate(addDays(selectedDate, -7));
-                }}
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.text} />
-              </TouchableOpacity>
-
-              <View style={{ alignItems: "center" }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: "700",
-                  }}
-                >
-                  Tydzień
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                  {formatWeekRange(weekStart)}
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    marginTop: 6,
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={() => setSelectedDate(addMonths(selectedDate, -1))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.card,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name="play-skip-back-outline"
-                      size={14}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={goToToday}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: "#0ea5e944",
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 11,
-                        fontWeight: "800",
-                      }}
-                    >
-                      Dziś
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => setSelectedDate(addMonths(selectedDate, 1))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.card,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name="play-skip-forward-outline"
-                      size={14}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedDate(addDays(selectedDate, 7));
-                }}
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="chevron-forward" size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {/* days */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-              }}
-            >
-              {weekDays.map((d, i) => {
-                const active = isSameDay(d, selectedDate);
-                const isTodayDay = isSameDay(d, today);
-                const inPast = d < today && !isSameDay(d, today);
-                const hasDone = inPast && hasCompletedMissionOnDate(d);
-
-                const bgColor = active
-                  ? colors.accent
-                  : hasDone
-                  ? "#22c55e22"
-                  : colors.card;
-
-                const borderColor = active
-                  ? colors.accent
-                  : hasDone
-                  ? "#22c55e88"
-                  : colors.border;
-
-                const textColor = active
-                  ? "#022c22"
-                  : hasDone
-                  ? "#16a34a"
-                  : colors.text;
-
-                const subTextColor = active
-                  ? "#022c22"
-                  : hasDone
-                  ? "#16a34a"
-                  : colors.textMuted;
-
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => setSelectedDate(startOfDay(d))}
-                    style={{
-                      flex: 1,
-                      marginHorizontal: 2,
-                      paddingVertical: 8,
-                      alignItems: "center",
-                      borderRadius: 12,
-                      backgroundColor: bgColor,
-                      borderWidth: 1,
-                      borderColor: borderColor,
-                    }}
-                    hitSlop={{
-                      top: 6,
-                      bottom: 6,
-                      left: 6,
-                      right: 6,
-                    }}
-                  >
-                    {isTodayDay && !active && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          right: 6,
-                          width: 6,
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: colors.accent,
-                        }}
-                      />
-                    )}
-
-                    <Text style={{ color: subTextColor, fontSize: 12 }}>
-                      {WEEKDAY_LABELS[i]}
-                    </Text>
-                    <Text
-                      style={{
-                        color: textColor,
-                        fontWeight: "700",
-                        fontSize: 14,
-                      }}
-                    >
-                      {d.getDate()}
-                    </Text>
-
-                    {hasDone && !active && (
-                      <View
-                        style={{
-                          marginTop: 3,
-                          width: 6,
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: "#22c55e",
-                        }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* HEADER */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "700",
-                }}
-              >
-                Zadania na:
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {formatDayLong(selectedDate)}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={goToAddTask}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: colors.accent,
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 999,
-              }}
-              hitSlop={{
-                top: 10,
-                bottom: 10,
-                left: 10,
-                right: 10,
-              }}
-            >
-              <Ionicons name="add-circle-outline" size={18} color="#022c22" />
-              <Text
-                style={{
-                  color: "#022c22",
-                  fontWeight: "700",
-                  marginLeft: 6,
-                  fontSize: 14,
-                }}
-              >
-                Dodaj zadanie
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* LISTA ZADAŃ */}
-          {loading ? (
-            <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
-          ) : missionsForDaySorted.length === 0 ? (
-            <View
-              style={{
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <Text style={{ color: colors.textMuted }}>
-                Brak zadań tego dnia.
-              </Text>
-            </View>
-          ) : (
-            missionsForDaySorted.map((m: any, idx: number) => {
-              const assigned = getAssignedMember(m);
-              const creator = getCreatorMember(m);
-              const diff = getDifficultyLabel(m);
-              const expProgress = getExpProgress(m);
-              const isDone = isMissionDoneOnDate(m, selectedDate);
-              const expValue = (m.expValue ?? 0) as number;
-
-              const samePersonAssignedAndCreator =
-                creator && assigned ? isSameMember(assigned, creator) : false;
-
-              const hideCreatorInfo = !creator || samePersonAssignedAndCreator;
-              const hideAssignedInfo = samePersonAssignedAndCreator;
-              const selfCompactRow = hideCreatorInfo && hideAssignedInfo;
-
-              const animKey = m.id ?? `fallback-${idx}`;
-              if (!animationRefs.current[animKey]) {
-                animationRefs.current[animKey] = new Animated.Value(1);
-              }
-              const rowAnim = animationRefs.current[animKey];
-
-              return (
-                <Animated.View
-                  key={m.id ?? `fallback-${idx}`}
-                  style={{
-                    transform: [{ scale: rowAnim }],
-                    opacity: rowAnim.interpolate({
-                      inputRange: [0.9, 1],
-                      outputRange: [0.85, 1],
-                      extrapolate: "clamp",
-                    }),
-                  }}
-                >
-                  <View
-                    style={{
-                      padding: 14,
-                      marginBottom: 12,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      backgroundColor: colors.card,
-                      borderColor: isDone ? "#22c55e66" : colors.border,
-                    }}
-                  >
-                    {/* Top row: checkbox + tytuł + akcje */}
-                    <View
-                      style={{ flexDirection: "row", alignItems: "center" }}
-                    >
-                      {/* Wrapper na guzik */}
-                      <View
-                        ref={(el) => {
-                          if (m.id) {
-                            checkboxRefs.current[m.id] = el;
-                          }
-                        }}
-                        style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 10,
-                          marginRight: 10,
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <TouchableOpacity
-                          onPress={() => {
-                            const node = checkboxRefs.current[m.id];
-                            if (node && node.measureInWindow) {
-                              node.measureInWindow(
-                                (
-                                  x: number,
-                                  y: number,
-                                  width: number,
-                                  height: number
-                                ) => {
-                                  const cx = x + width / 2;
-                                  const cy = y + height / 2;
-                                  // 💥 globalny wybuch przy tym checkboxie
-                                  triggerFirework(m.id, cx, cy);
-                                  handleComplete({ ...m }, rowAnim);
-                                }
-                              );
-                            } else {
-                              // fallback – środek ekranu, gdyby measure nie zadziałał
-                              triggerFirework(m.id, 200, 200);
-                              handleComplete({ ...m }, rowAnim);
-                            }
-                          }}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            borderRadius: 10,
-                            justifyContent: "center",
-                            alignItems: "center",
-                            borderWidth: 1,
-                            borderColor: isDone ? "#22c55e88" : colors.border,
-                            backgroundColor: isDone
-                              ? "#22c55e22"
-                              : "transparent",
-                          }}
-                          hitSlop={{
-                            top: 10,
-                            bottom: 10,
-                            left: 10,
-                            right: 10,
-                          }}
-                        >
-                          <Ionicons
-                            name={isDone ? "checkmark" : "ellipse-outline"}
-                            size={18}
-                            color={isDone ? "#22c55e" : colors.textMuted}
-                          />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: isDone ? colors.textMuted : colors.text,
-                            fontSize: 15,
-                            fontWeight: "800",
-                            textDecorationLine: isDone
-                              ? "line-through"
-                              : "none",
-                          }}
-                        >
-                          {m.title}
-                        </Text>
-
-                        {isDone ? (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              marginTop: 4,
-                            }}
-                          >
-                            <View
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor: "#22c55e22",
-                                borderWidth: 1,
-                                borderColor: "#22c55e66",
-                                marginRight: 8,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: "#22c55e",
-                                  fontSize: 11,
-                                  fontWeight: "900",
-                                }}
-                              >
-                                Wykonane ✅
-                              </Text>
-                            </View>
-
-                            <View
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor: colors.accent + "22",
-                                borderWidth: 1,
-                                borderColor: colors.accent + "55",
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: colors.accent,
-                                  fontSize: 11,
-                                  fontWeight: "900",
-                                }}
-                              >
-                                EXP zgarnięty: +{expValue}
-                              </Text>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-
-                      {/* Edit */}
-                      <TouchableOpacity
-                        onPress={() => handleEdit({ ...m })}
-                        style={{ marginRight: 8, padding: 6 }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={18}
-                          color={colors.textMuted}
-                        />
-                      </TouchableOpacity>
-
-                      {/* Delete */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          const safeMission = { ...m };
-                          handleDelete(safeMission);
-                        }}
-                        onLongPress={() => {
-                          Alert.alert(
-                            "DEBUG",
-                            `id=${String(m?.id)}\nrepeat=${String(
-                              m?.repeat?.type
-                            )}\narchived=${String(m?.archived)}`
-                          );
-                        }}
-                        delayLongPress={350}
-                        style={{ padding: 6 }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={20}
-                          color={colors.textMuted}
-                        />
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Assigned info + avatar + kto dodał */}
-                    {selfCompactRow ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          marginTop: 8,
-                          marginBottom: 4,
-                        }}
-                      >
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                          }}
-                        >
-                          {assigned.avatarUrl ? (
-                            <Image
-                              source={{ uri: assigned.avatarUrl }}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 999,
-                                marginRight: 6,
-                                opacity: isDone ? 0.8 : 1,
-                              }}
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 999,
-                                backgroundColor: "#22d3ee33",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                marginRight: 6,
-                                opacity: isDone ? 0.8 : 1,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: "#22d3ee",
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {assigned.label?.[0] ?? "?"}
-                              </Text>
-                            </View>
-                          )}
-
-                          <Text
-                            style={{
-                              color: colors.textMuted,
-                              fontSize: 12,
-                            }}
-                          >
-                            Twoje zadanie
-                          </Text>
-                        </View>
-
-                        <View
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            borderRadius: 999,
-                            backgroundColor: diff.color + "33",
-                            borderWidth: 1,
-                            borderColor: diff.color + "88",
-                            opacity: isDone ? 0.8 : 1,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: diff.color,
-                              fontSize: 11,
-                              fontWeight: "600",
-                            }}
-                          >
-                            {diff.label}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginTop: 10,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {assigned.avatarUrl ? (
-                          <Image
-                            source={{ uri: assigned.avatarUrl }}
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 999,
-                              marginRight: 8,
-                              opacity: isDone ? 0.7 : 1,
-                            }}
-                          />
-                        ) : (
-                          <View
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 999,
-                              backgroundColor: "#22d3ee33",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              marginRight: 8,
-                              opacity: isDone ? 0.7 : 1,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: "#22d3ee",
-                                fontWeight: "700",
-                                fontSize: 14,
-                              }}
-                            >
-                              {assigned.label?.[0] ?? "?"}
-                            </Text>
-                          </View>
-                        )}
-
-                        <View style={{ flex: 1 }}>
-                          {!hideAssignedInfo && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 12,
-                              }}
-                            >
-                              Przypisane do:{" "}
-                              <Text style={{ color: colors.text }}>
-                                {assigned.label}
-                              </Text>
-                            </Text>
-                          )}
-
-                          {!hideCreatorInfo && creator && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                              }}
-                            >
-                              Dodane przez:{" "}
-                              <Text style={{ color: colors.text }}>
-                                {creator.label}
-                              </Text>
-                            </Text>
-                          )}
-                        </View>
-
-                        <View
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            borderRadius: 999,
-                            backgroundColor: diff.color + "33",
-                            borderWidth: 1,
-                            borderColor: diff.color + "88",
-                            opacity: isDone ? 0.8 : 1,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: diff.color,
-                              fontSize: 11,
-                              fontWeight: "600",
-                            }}
-                          >
-                            {diff.label}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Cykliczność */}
-                    {m.repeat?.type && m.repeat.type !== "none" && (
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontSize: 11,
-                          marginBottom: 6,
-                        }}
-                      >
-                        Cykliczność:{" "}
-                        {m.repeat.type === "daily"
-                          ? "Codziennie"
-                          : m.repeat.type === "weekly"
-                          ? "Co tydzień"
-                          : m.repeat.type === "monthly"
-                          ? "Co miesiąc"
-                          : "Brak"}
-                      </Text>
-                    )}
-
-                    {/* EXP bar za misję */}
-                    <View style={{ marginTop: 6, opacity: isDone ? 0.85 : 1 }}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          marginBottom: 2,
-                        }}
-                      >
-                        <Text
-                          style={{ color: colors.textMuted, fontSize: 11 }}
-                        >
-                          EXP za misję
-                        </Text>
-                        <Text
-                          style={{
-                            color: colors.text,
-                            fontSize: 11,
-                            fontWeight: "800",
-                          }}
-                        >
-                          {expValue} EXP
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: "#020617",
-                          overflow: "hidden",
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        }}
-                      >
-                        <View
-                          style={{
-                            height: "100%",
-                            width: `${expProgress * 100}%`,
-                            borderRadius: 999,
-                            backgroundColor: colors.accent,
-                          }}
-                        />
-                      </View>
-                    </View>
-
-                    {!isDone && (
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontSize: 11,
-                          marginTop: 10,
-                        }}
-                      >
-                        Kliknij kółko po lewej, żeby odznaczyć jako wykonane i
-                        zgarnąć EXP 💥
-                      </Text>
-                    )}
-                  </View>
-                </Animated.View>
-              );
-            })
-          )}
-
-          {/* SPACER */}
-          <View style={{ flex: 1 }} />
-
-          {/* FOOTER */}
-          <AppFooter />
-        </View>
-      </ScrollView>
-
-      {/* WEB modal do usuwania zadań cyklicznych */}
-      {repeatDeleteDialog && Platform.OS === "web" && (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(15,23,42,0.65)",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 200,
-          }}
-        >
-          <View
-            style={{
-              width: "100%",
-              maxWidth: 420,
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              padding: 18,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 16,
-                fontWeight: "800",
-                marginBottom: 8,
-              }}
-            >
-              Usuń zadanie cykliczne
-            </Text>
-
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 13,
-                marginBottom: 16,
-              }}
-            >
-              To zadanie powtarza się w czasie. Wybierz, co chcesz zrobić dla
-              dnia {formatDayLong(selectedDate)}.
-            </Text>
-
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.card,
-                }}
-                onPress={async () => {
-                  if (!repeatDeleteDialog) return;
-                  await deleteOnlyToday(
-                    repeatDeleteDialog.mission,
-                    repeatDeleteDialog.dateKey
-                  );
-                  setRepeatDeleteDialog(null);
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 13,
-                    fontWeight: "600",
-                    textAlign: "center",
-                  }}
-                >
-                  Usuń tylko ten dzień
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  backgroundColor: "#ef4444",
-                }}
-                onPress={async () => {
-                  if (!repeatDeleteDialog) return;
-                  await deleteSeries(repeatDeleteDialog.mission);
-                  setRepeatDeleteDialog(null);
-                }}
-              >
-                <Text
-                  style={{
-                    color: "#fff",
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textAlign: "center",
-                  }}
-                >
-                  Usuń całą serię
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={{
-                alignSelf: "center",
-                marginTop: 4,
-                paddingVertical: 6,
-                paddingHorizontal: 18,
-              }}
-              onPress={() => setRepeatDeleteDialog(null)}
-            >
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                Anuluj
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* TIME TRAVEL modal: blokada odznaczania poza dzisiaj */}
-      {timeTravelDialogOpen && (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(15,23,42,0.70)",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 250,
-            paddingHorizontal: 18,
-          }}
-        >
-          <View
-            style={{
-              width: "100%",
-              maxWidth: 420,
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              padding: 18,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 8,
-              }}
-            >
-              <View
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 999,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "#a855f722",
-                  borderWidth: 1,
-                  borderColor: "#a855f766",
-                  marginRight: 10,
-                }}
-              >
-                <Ionicons name="time-outline" size={18} color="#c084fc" />
-              </View>
-
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "900",
-                }}
-              >
-                Umiesz podróżować w czasie? 😏
-              </Text>
-            </View>
-
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 13,
-                marginBottom: 14,
-                lineHeight: 18,
-              }}
-            >
-              Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz.
-              Cofanie się w czasie zostawmy filmom science-fiction. ✨
-            </Text>
-
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={{
-                paddingVertical: 10,
-                borderRadius: 999,
-                backgroundColor: colors.accent,
-                alignSelf: "center",
-                paddingHorizontal: 22,
-                minWidth: 140,
-              }}
-              onPress={() => setTimeTravelDialogOpen(false)}
-            >
-              <Text
-                style={{
-                  color: "#022c22",
-                  fontSize: 13,
-                  fontWeight: "900",
-                  textAlign: "center",
-                }}
-              >
-                Okej, wracam do dziś
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* 🔥 GLOBALNY OVERLAY Z FAJERWERKAMI – NAD WSZYSTKIM */}
-      {fireworkParticles.length > 0 && (
+      {/* ✅ Wrapper z refem dla GuidedTourOverlay (żeby mógł odjąć offset ekranu) */}
+      <View ref={screenRef} style={{ flex: 1 }}>
+        {/* tło: “orby” */}
         <View
           pointerEvents="none"
           style={{
@@ -2331,31 +1605,1335 @@ export default function HomeScreen() {
             left: 0,
             right: 0,
             bottom: 0,
-            zIndex: 9999,
+            zIndex: 0,
           }}
         >
-          {fireworkParticles.map((p) => (
-            <Animated.View
-              key={p.id}
-              style={{
-                position: "absolute",
-                width: 8,
-                height: 8,
-                borderRadius: 999,
-                backgroundColor: p.color,
-                left: p.originX - 4,
-                top: p.originY - 4,
-                transform: [
-                  { translateX: p.translateX },
-                  { translateY: p.translateY },
-                  { scale: p.scale },
-                ],
-                opacity: p.opacity,
-              }}
-            />
-          ))}
+          <View
+            style={{
+              position: "absolute",
+              width: 320,
+              height: 320,
+              borderRadius: 999,
+              backgroundColor: colors.accent + "28",
+              top: -150,
+              left: -120,
+              opacity: 1,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 260,
+              height: 260,
+              borderRadius: 999,
+              backgroundColor: "#22c55e22",
+              top: -90,
+              right: -120,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 220,
+              height: 220,
+              borderRadius: 999,
+              backgroundColor: "#a855f720",
+              top: 210,
+              left: -90,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 300,
+              height: 300,
+              borderRadius: 999,
+              backgroundColor: "#0ea5e920",
+              top: 420,
+              right: -150,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 180,
+              height: 180,
+              borderRadius: 999,
+              backgroundColor: "#f9731620",
+              top: 720,
+              left: 40,
+              ...(orbBlur as any),
+            }}
+          />
         </View>
-      )}
+
+        <ScrollView
+          style={{ flex: 1, zIndex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            width: "100%",
+            paddingVertical: 18,
+            alignItems: "center",
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 1344,
+              paddingHorizontal: 18,
+              flexGrow: 1,
+              alignSelf: "center",
+              ...(Platform.OS === "web" ? ({ marginHorizontal: "auto" } as any) : null),
+            }}
+          >
+            {/* HUD */}
+            <View
+              ref={hudAnchorRef}
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: 16,
+                borderWidth: 1,
+                borderColor: colors.border,
+                ...cardShadow,
+              }}
+            >
+              {/* PLAYER HUD */}
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+                {hudMember.avatarUrl ? (
+                  <Image
+                    source={{ uri: hudMember.avatarUrl }}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 999,
+                      marginRight: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 999,
+                      backgroundColor: colors.accent + "14",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginRight: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 16 }}>
+                      {hudMember.label?.[0] ?? "?"}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 16,
+                      fontWeight: "900",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    {hudMember.id === "self" ? "Twój poziom" : hudMember.label}
+                  </Text>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginTop: 6,
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                      LVL <Text style={{ color: colors.text, fontWeight: "900" }}>{hudLevel}</Text>
+                      {"  "}• EXP{" "}
+                      <Text style={{ color: colors.text, fontWeight: "900" }}>{hudTotalExp}</Text>
+                    </Text>
+
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 999,
+                        backgroundColor: colors.accent + "18",
+                        borderWidth: 1,
+                        borderColor: colors.accent + "55",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.accent,
+                          fontSize: 11,
+                          fontWeight: "900",
+                          letterSpacing: 0.2,
+                        }}
+                      >
+                        Do LVL {hudLevel + 1}: {hudToNext} EXP
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{ marginTop: 10 }}>
+                    <View
+                      style={{
+                        height: 9,
+                        borderRadius: 999,
+                        backgroundColor: colors.bg,
+                        overflow: "hidden",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <View
+                        style={{
+                          height: "100%",
+                          width: `${hudProgress * 100}%`,
+                          borderRadius: 999,
+                          backgroundColor: colors.accent,
+                        }}
+                      />
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        marginTop: 7,
+                        gap: 10,
+                      }}
+                    >
+                      <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                        Dziś zgarnięte:{" "}
+                        <Text style={{ color: colors.text, fontWeight: "900" }}>{dayEarned}</Text> /{" "}
+                        {dayPossible} EXP
+                      </Text>
+                      <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                        Próg LVL {hudLevel + 1}:{" "}
+                        <Text style={{ color: colors.text, fontWeight: "900" }}>{nextReq}</Text>
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        marginTop: 10,
+                        gap: 10,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          backgroundColor: "#f9731618",
+                          borderWidth: 1,
+                          borderColor: "#f9731655",
+                        }}
+                      >
+                        <Ionicons name="flame" size={14} color="#f97316" />
+                        <Text
+                          style={{
+                            marginLeft: 6,
+                            color: "#f97316",
+                            fontSize: 11,
+                            fontWeight: "900",
+                            letterSpacing: 0.2,
+                          }}
+                        >
+                          Streak: {streak} {streak === 1 ? "dzień z rzędu" : "dni z rzędu"}
+                        </Text>
+                      </View>
+
+                      {streak > 0 && (
+                        <Text style={{ color: colors.textMuted, fontSize: 11 }}>Trzymaj tempo! 🔥</Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* header tygodnia + przyciski + DZIŚ */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 10,
+                  alignItems: "center",
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedDate(addDays(selectedDate, -7));
+                  }}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: colors.bg,
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="chevron-back" size={18} color={colors.text} />
+                </TouchableOpacity>
+
+                <View style={{ alignItems: "center" }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 16,
+                      fontWeight: "900",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    Tydzień
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
+                    {formatWeekRange(weekStart)}
+                  </Text>
+
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => setSelectedDate(addMonths(selectedDate, -1))}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.bg,
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="play-skip-back-outline" size={14} color={colors.text} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={goToToday}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.accent + "66",
+                        backgroundColor: colors.accent + "18",
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontSize: 11,
+                          fontWeight: "900",
+                          letterSpacing: 0.2,
+                        }}
+                      >
+                        Dziś
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setSelectedDate(addMonths(selectedDate, 1))}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.bg,
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="play-skip-forward-outline" size={14} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedDate(addDays(selectedDate, 7));
+                  }}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: colors.bg,
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="chevron-forward" size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* days */}
+              <View ref={weekDaysAnchorRef} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                {weekDays.map((d, i) => {
+                  const active = isSameDay(d, selectedDate);
+                  const isTodayDay = isSameDay(d, today);
+                  const inPast = d < today && !isSameDay(d, today);
+                  const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                  const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.bg;
+
+                  const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+
+                  const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+
+                  const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => setSelectedDate(startOfDay(d))}
+                      style={{
+                        flex: 1,
+                        marginHorizontal: 3,
+                        paddingVertical: 9,
+                        alignItems: "center",
+                        borderRadius: 14,
+                        backgroundColor: bgColor,
+                        borderWidth: 1,
+                        borderColor: borderColor,
+                        ...(active ? softShadow : null),
+                      }}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      {isTodayDay && !active && (
+                        <View
+                          style={{
+                            position: "absolute",
+                            top: 6,
+                            right: 8,
+                            width: 7,
+                            height: 7,
+                            borderRadius: 999,
+                            backgroundColor: colors.accent,
+                          }}
+                        />
+                      )}
+
+                      <Text style={{ color: subTextColor, fontSize: 12, fontWeight: "700" }}>
+                        {WEEKDAY_LABELS[i]}
+                      </Text>
+                      <Text
+                        style={{
+                          color: textColor,
+                          fontWeight: "900",
+                          fontSize: 14,
+                          marginTop: 1,
+                        }}
+                      >
+                        {d.getDate()}
+                      </Text>
+
+                      {hasDone && !active && (
+                        <View
+                          style={{
+                            marginTop: 4,
+                            width: 6,
+                            height: 6,
+                            borderRadius: 999,
+                            backgroundColor: "#22c55e",
+                          }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* HEADER */}
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 16,
+                    fontWeight: "900",
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  Zadania na:
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
+                  {formatDayLong(selectedDate)}
+                </Text>
+              </View>
+
+              <View ref={addTaskAnchorRef}>
+                <TouchableOpacity
+                  onPress={goToAddTask}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: colors.accent,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    ...softShadow,
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <View
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 999,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "#022c2218",
+                      borderWidth: 1,
+                      borderColor: "#022c2233",
+                    }}
+                  >
+                    <Ionicons name="add" size={18} color="#022c22" />
+                  </View>
+                  <Text
+                    style={{
+                      color: "#022c22",
+                      fontWeight: "900",
+                      marginLeft: 8,
+                      fontSize: 14,
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    Dodaj zadanie
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* LISTA ZADAŃ */}
+            {loading ? (
+              <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
+            ) : missionsForDaySorted.length === 0 ? (
+              tourOpen ? (
+                <View
+                  style={{
+                    padding: 16,
+                    borderRadius: 18,
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    ...softShadow,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontWeight: "800", marginBottom: 12 }}>
+                    Brak zadań tego dnia — ale spokojnie, poniżej masz przykład 👇
+                  </Text>
+
+                  {/* ✅ Przykładowe zadanie (tylko podczas tutorialu) */}
+                  <View
+                    style={{
+                      padding: 14,
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.bg,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      {/* anchor dla kroku 4/5 */}
+                      <View
+                        ref={demoCheckboxAnchorRef}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 12,
+                          marginRight: 10,
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            borderRadius: 12,
+                            justifyContent: "center",
+                            alignItems: "center",
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.bg,
+                          }}
+                        >
+                          <Ionicons name="ellipse-outline" size={18} color={colors.textMuted} />
+                        </View>
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontSize: 15,
+                            fontWeight: "900",
+                            letterSpacing: 0.2,
+                          }}
+                        >
+                          (Przykład) Wyniosę śmieci
+                        </Text>
+
+                        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 6 }}>
+                          Kliknij kółko po lewej, żeby oznaczyć jako wykonane ✅
+                        </Text>
+                      </View>
+
+                      <View
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 999,
+                          backgroundColor: colors.accent + "18",
+                          borderWidth: 1,
+                          borderColor: colors.accent + "55",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.accent,
+                            fontSize: 11,
+                            fontWeight: "900",
+                            letterSpacing: 0.2,
+                          }}
+                        >
+                          +25 EXP
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginTop: 12,
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <View
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 999,
+                          backgroundColor: "#22c55e18",
+                          borderWidth: 1,
+                          borderColor: "#22c55e55",
+                        }}
+                      >
+                        <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
+                          Wykonane ✅
+                        </Text>
+                      </View>
+
+                      <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                        …i wtedy rośnie streak + dostajesz EXP.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View
+                  style={{
+                    padding: 16,
+                    borderRadius: 18,
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    ...softShadow,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Brak zadań tego dnia.</Text>
+                </View>
+              )
+            ) : (
+              missionsForDaySorted.map((m: any, idx2: number) => {
+                const assigned = getAssignedMember(m);
+                const creator = getCreatorMember(m);
+                const diff = getDifficultyLabel(m);
+                const expProgress = getExpProgress(m);
+                const isDone = isMissionDoneOnDate(m, selectedDate);
+                const expValue = (m.expValue ?? 0) as number;
+
+                const samePersonAssignedAndCreator = creator && assigned ? isSameMember(assigned, creator) : false;
+
+                const hideCreatorInfo = !creator || samePersonAssignedAndCreator;
+                const hideAssignedInfo = samePersonAssignedAndCreator;
+                const selfCompactRow = hideCreatorInfo && hideAssignedInfo;
+
+                const animKey = m.id ?? `fallback-${idx2}`;
+                if (!animationRefs.current[animKey]) {
+                  animationRefs.current[animKey] = new Animated.Value(1);
+                }
+                const rowAnim = animationRefs.current[animKey];
+
+                return (
+                  <Animated.View
+                    key={m.id ?? `fallback-${idx2}`}
+                    style={{
+                      transform: [{ scale: rowAnim }],
+                      opacity: rowAnim.interpolate({
+                        inputRange: [0.9, 1],
+                        outputRange: [0.85, 1],
+                        extrapolate: "clamp",
+                      }),
+                    }}
+                  >
+                    <View
+                      style={{
+                        padding: 14,
+                        marginBottom: 12,
+                        borderRadius: 18,
+                        borderWidth: 1,
+                        backgroundColor: colors.card,
+                        borderColor: isDone ? "#22c55e55" : colors.border,
+                        ...softShadow,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View
+                          ref={(el) => {
+                            if (m.id) checkboxRefs.current[m.id] = el;
+                          }}
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 12,
+                            marginRight: 10,
+                            justifyContent: "center",
+                            alignItems: "center",
+                          }}
+                        >
+                          <TouchableOpacity
+                            onPress={() => {
+                              const node = checkboxRefs.current[m.id];
+                              if (node && node.measureInWindow) {
+                                node.measureInWindow((x: number, y: number, width: number, height: number) => {
+                                  const cx = x + width / 2;
+                                  const cy = y + height / 2;
+                                  triggerFirework(m.id, cx, cy);
+                                  handleComplete({ ...m }, rowAnim);
+                                });
+                              } else {
+                                triggerFirework(m.id, 200, 200);
+                                handleComplete({ ...m }, rowAnim);
+                              }
+                            }}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              borderRadius: 12,
+                              justifyContent: "center",
+                              alignItems: "center",
+                              borderWidth: 1,
+                              borderColor: isDone ? "#22c55e77" : colors.border,
+                              backgroundColor: isDone ? "#22c55e18" : colors.bg,
+                            }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons
+                              name={isDone ? "checkmark" : "ellipse-outline"}
+                              size={18}
+                              color={isDone ? "#22c55e" : colors.textMuted}
+                            />
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              color: isDone ? colors.textMuted : colors.text,
+                              fontSize: 15,
+                              fontWeight: "900",
+                              letterSpacing: 0.2,
+                              textDecorationLine: isDone ? "line-through" : "none",
+                            }}
+                          >
+                            {m.title}
+                          </Text>
+
+                          {isDone ? (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                marginTop: 6,
+                                flexWrap: "wrap",
+                                gap: 8,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 5,
+                                  borderRadius: 999,
+                                  backgroundColor: "#22c55e18",
+                                  borderWidth: 1,
+                                  borderColor: "#22c55e55",
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: "#22c55e",
+                                    fontSize: 11,
+                                    fontWeight: "900",
+                                    letterSpacing: 0.2,
+                                  }}
+                                >
+                                  Wykonane ✅
+                                </Text>
+                              </View>
+
+                              <View
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 5,
+                                  borderRadius: 999,
+                                  backgroundColor: colors.accent + "18",
+                                  borderWidth: 1,
+                                  borderColor: colors.accent + "55",
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: colors.accent,
+                                    fontSize: 11,
+                                    fontWeight: "900",
+                                    letterSpacing: 0.2,
+                                  }}
+                                >
+                                  EXP zgarnięty: +{expValue}
+                                </Text>
+                              </View>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => handleEdit({ ...m })}
+                          style={{
+                            marginRight: 6,
+                            padding: 8,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.bg,
+                          }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons name="create-outline" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            const safeMission = { ...m };
+                            handleDelete(safeMission);
+                          }}
+                          onLongPress={() => {
+                            Alert.alert(
+                              "DEBUG",
+                              `id=${String(m?.id)}\nrepeat=${String(m?.repeat?.type)}\narchived=${String(
+                                m?.archived
+                              )}`
+                            );
+                          }}
+                          delayLongPress={350}
+                          style={{
+                            padding: 8,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.bg,
+                          }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+
+                      {selfCompactRow ? (
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            marginTop: 10,
+                            marginBottom: 4,
+                            gap: 10,
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center" }}>
+                            {assigned.avatarUrl ? (
+                              <Image
+                                source={{ uri: assigned.avatarUrl }}
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 999,
+                                  marginRight: 8,
+                                  opacity: isDone ? 0.8 : 1,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                }}
+                              />
+                            ) : (
+                              <View
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 999,
+                                  backgroundColor: colors.accent + "14",
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  marginRight: 8,
+                                  opacity: isDone ? 0.8 : 1,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                }}
+                              >
+                                <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 12 }}>
+                                  {assigned.label?.[0] ?? "?"}
+                                </Text>
+                              </View>
+                            )}
+
+                            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700" }}>
+                              Twoje zadanie
+                            </Text>
+                          </View>
+
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderRadius: 999,
+                              backgroundColor: diff.color + "22",
+                              borderWidth: 1,
+                              borderColor: diff.color + "66",
+                              opacity: isDone ? 0.85 : 1,
+                            }}
+                          >
+                            <Text style={{ color: diff.color, fontSize: 11, fontWeight: "800", letterSpacing: 0.2 }}>
+                              {diff.label}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            marginTop: 12,
+                            marginBottom: 4,
+                            gap: 10,
+                          }}
+                        >
+                          {assigned.avatarUrl ? (
+                            <Image
+                              source={{ uri: assigned.avatarUrl }}
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 999,
+                                marginRight: 0,
+                                opacity: isDone ? 0.7 : 1,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              }}
+                            />
+                          ) : (
+                            <View
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 999,
+                                backgroundColor: colors.accent + "14",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                marginRight: 0,
+                                opacity: isDone ? 0.7 : 1,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              }}
+                            >
+                              <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 14 }}>
+                                {assigned.label?.[0] ?? "?"}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View style={{ flex: 1 }}>
+                            {!hideAssignedInfo && (
+                              <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                                Przypisane do:{" "}
+                                <Text style={{ color: colors.text, fontWeight: "800" }}>{assigned.label}</Text>
+                              </Text>
+                            )}
+
+                            {!hideCreatorInfo && creator && (
+                              <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                                Dodane przez:{" "}
+                                <Text style={{ color: colors.text, fontWeight: "800" }}>{creator.label}</Text>
+                              </Text>
+                            )}
+                          </View>
+
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderRadius: 999,
+                              backgroundColor: diff.color + "22",
+                              borderWidth: 1,
+                              borderColor: diff.color + "66",
+                              opacity: isDone ? 0.85 : 1,
+                            }}
+                          >
+                            <Text style={{ color: diff.color, fontSize: 11, fontWeight: "800", letterSpacing: 0.2 }}>
+                              {diff.label}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+
+                      {m.repeat?.type && m.repeat.type !== "none" && (
+                        <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8, marginTop: 2 }}>
+                          Cykliczność:{" "}
+                          {m.repeat.type === "daily"
+                            ? "Codziennie"
+                            : m.repeat.type === "weekly"
+                              ? "Co tydzień"
+                              : m.repeat.type === "monthly"
+                                ? "Co miesiąc"
+                                : "Brak"}
+                        </Text>
+                      )}
+
+                      <View style={{ marginTop: 6, opacity: isDone ? 0.88 : 1 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                          <Text style={{ color: colors.textMuted, fontSize: 11 }}>EXP za misję</Text>
+                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
+                            {expValue} EXP
+                          </Text>
+                        </View>
+
+                        <View
+                          style={{
+                            height: 7,
+                            borderRadius: 999,
+                            backgroundColor: colors.bg,
+                            overflow: "hidden",
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          <View
+                            style={{
+                              height: "100%",
+                              width: `${expProgress * 100}%`,
+                              borderRadius: 999,
+                              backgroundColor: colors.accent,
+                            }}
+                          />
+                        </View>
+                      </View>
+
+                      {!isDone && (
+                        <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 10, lineHeight: 16 }}>
+                          Kliknij kółko po lewej, żeby odznaczyć jako wykonane i zgarnąć EXP 💥
+                        </Text>
+                      )}
+                    </View>
+                  </Animated.View>
+                );
+              })
+            )}
+
+            <View style={{ flex: 1 }} />
+            <AppFooter />
+          </View>
+        </ScrollView>
+
+        {/* ✅ WELCOME MODAL */}
+        <WelcomeTutorialModal
+          visible={
+            welcomeModalReady && welcomeModalOpen && !repeatDeleteDialog && !timeTravelDialogOpen && !tourOpen
+          }
+          colors={colors}
+          onStart={() => markWelcomeSeen("start")}
+          onSkip={() => markWelcomeSeen("skip")}
+        />
+
+        {/* ✅ Guided Tour Overlay */}
+        <GuidedTourOverlay
+          visible={tourOpen && !repeatDeleteDialog && !timeTravelDialogOpen}
+          colors={colors}
+          steps={TOUR_STEPS}
+          getNodeForStep={getNodeForStep}
+          getScreenNode={() => screenRef.current}
+          onFinish={finishTour}
+        />
+
+        {/* WEB modal do usuwania zadań cyklicznych */}
+        {repeatDeleteDialog && Platform.OS === "web" && (
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(15,23,42,0.70)",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 200,
+              paddingHorizontal: 18,
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 440,
+                backgroundColor: colors.card,
+                borderRadius: 18,
+                padding: 18,
+                borderWidth: 1,
+                borderColor: colors.border,
+                ...cardShadow,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 16,
+                  fontWeight: "900",
+                  marginBottom: 8,
+                  letterSpacing: 0.2,
+                }}
+              >
+                Usuń zadanie cykliczne
+              </Text>
+
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 16, lineHeight: 18 }}>
+                To zadanie powtarza się w czasie. Wybierz, co chcesz zrobić dla dnia {formatDayLong(selectedDate)}.
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 11,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                  }}
+                  onPress={async () => {
+                    if (!repeatDeleteDialog) return;
+                    await deleteOnlyToday(repeatDeleteDialog.mission, repeatDeleteDialog.dateKey);
+                    setRepeatDeleteDialog(null);
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 13,
+                      fontWeight: "800",
+                      textAlign: "center",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    Usuń tylko ten dzień
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 11,
+                    borderRadius: 999,
+                    backgroundColor: "#ef4444",
+                    ...(Platform.OS === "web"
+                      ? ({ boxShadow: "0px 10px 22px rgba(239,68,68,0.22)" } as any)
+                      : {
+                          shadowColor: "#ef4444",
+                          shadowOpacity: 0.25,
+                          shadowRadius: 14,
+                          shadowOffset: { width: 0, height: 8 },
+                          elevation: 5,
+                        }),
+                  }}
+                  onPress={async () => {
+                    if (!repeatDeleteDialog) return;
+                    await deleteSeries(repeatDeleteDialog.mission);
+                    setRepeatDeleteDialog(null);
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: 13,
+                      fontWeight: "900",
+                      textAlign: "center",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    Usuń całą serię
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={{ alignSelf: "center", marginTop: 4, paddingVertical: 8, paddingHorizontal: 18 }}
+                onPress={() => setRepeatDeleteDialog(null)}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "700" }}>Anuluj</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* TIME TRAVEL modal */}
+        {timeTravelDialogOpen && (
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(15,23,42,0.75)",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 250,
+              paddingHorizontal: 18,
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 440,
+                backgroundColor: colors.card,
+                borderRadius: 18,
+                padding: 18,
+                borderWidth: 1,
+                borderColor: colors.border,
+                ...cardShadow,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#a855f718",
+                    borderWidth: 1,
+                    borderColor: "#a855f755",
+                    marginRight: 10,
+                  }}
+                >
+                  <Ionicons name="time-outline" size={18} color="#c084fc" />
+                </View>
+
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>
+                  Umiesz podróżować w czasie? 😏
+                </Text>
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 18 }}>
+                Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz. Cofanie się w czasie zostawmy filmom
+                science-fiction. ✨
+              </Text>
+
+              <TouchableOpacity
+                activeOpacity={0.9}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  alignSelf: "center",
+                  paddingHorizontal: 22,
+                  minWidth: 160,
+                  ...softShadow,
+                }}
+                onPress={() => setTimeTravelDialogOpen(false)}
+              >
+                <Text
+                  style={{
+                    color: "#022c22",
+                    fontSize: 13,
+                    fontWeight: "900",
+                    textAlign: "center",
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  Okej, wracam do dziś
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* 🔥 fajerwerki (wyłączone podczas tour, żeby nie przykrywały) */}
+        {!tourOpen && fireworkParticles.length > 0 && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+            }}
+          >
+            {fireworkParticles.map((p) => (
+              <Animated.View
+                key={p.id}
+                style={{
+                  position: "absolute",
+                  width: 8,
+                  height: 8,
+                  borderRadius: 999,
+                  backgroundColor: p.color,
+                  left: p.originX - 4,
+                  top: p.originY - 4,
+                  transform: [{ translateX: p.translateX }, { translateY: p.translateY }, { scale: p.scale }],
+                  opacity: p.opacity,
+                }}
+              />
+            ))}
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }

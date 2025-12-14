@@ -1,3 +1,4 @@
+// app/stats.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -216,7 +217,7 @@ const ACHIEVEMENTS: Achievement[] = [
 
 function progressFor(stats: MHStats, a: Achievement) {
   const progress = Math.max(0, Math.floor(num(stats[a.statKey])));
-  let tierIndex = 0;
+  let tierIndex = 0; // zdobyte tery (0..len)
   let currentThreshold = 0;
   let nextThreshold: number | null = null;
 
@@ -230,12 +231,41 @@ function progressFor(stats: MHStats, a: Achievement) {
       break;
     }
   }
-  return { progress, tierIndex, currentThreshold, nextThreshold };
+  return { nextThreshold, progress, tierIndex, currentThreshold };
 }
 
 function percent(val: number, max?: number | null) {
   if (!max || max <= 0) return 100;
   return clampPct((val / max) * 100);
+}
+
+function computeNextTier(a: Achievement, p: ReturnType<typeof progressFor>) {
+  if (p.nextThreshold == null) {
+    const lastTier =
+      a.tierNames[Math.max(0, Math.min(a.tierNames.length - 1, p.tierIndex - 1))] ?? "—";
+    return {
+      hasNext: false as const,
+      nextTierName: null as string | null,
+      lastTierName: lastTier,
+      remaining: 0,
+      nextThreshold: null as number | null,
+    };
+  }
+
+  const nextTierName =
+    a.tierNames[Math.max(0, Math.min(a.tierNames.length - 1, p.tierIndex))] ??
+    a.tierNames[a.tierNames.length - 1] ??
+    "—";
+
+  const remaining = Math.max(0, Math.floor(p.nextThreshold - p.progress));
+
+  return {
+    hasNext: true as const,
+    nextTierName,
+    lastTierName: null as string | null,
+    remaining,
+    nextThreshold: p.nextThreshold,
+  };
 }
 
 /* =========================
@@ -277,9 +307,7 @@ function AchievementImage({
           borderColor: colors.accent + "44",
         }}
       >
-        <Text style={{ color: colors.accent, fontSize: 10, fontWeight: "900" }}>
-          {id}
-        </Text>
+        <Text style={{ color: colors.accent, fontSize: 10, fontWeight: "900" }}>{id}</Text>
       </View>
     );
   }
@@ -339,37 +367,6 @@ function Pill({
   );
 }
 
-function TierDots({
-  total,
-  active,
-  colors,
-}: {
-  total: number;
-  active: number; // ile zdobytych tierów (0..total)
-  colors: any;
-}) {
-  const dots = Array.from({ length: total }, (_, i) => i);
-  return (
-    <View style={ui.dotsRow}>
-      {dots.map((i) => {
-        const on = i < active;
-        return (
-          <View
-            key={i}
-            style={[
-              ui.dot,
-              {
-                backgroundColor: on ? colors.accent : colors.border + "55",
-                borderColor: on ? colors.accent : colors.border + "99",
-              },
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
 function ProgressBar({
   value,
   colors,
@@ -396,6 +393,59 @@ function ProgressBar({
   );
 }
 
+function TierSegments({
+  total,
+  active,
+  colors,
+}: {
+  total: number;
+  active: number;
+  colors: any;
+}) {
+  const segments = Array.from({ length: total }, (_, i) => i);
+  return (
+    <View style={ui.segRow}>
+      {segments.map((i) => {
+        const on = i < active;
+        return (
+          <View
+            key={i}
+            style={[
+              ui.seg,
+              {
+                backgroundColor: on ? colors.accent : colors.border + "55",
+                borderColor: on ? colors.accent : colors.border + "99",
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function MiniChip({
+  label,
+  colors,
+  tone = "muted",
+}: {
+  label: string;
+  colors: any;
+  tone?: "muted" | "accent";
+}) {
+  const bg = tone === "accent" ? colors.accent + "18" : colors.border + "20";
+  const border = tone === "accent" ? colors.accent + "55" : colors.border + "55";
+  const fg = tone === "accent" ? colors.accent : colors.textMuted;
+
+  return (
+    <View style={[ui.chip, { backgroundColor: bg, borderColor: border }]}>
+      <Text style={[ui.chipText, { color: fg }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 function Header({
   title,
   subtitle,
@@ -417,19 +467,12 @@ function Header({
       </TouchableOpacity>
 
       <View style={header.titleCol}>
-        <Text
-          style={[header.title, { color: colors.text }, stacked && { textAlign: "left" }]}
-          numberOfLines={1}
-        >
+        <Text style={[header.title, { color: colors.text }, stacked && { textAlign: "left" }]} numberOfLines={1}>
           {title}
         </Text>
         {!!subtitle && (
           <Text
-            style={[
-              header.subtitle,
-              { color: colors.textMuted },
-              stacked && { textAlign: "left" },
-            ]}
+            style={[header.subtitle, { color: colors.textMuted }, stacked && { textAlign: "left" }]}
             numberOfLines={2}
           >
             {subtitle}
@@ -523,10 +566,7 @@ export default function StatsScreen() {
         assignedById: m?.assignedByUserId ? String(m.assignedByUserId) : null,
         completedById: m?.completedByUserId ? String(m.completedByUserId) : null,
         assignedAtJs: toJsDate(
-          (m as any)?.assignedAt ??
-            (m as any)?.assignedAtTs ??
-            (m as any)?.assignedDate ??
-            null
+          (m as any)?.assignedAt ?? (m as any)?.assignedAtTs ?? (m as any)?.assignedDate ?? null
         ),
         createdAtJs: toJsDate(
           (m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate
@@ -586,9 +626,7 @@ export default function StatsScreen() {
 
   const myMonthCompleted = useMemo(
     () =>
-      myCompleted.filter(
-        (m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)
-      ),
+      myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)),
     [myCompleted, monthStart, monthEnd]
   );
 
@@ -648,9 +686,7 @@ export default function StatsScreen() {
     myCompleted.forEach((m: any) => {
       const d: Date | null = m.completedAtJs;
       if (!d) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-        d.getDate()
-      ).padStart(2, "0")}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       byDay.add(key);
     });
 
@@ -661,10 +697,7 @@ export default function StatsScreen() {
     let cursor = new Date(today);
 
     for (let i = 0; i < 365 * 2; i++) {
-      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(
-        cursor.getDate()
-      ).padStart(2, "0")}`;
-
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
       if (!byDay.has(key)) break;
 
       count++;
@@ -713,17 +746,83 @@ export default function StatsScreen() {
 
   const busy = missionsLoading || userLoading;
 
+  // ✅ blur na web jak w index/ranking
+  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
+
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      {/* 🔥 TŁO: orby/gradienty jak w index.tsx */}
+      <View pointerEvents="none" style={styles.bgOrbs}>
+        <View
+          style={{
+            position: "absolute",
+            width: 320,
+            height: 320,
+            borderRadius: 999,
+            backgroundColor: colors.accent + "28",
+            top: -150,
+            left: -120,
+            opacity: 1,
+            ...(orbBlur as any),
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 260,
+            height: 260,
+            borderRadius: 999,
+            backgroundColor: "#22c55e22",
+            top: -90,
+            right: -120,
+            ...(orbBlur as any),
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 220,
+            height: 220,
+            borderRadius: 999,
+            backgroundColor: "#a855f720",
+            top: 210,
+            left: -90,
+            ...(orbBlur as any),
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 300,
+            height: 300,
+            borderRadius: 999,
+            backgroundColor: "#0ea5e920",
+            top: 420,
+            right: -150,
+            ...(orbBlur as any),
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 180,
+            height: 180,
+            borderRadius: 999,
+            backgroundColor: "#f9731620",
+            top: 720,
+            left: 40,
+            ...(orbBlur as any),
+          }}
+        />
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
-          {
-            paddingHorizontal: padH,
-            maxWidth: containerMaxWidth,
-          },
+          { paddingHorizontal: padH, maxWidth: containerMaxWidth },
         ]}
+        style={{ zIndex: 1 }}
       >
         <Header
           title="Osiągnięcia"
@@ -737,17 +836,18 @@ export default function StatsScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.heroRow, isSM && styles.heroRowStack]}>
             {/* PROFILE */}
-            <View style={[styles.profileBox, { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg }]}>
+            <View
+              style={[
+                styles.profileBox,
+                { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg },
+              ]}
+            >
               {myPhotoURL ? (
                 <Image
                   source={{ uri: myPhotoURL }}
                   style={[
                     styles.avatar,
-                    {
-                      backgroundColor: colors.bg,
-                      width: isSM ? 52 : 58,
-                      height: isSM ? 52 : 58,
-                    },
+                    { backgroundColor: colors.bg, width: isSM ? 52 : 58, height: isSM ? 52 : 58 },
                   ]}
                 />
               ) : (
@@ -828,19 +928,18 @@ export default function StatsScreen() {
         <View style={styles.list}>
           {ACHIEVEMENTS.map((a) => {
             const p = progressFor(mhStats, a);
+            const n = computeNextTier(a, p);
 
-            const tierName =
+            const currentTierName =
               p.tierIndex <= 0
                 ? "—"
                 : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
 
-            const nextLabel =
-              p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
-
             const barMax = p.nextThreshold ?? p.currentThreshold;
             const barPct = percent(p.progress, barMax);
 
-            const unlocked = p.tierIndex > 0;
+            const progressLabel =
+              p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
 
             return (
               <View
@@ -867,10 +966,16 @@ export default function StatsScreen() {
                   </View>
 
                   <View style={{ flex: 1, minWidth: 0 }}>
+                    {/* HEADER */}
                     <View style={styles.achHeaderRow}>
-                      <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
-                        {a.label}
-                      </Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
+                          {a.label}
+                        </Text>
+                        <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
+                          {a.description}
+                        </Text>
+                      </View>
 
                       <View style={styles.valueBox}>
                         <Text style={[styles.valueNum, { color: colors.text }]} numberOfLines={1}>
@@ -882,37 +987,52 @@ export default function StatsScreen() {
                       </View>
                     </View>
 
-                    <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
-                      {a.description}
-                    </Text>
-
-                    <View style={styles.metaRow}>
-                      <Text style={[styles.metaText, { color: unlocked ? colors.text : colors.textMuted }]} numberOfLines={1}>
-                        Tytuł: <Text style={{ fontWeight: "900" }}>{tierName}</Text>
-                      </Text>
-
-                      <TierDots total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+                    {/* CHIPS */}
+                    <View style={styles.chipsRow}>
+                      <MiniChip label={`Tytuł: ${currentTierName}`} colors={colors} tone="muted" />
+                      <MiniChip
+                        label={`Tier: ${p.tierIndex}/${a.thresholds.length}`}
+                        colors={colors}
+                        tone="accent"
+                      />
                     </View>
 
+                    {/* NEXT INFO */}
+                    <View style={styles.nextRow}>
+                      {n.hasNext ? (
+                        <>
+                          <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
+                            Kolejny tytuł:{" "}
+                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextTierName}</Text>
+                          </Text>
+                          <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
+                            Następny próg:{" "}
+                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextThreshold}</Text>{" "}
+                            • Brakuje:{" "}
+                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.remaining}</Text>
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
+                          Wszystkie progi zdobyte ✅
+                        </Text>
+                      )}
+                    </View>
+
+                    {/* PROGRESS */}
                     <View style={{ marginTop: 10 }}>
                       <View style={styles.progressRow}>
                         <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
-                          Postęp: {nextLabel}
+                          Postęp: {progressLabel}
                         </Text>
-
-                        {p.nextThreshold != null ? (
-                          <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
-                            Następny próg:{" "}
-                            <Text style={{ color: colors.text, fontWeight: "900" }}>{p.nextThreshold}</Text>
-                          </Text>
-                        ) : (
-                          <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
-                            Wszystkie progi zdobyte ✅
-                          </Text>
-                        )}
                       </View>
 
                       <ProgressBar value={barPct} colors={colors} compact />
+
+                      {/* ✅ zamiast kropek po boku: segmenty pod paskiem */}
+                      <View style={{ marginTop: 10 }}>
+                        <TierSegments total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -935,6 +1055,15 @@ const styles = StyleSheet.create({
   page: {
     flex: 1,
     minHeight: Platform.OS === "web" ? ("100dvh" as any) : undefined,
+  },
+
+  bgOrbs: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
   },
 
   scroll: {
@@ -1075,19 +1204,21 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  metaRow: {
-    marginTop: 8,
+  chipsRow: {
+    marginTop: 10,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+    flexWrap: "wrap",
+    gap: 8,
   },
 
-  metaText: {
+  nextRow: {
+    marginTop: 8,
+    gap: 2,
+  },
+
+  nextText: {
     fontSize: 12,
     fontWeight: "800",
-    flexShrink: 1,
-    minWidth: 0,
   },
 
   progressRow: {
@@ -1178,18 +1309,27 @@ const ui = StyleSheet.create({
     height: "100%",
   },
 
-  dotsRow: {
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: "100%",
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  segRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    flexShrink: 0,
   },
-  dot: {
-    width: 9,
-    height: 9,
+  seg: {
+    height: 8,
+    width: 18,
     borderRadius: 999,
     borderWidth: 1,
   },
 });
-
-// app/stats.tsx

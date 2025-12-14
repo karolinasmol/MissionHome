@@ -17,6 +17,48 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
+function isHex6(color: string) {
+  return /^#?[0-9a-fA-F]{6}$/.test(color);
+}
+
+function normalizeHex6(color: string) {
+  return color.startsWith("#") ? color : `#${color}`;
+}
+
+function hexToRgb(hex: string) {
+  const h = normalizeHex6(hex).slice(1);
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const to2 = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
+}
+
+function clamp255(n: number) {
+  return Math.max(0, Math.min(255, n));
+}
+
+function shadeHex(hex: string, amount: number) {
+  if (!isHex6(hex)) return hex;
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex(
+    clamp255(r + amount),
+    clamp255(g + amount),
+    clamp255(b + amount)
+  );
+}
+
+function luminance(hex: string) {
+  if (!isHex6(hex)) return 0.5;
+  const { r, g, b } = hexToRgb(hex);
+  // prosta luminancja (wystarczy do rozróżnienia jasne/ciemne)
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
 export default function IdeaScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -32,6 +74,15 @@ export default function IdeaScreen() {
     backgroundColor: colors.card,
     borderColor: colors.border,
   };
+
+  const inputBg = (() => {
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
+    if (!isHex6(base)) return base;
+    const lum = luminance(base);
+    // Ciemny motyw: lekko jaśniej (żeby nie było "dziury").
+    // Jasny motyw: lekko ciemniej (żeby pole było czytelne).
+    return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
+  })();
 
   const canSend =
     title.trim().length > 0 && description.trim().length > 0 && !sending;
@@ -186,7 +237,7 @@ export default function IdeaScreen() {
               borderWidth: 1,
               borderColor: colors.border,
               padding: 10,
-              backgroundColor: "#020617",
+              backgroundColor: inputBg,
               color: colors.text,
               marginBottom: 12,
               fontSize: 14,
@@ -213,7 +264,7 @@ export default function IdeaScreen() {
               borderWidth: 1,
               borderColor: colors.border,
               padding: 10,
-              backgroundColor: "#020617",
+              backgroundColor: inputBg,
               color: colors.text,
               minHeight: 140,
               fontSize: 14,
@@ -239,7 +290,7 @@ export default function IdeaScreen() {
               borderWidth: 1,
               borderColor: colors.border,
               padding: 10,
-              backgroundColor: "#020617",
+              backgroundColor: inputBg,
               color: colors.text,
               fontSize: 14,
               marginBottom: 18,

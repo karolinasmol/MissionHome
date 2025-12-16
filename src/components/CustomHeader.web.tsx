@@ -15,13 +15,17 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
-import {
-  useTheme,
-  useThemeColors,
-  THEMES,
-  THEME_LABELS,
-  Theme,
-} from "../context/ThemeContext";
+import { subscribeTourStep5, setTourStep5Open as setTourStep5OpenBus } from "../utils/tourStep5Bus";
+import { subscribeTourStep6, setTourStep6Open as setTourStep6OpenBus } from "../utils/tourStep6Bus";
+import { subscribeTourStep7, setTourStep7Open as setTourStep7OpenBus } from "../utils/tourStep7Bus";
+import { subscribeTourStep8, setTourStep8Open as setTourStep8OpenBus } from "../utils/tourStep8Bus";
+import { subscribeTourStep10, setTourStep10Open as setTourStep10OpenBus } from "../utils/tourStep10Bus";
+import { subscribeTourStep11, setTourStep11Open as setTourStep11OpenBus } from "../utils/tourStep11Bus";
+import { subscribeTourStep12, setTourStep12Open as setTourStep12OpenBus } from "../utils/tourStep12Bus";
+import { subscribeTourStep13, setTourStep13Open as setTourStep13OpenBus } from "../utils/tourStep13Bus";
+import { subscribeTourStep14, setTourStep14Open as setTourStep14OpenBus } from "../utils/tourStep14Bus";
+
+import { useTheme, useThemeColors, THEMES, THEME_LABELS, Theme } from "../context/ThemeContext";
 import { auth, db } from "../firebase/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -35,6 +39,7 @@ import {
   doc,
   serverTimestamp,
   updateDoc,
+  Timestamp,
 } from "firebase/firestore";
 
 const ACCENT_PREMIUM = "#22d3ee";
@@ -62,6 +67,37 @@ type NavItem = {
 
 type AnchorRect = { x: number; y: number; w: number; h: number };
 
+function safeToDate(ts: any): Date | null {
+  try {
+    if (!ts) return null;
+    if (ts instanceof Date) return ts;
+    if (ts instanceof Timestamp) return ts.toDate();
+    if (typeof ts?.toDate === "function") return ts.toDate();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function measureNodeToRect(node: any): AnchorRect | null {
+  try {
+    if (!node) return null;
+
+    if (Platform.OS === "web" && typeof node.getBoundingClientRect === "function") {
+      const r = node.getBoundingClientRect();
+      if (Number.isFinite(r.left) && Number.isFinite(r.top) && Number.isFinite(r.width) && Number.isFinite(r.height)) {
+        return { x: r.left, y: r.top, w: r.width, h: r.height };
+      }
+      return null;
+    }
+
+    // native: measureInWindow async (obsługujemy w miejscu wywołania)
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function CustomHeader() {
   const router = useRouter();
   const pathname = usePathname();
@@ -81,7 +117,6 @@ export default function CustomHeader() {
   const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
   const themeLabelUpper = String(themeLabel).toUpperCase();
 
-  // ✅ pełna lista z ThemeContext
   const AVAILABLE_THEMES = THEMES as Theme[];
 
   // THEME DROPDOWN
@@ -90,21 +125,16 @@ export default function CustomHeader() {
   const themeBtnRef = useRef<any>(null);
   const [themeAnchor, setThemeAnchor] = useState<AnchorRect | null>(null);
 
-  const measureThemeBtn = () => {
-    try {
-      const node = themeBtnRef.current;
-      if (node && typeof node.measureInWindow === "function") {
-        node.measureInWindow((x: number, y: number, w: number, h: number) => {
-          if (Number.isFinite(x) && Number.isFinite(y)) setThemeAnchor({ x, y, w, h });
-          else setThemeAnchor(null);
-        });
-      } else {
-        setThemeAnchor(null);
-      }
-    } catch {
-      setThemeAnchor(null);
-    }
-  };
+  // PROFILE MENU
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnim = useRef(new Animated.Value(0)).current;
+
+  // NAV PANEL (MOBILE WEB)
+  const [navOpen, setNavOpen] = useState(false);
+
+  // NOTIFICATIONS PANEL
+  const [notifsOpen, setNotifsOpen] = useState(false);
+  const notifAnim = useRef(new Animated.Value(0)).current;
 
   const closeThemeInstant = () => {
     setThemeOpen(false);
@@ -122,6 +152,22 @@ export default function CustomHeader() {
     setNotifsOpen(false);
     notifAnim.stopAnimation();
     notifAnim.setValue(0);
+  };
+
+  const measureThemeBtn = () => {
+    try {
+      const node = themeBtnRef.current;
+      if (node && typeof node.measureInWindow === "function") {
+        node.measureInWindow((x: number, y: number, w: number, h: number) => {
+          if (Number.isFinite(x) && Number.isFinite(y)) setThemeAnchor({ x, y, w, h });
+          else setThemeAnchor(null);
+        });
+      } else {
+        setThemeAnchor(null);
+      }
+    } catch {
+      setThemeAnchor(null);
+    }
   };
 
   const openTheme = () => {
@@ -162,9 +208,7 @@ export default function CustomHeader() {
   };
 
   const themeMenuPos = useMemo(() => {
-    // WEB: fixed pod buttonem (anchor w viewport)
     if (isWeb && themeAnchor) {
-      // MOBILE WEB: pilnujemy, żeby menu nie nachodziło na header (i było "responsywne")
       if (isMobileWeb) {
         const menuW = Math.min(360, Math.max(220, width - 24));
         const left = Math.max(12, Math.min(themeAnchor.x, width - menuW - 12));
@@ -184,7 +228,6 @@ export default function CustomHeader() {
       };
     }
 
-    // fallback / native
     return {
       position: "absolute" as const,
       left: 12,
@@ -241,10 +284,6 @@ export default function CustomHeader() {
   const shownName = username || fallbackName;
   const initials = getInitials(shownName);
 
-  // PROFILE MENU
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuAnim = useRef(new Animated.Value(0)).current;
-
   const openMenu = () => {
     closeThemeInstant();
     closeNav();
@@ -270,9 +309,6 @@ export default function CustomHeader() {
     else openMenu();
   };
 
-  // NAV PANEL (MOBILE WEB)
-  const [navOpen, setNavOpen] = useState(false);
-
   const openNav = () => {
     if (!isMobileWeb) return;
     closeThemeInstant();
@@ -281,9 +317,7 @@ export default function CustomHeader() {
     setNavOpen(true);
   };
 
-  const closeNav = () => {
-    setNavOpen(false);
-  };
+  const closeNav = () => setNavOpen(false);
 
   const toggleNav = () => {
     if (!isMobileWeb) return;
@@ -291,13 +325,51 @@ export default function CustomHeader() {
     else openNav();
   };
 
-  // NOTIFICATIONS PANEL
-  const [notifsOpen, setNotifsOpen] = useState(false);
-  const notifAnim = useRef(new Animated.Value(0)).current;
-
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifRows, setNotifRows] = useState<NotifRow[] | null>(null);
   const [notifLoading, setNotifLoading] = useState(false);
+
+  // ✅ UNREAD MESSAGES
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+
+  useEffect(() => {
+    if (!uid) {
+      setUnreadMsgCount(0);
+      return;
+    }
+
+    const qy = query(
+      collection(db as any, "messages"),
+      where("users", "array-contains", uid),
+      orderBy("lastMessageAt", "desc"),
+      fsLimit(40)
+    );
+
+    const unsub = onSnapshot(
+      qy,
+      (snap) => {
+        let c = 0;
+
+        snap.forEach((d) => {
+          const data = d.data() as any;
+
+          const lastSender = data?.lastMessageSender;
+          const lastAt = safeToDate(data?.lastMessageAt);
+          const readAt = safeToDate(data?.readAt?.[uid]);
+
+          if (!lastAt) return;
+          if (!lastSender || String(lastSender) === String(uid)) return;
+
+          if (!readAt || lastAt.getTime() > readAt.getTime()) c++;
+        });
+
+        setUnreadMsgCount(c);
+      },
+      () => setUnreadMsgCount(0)
+    );
+
+    return () => unsub();
+  }, [uid]);
 
   useEffect(() => {
     if (!uid) {
@@ -349,11 +421,7 @@ export default function CustomHeader() {
 
     setNotifLoading(true);
 
-    const qy = query(
-      collection(db as any, `users/${uid}/notifications`),
-      orderBy("createdAt", "desc"),
-      fsLimit(20)
-    );
+    const qy = query(collection(db as any, `users/${uid}/notifications`), orderBy("createdAt", "desc"), fsLimit(20));
 
     const off = onSnapshot(
       qy,
@@ -466,6 +534,238 @@ export default function CustomHeader() {
     );
   };
 
+  // ✅ TOUR REFS + RECTS
+  const profileBtnRef = useRef<any>(null);
+  const premiumBtnRef = useRef<any>(null);
+  const messagesBtnRef = useRef<any>(null);
+
+  const navToggleRef = useRef<any>(null); // mobile web ellipsis
+  const navCalRef = useRef<any>(null);
+  const navFamilyRef = useRef<any>(null);
+  const navStatsRef = useRef<any>(null);
+  const navAchRef = useRef<any>(null);
+  const navRankRef = useRef<any>(null);
+
+  const [profileRect, setProfileRect] = useState<AnchorRect | null>(null);
+  const [premiumRect, setPremiumRect] = useState<AnchorRect | null>(null);
+  const [messagesRect, setMessagesRect] = useState<AnchorRect | null>(null);
+  const [navToggleRect, setNavToggleRect] = useState<AnchorRect | null>(null);
+  const [navCalRect, setNavCalRect] = useState<AnchorRect | null>(null);
+  const [navFamilyRect, setNavFamilyRect] = useState<AnchorRect | null>(null);
+  const [navStatsRect, setNavStatsRect] = useState<AnchorRect | null>(null);
+  const [navAchRect, setNavAchRect] = useState<AnchorRect | null>(null);
+  const [navRankRect, setNavRankRect] = useState<AnchorRect | null>(null);
+
+  const measureAnyRef = (ref: any, setter: (r: AnchorRect | null) => void) => {
+    try {
+      const node = ref?.current;
+      if (!node) return;
+
+      const rWeb = measureNodeToRect(node);
+      if (rWeb) {
+        setter(rWeb);
+        return;
+      }
+
+      if (typeof node.measureInWindow === "function") {
+        node.measureInWindow((x: number, y: number, w: number, h: number) => {
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) setter({ x, y, w, h });
+        });
+      }
+    } catch {}
+  };
+
+  const measureTourAnchors = () => {
+    measureAnyRef(profileBtnRef, setProfileRect);
+    measureAnyRef(premiumBtnRef, setPremiumRect);
+    measureAnyRef(messagesBtnRef, setMessagesRect);
+    measureAnyRef(navToggleRef, setNavToggleRect);
+    measureAnyRef(navCalRef, setNavCalRect);
+    measureAnyRef(navFamilyRef, setNavFamilyRect);
+    measureAnyRef(navStatsRef, setNavStatsRect);
+    measureAnyRef(navAchRef, setNavAchRect);
+    measureAnyRef(navRankRef, setNavRankRect);
+  };
+
+  // ✅ TOUR STATES (5,6,7,8,10,11,12,13,14)
+  const [step5Open, setStep5Open] = useState(false);
+  const [step6Open, setStep6Open] = useState(false);
+  const [step7Open, setStep7Open] = useState(false);
+  const [step8Open, setStep8Open] = useState(false);
+  const [step10Open, setStep10Open] = useState(false);
+  const [step11Open, setStep11Open] = useState(false);
+  const [step12Open, setStep12Open] = useState(false);
+  const [step13Open, setStep13Open] = useState(false);
+  const [step14Open, setStep14Open] = useState(false);
+
+  useEffect(() => subscribeTourStep5(setStep5Open), []);
+  useEffect(() => subscribeTourStep6(setStep6Open), []);
+  useEffect(() => subscribeTourStep7(setStep7Open), []);
+  useEffect(() => subscribeTourStep8(setStep8Open), []);
+  useEffect(() => subscribeTourStep10(setStep10Open), []);
+  useEffect(() => subscribeTourStep11(setStep11Open), []);
+  useEffect(() => subscribeTourStep12(setStep12Open), []);
+  useEffect(() => subscribeTourStep13(setStep13Open), []);
+  useEffect(() => subscribeTourStep14(setStep14Open), []);
+
+  const tourFade = useRef(new Animated.Value(0)).current;
+  const tourPulse = useRef(new Animated.Value(0)).current;
+
+  const activeTourStep = useMemo(() => {
+    if (step14Open) return 14;
+    if (step13Open) return 13;
+    if (step12Open) return 12;
+    if (step11Open) return 11;
+    if (step10Open) return 10;
+    if (step8Open) return 8;
+    if (step7Open) return 7;
+    if (step6Open) return 6;
+    if (step5Open) return 5;
+    return null;
+  }, [step5Open, step6Open, step7Open, step8Open, step10Open, step11Open, step12Open, step13Open, step14Open]);
+
+  const setTourOpen = (step: number, open: boolean) => {
+    try {
+      switch (step) {
+        case 5:
+          setTourStep5OpenBus(open);
+          break;
+        case 6:
+          setTourStep6OpenBus(open);
+          break;
+        case 7:
+          setTourStep7OpenBus(open);
+          break;
+        case 8:
+          setTourStep8OpenBus(open);
+          break;
+        case 10:
+          setTourStep10OpenBus(open);
+          break;
+        case 11:
+          setTourStep11OpenBus(open);
+          break;
+        case 12:
+          setTourStep12OpenBus(open);
+          break;
+        case 13:
+          setTourStep13OpenBus(open);
+          break;
+        case 14:
+          setTourStep14OpenBus(open);
+          break;
+      }
+    } catch {}
+  };
+
+  const closeAllTourSteps = () => {
+    [5, 6, 7, 8, 10, 11, 12, 13, 14].forEach((s) => setTourOpen(s, false));
+  };
+
+  const markTourSeen = async () => {
+    try {
+      const uidLocal = auth.currentUser?.uid;
+      if (!uidLocal) return;
+      await updateDoc(doc(db as any, "users", uidLocal), {
+        "onboarding.tourSeen": true,
+        "onboarding.tourSeenAt": serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } as any);
+    } catch {}
+  };
+
+  const finishTour = async () => {
+    await markTourSeen();
+    closeAllTourSteps();
+  };
+
+  const goNext = (from: number) => {
+    const nextMap: Record<number, number> = {
+      5: 6,
+      6: 7,
+      7: 8,
+      8: 10,
+      10: 11,
+      11: 12,
+      12: 13,
+      13: 14,
+    };
+
+    const next = nextMap[from];
+    if (!next) {
+      finishTour();
+      return;
+    }
+
+    setTourOpen(from, false);
+    setTourOpen(next, true);
+  };
+
+  const closeTourBubbleOnly = () => {
+    if (!activeTourStep) return;
+    setTourOpen(activeTourStep, false);
+  };
+
+  useEffect(() => {
+    if (!activeTourStep) return;
+
+    // porządki UI
+    closeThemeInstant();
+    closeNotifsInstant();
+    closeNav();
+
+    // krok 6 ma sens z otwartym menu profilu (żeby było widać Profil / Zgłoś błąd)
+    if (activeTourStep === 6) {
+      if (!menuOpen) openMenu();
+    } else {
+      // inne kroki: niech menu nie przeszkadza
+      if (menuOpen) closeMenuInstant();
+    }
+
+    const t = setTimeout(() => measureTourAnchors(), 40);
+
+    tourFade.setValue(0);
+    tourPulse.setValue(0);
+
+    Animated.timing(tourFade, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: Platform.OS !== "web",
+    }).start();
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tourPulse, { toValue: 1, duration: 720, useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(tourPulse, { toValue: 0, duration: 720, useNativeDriver: Platform.OS !== "web" }),
+      ])
+    );
+
+    loop.start();
+
+    return () => {
+      clearTimeout(t);
+      loop.stop();
+      tourPulse.stopAnimation();
+      tourPulse.setValue(0);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTourStep]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (typeof window === "undefined") return;
+
+    const on = () => measureTourAnchors();
+    window.addEventListener("resize", on);
+    window.addEventListener("scroll", on, true);
+
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("scroll", on, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleNotifPress = (n: NotifRow) => {
     if (!n.read) toggleNotifRead(n);
 
@@ -480,68 +780,80 @@ export default function CustomHeader() {
     }
   };
 
-  // NAV BUTTON (desktop / duży web)
-  const NavButton = ({
-    icon,
-    label,
-    route,
-    premium,
-  }: {
-    icon: keyof typeof Ionicons.glyphMap;
-    label: string;
-    route: string;
-    premium?: boolean;
-  }) => {
-    const active = pathname === route || pathname?.startsWith(route);
+  // NAV BUTTON (desktop / duży web) – z refem
+  const NavButton = React.useMemo(() => {
+    const Cmp = React.forwardRef(
+      (
+        {
+          icon,
+          label,
+          route,
+          premium,
+        }: {
+          icon: keyof typeof Ionicons.glyphMap;
+          label: string;
+          route: string;
+          premium?: boolean;
+        },
+        ref: any
+      ) => {
+        const active = pathname === route || pathname?.startsWith(route);
 
-    const scale = useRef(new Animated.Value(1)).current;
-    const [hovered, setHovered] = useState(false);
+        const scale = useRef(new Animated.Value(1)).current;
+        const [hovered, setHovered] = useState(false);
 
-    const onPressIn = () =>
-      Animated.spring(scale, {
-        toValue: 0.95,
-        useNativeDriver: useNative,
-        friction: 6,
-        tension: 220,
-      }).start();
+        const onPressIn = () =>
+          Animated.spring(scale, {
+            toValue: 0.95,
+            useNativeDriver: useNative,
+            friction: 6,
+            tension: 220,
+          }).start();
 
-    const onPressOut = () =>
-      Animated.spring(scale, {
-        toValue: 1,
-        useNativeDriver: useNative,
-        friction: 6,
-        tension: 220,
-      }).start();
+        const onPressOut = () =>
+          Animated.spring(scale, {
+            toValue: 1,
+            useNativeDriver: useNative,
+            friction: 6,
+            tension: 220,
+          }).start();
 
-    const hoverHandlers = isWeb
-      ? ({
-          onMouseEnter: () => setHovered(true),
-          onMouseLeave: () => setHovered(false),
-        } as any)
-      : {};
+        const hoverHandlers = isWeb
+          ? ({
+              onMouseEnter: () => setHovered(true),
+              onMouseLeave: () => setHovered(false),
+            } as any)
+          : ({} as any);
 
-    return (
-      <Pressable
-        onPress={() => router.push(route as any)}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        {...hoverHandlers}
-        style={[styles.navBtn, hovered && styles.navBtnHover, active && styles.navBtnActive]}
-      >
-        <Animated.View style={[styles.navInner, { transform: [{ scale }] }]}>
-          <Ionicons name={icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
+        return (
+          <Pressable
+            ref={ref}
+            onLayout={measureTourAnchors}
+            onPress={() => router.push(route as any)}
+            onPressIn={onPressIn}
+            onPressOut={onPressOut}
+            {...hoverHandlers}
+            style={[styles.navBtn, hovered && styles.navBtnHover, active && styles.navBtnActive]}
+          >
+            <Animated.View style={[styles.navInner, { transform: [{ scale }] }]}>
+              <Ionicons name={icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
 
-            {premium && <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} style={{ marginTop: 1 }} />}
-          </View>
-        </Animated.View>
-      </Pressable>
+                {premium && <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} style={{ marginTop: 1 }} />}
+              </View>
+            </Animated.View>
+          </Pressable>
+        );
+      }
     );
-  };
 
-  // MENU ITEM
+    Cmp.displayName = "NavButtonWithRef";
+    return Cmp;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, useNative, isWeb, palette, styles, router]);
+
   const MenuItem = ({
     icon,
     label,
@@ -557,7 +869,6 @@ export default function CustomHeader() {
     </Pressable>
   );
 
-  // zamknięcie overlayów przy zmianie trasy
   useEffect(() => {
     if (themeOpen) closeTheme();
     if (menuOpen) closeMenu();
@@ -566,11 +877,118 @@ export default function CustomHeader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // RENDER
+  const tourTotal = 14;
+
+  const tourConfig = useMemo(() => {
+    const cfg: Record<
+      number,
+      {
+        title: string;
+        body: string;
+        anchorRect: AnchorRect | null;
+        primaryLabel: string;
+        onPrimary: () => void;
+        onSkip: () => void;
+        pad?: number;
+      }
+    > = {
+      5: {
+        title: "Ustawienia: profil, motyw i bezpieczeństwo",
+        body:
+          "Kliknij w prawym górnym rogu (avatar), żeby otworzyć opcje.\n\nWejdź w Ustawienia i dodaj swoje zdjęcie profilowe — rodzina od razu Cię rozpozna.\n\nTam też ogarniesz motyw i ważne opcje bezpieczeństwa konta.",
+        anchorRect: profileRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(5),
+        onSkip: () => finishTour(),
+      },
+      6: {
+        title: "Profil i zgłaszanie błędów",
+        body:
+          "W menu pod avatarem znajdziesz Profil — tam ustawisz m.in. dane i prywatność.\n\nJest tu też opcja „Zgłoś błąd”, gdy coś nie działa albo chcesz coś zasugerować.",
+        anchorRect: profileRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(6),
+        onSkip: () => finishTour(),
+      },
+      7: {
+        title: "Premium",
+        body: "Premium odblokowuje dodatkowe funkcje i wspiera rozwój aplikacji. Jeśli korzystasz na co dzień — warto zerknąć. 🙂",
+        anchorRect: premiumRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(7),
+        onSkip: () => finishTour(),
+      },
+      8: {
+        title: "Wiadomości",
+        body: "Tu macie czat w rodzinie: dogadacie sprawy dnia, zadania i szybkie ustalenia bez wychodzenia z apki.",
+        anchorRect: messagesRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(8),
+        onSkip: () => finishTour(),
+      },
+      10: {
+        title: "Kalendarz",
+        body: "Kalendarz to centrum planu: zadania, terminy i ogarnianie tygodnia w jednym miejscu.",
+        anchorRect: isMobileWeb ? navToggleRect : navCalRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(10),
+        onSkip: () => finishTour(),
+      },
+      11: {
+        title: "Rodzina",
+        body: "W Rodzinie dodajesz domowników i zarządzasz wspólną przestrzenią oraz uprawnieniami.",
+        anchorRect: isMobileWeb ? navToggleRect : navFamilyRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(11),
+        onSkip: () => finishTour(),
+      },
+      12: {
+        title: "Statystyki",
+        body: "Statystyki pokazują jak idzie ogarnianie: postępy, aktywność i trendy w czasie.",
+        anchorRect: isMobileWeb ? navToggleRect : navStatsRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(12),
+        onSkip: () => finishTour(),
+      },
+      13: {
+        title: "Osiągnięcia",
+        body: "Osiągnięcia dodają trochę zabawy: odznaki za regularność i konkretne cele.",
+        anchorRect: isMobileWeb ? navToggleRect : navAchRect,
+        primaryLabel: "Dalej",
+        onPrimary: () => goNext(13),
+        onSkip: () => finishTour(),
+      },
+      14: {
+        title: "Ranking",
+        body:
+          "Ranking porównuje wyniki w formie zabawy i motywacji.\n\nJeśli wolisz prywatność, możesz wyłączyć udostępnianie szczegółowych statystyk w Profilu.",
+        anchorRect: isMobileWeb ? navToggleRect : navRankRect,
+        primaryLabel: "Koniec",
+        onPrimary: () => finishTour(),
+        onSkip: () => finishTour(),
+      },
+    };
+
+    return cfg;
+  }, [
+    profileRect,
+    premiumRect,
+    messagesRect,
+    navToggleRect,
+    navCalRect,
+    navFamilyRect,
+    navStatsRect,
+    navAchRect,
+    navRankRect,
+    isMobileWeb,
+  ]);
+
+  const activeCfg = activeTourStep ? tourConfig[activeTourStep] : null;
+  const showTour = !!activeTourStep && !!activeCfg && !!activeCfg.anchorRect;
+
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.main}>
-        {/* LEWA STRONA – logo + themes dropdown */}
         <View style={styles.left}>
           <Pressable onPress={() => router.push("/" as any)} style={styles.logoWrap}>
             <Text style={styles.logoTop}>Mission</Text>
@@ -584,32 +1002,28 @@ export default function CustomHeader() {
           >
             <Ionicons name="color-palette" size={isMobileWeb ? 18 : 16} color={palette.muted} />
 
-            {/* ✅ na telefonie (mobile web) NIE pokazujemy nazwy motywu */}
             {isWeb && !isMobileWeb && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
 
-            {/* ✅ na telefonie zostawiamy tylko ikonkę paletki */}
-            {!isMobileWeb && (
-              <Ionicons name={themeOpen ? "chevron-up" : "chevron-down"} size={14} color={palette.muted} />
-            )}
+            {!isMobileWeb && <Ionicons name={themeOpen ? "chevron-up" : "chevron-down"} size={14} color={palette.muted} />}
           </Pressable>
         </View>
 
-        {/* PRAWA STRONA – wersja zależna od platformy/width */}
         {!user ? null : (
           <>
-            {/* DESKTOP / DUŻY WEB */}
             {!isMobileWeb && (
               <>
                 <View style={styles.center}>
-                  <NavButton icon="calendar-outline" label="Kalendarz" route="/calendar" />
-                  <NavButton icon="people-outline" label="Rodzina" route="/family" premium />
-                  <NavButton icon="stats-chart-outline" label="Statystyki" route="/stats" />
-                  <NavButton icon="trophy-outline" label="Osiągnięcia" route="/achievements" />
-                  <NavButton icon="podium-outline" label="Ranking" route="/Ranking" />
+                  <NavButton ref={navCalRef} icon="calendar-outline" label="Kalendarz" route="/calendar" />
+                  <NavButton ref={navFamilyRef} icon="people-outline" label="Rodzina" route="/family" premium />
+                  <NavButton ref={navStatsRef} icon="stats-chart-outline" label="Statystyki" route="/stats" />
+                  <NavButton ref={navAchRef} icon="trophy-outline" label="Osiągnięcia" route="/achievements" />
+                  <NavButton ref={navRankRef} icon="podium-outline" label="Ranking" route="/Ranking" />
                 </View>
 
                 <View style={styles.right}>
                   <Pressable
+                    ref={premiumBtnRef}
+                    onLayout={measureTourAnchors}
                     onPress={() => router.push("/premium" as any)}
                     style={({ pressed }) => [styles.premiumBtn, pressed && styles.premiumBtnPressed]}
                   >
@@ -618,28 +1032,27 @@ export default function CustomHeader() {
                   </Pressable>
 
                   <Pressable
+                    ref={messagesBtnRef}
+                    onLayout={measureTourAnchors}
                     onPress={() => router.push("/messages" as any)}
-                    style={({ pressed }) => [
-                      styles.bellBtn,
-                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
-                    ]}
+                    style={({ pressed }) => [styles.bellBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
                   >
-                    <Ionicons name="chatbubbles-outline" size={20} color={palette.navIcon} />
+                    <View style={{ position: "relative" }}>
+                      <Ionicons name="chatbubbles-outline" size={20} color={palette.navIcon} />
+                      <Badge count={unreadMsgCount} />
+                    </View>
 
                     {isWeb && (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Text style={styles.bellLabel}>Wiadomości</Text>
-                        <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />
+                        <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} style={{ marginTop: 1 }} />
                       </View>
                     )}
                   </Pressable>
 
                   <Pressable
                     onPress={toggleNotifs}
-                    style={({ pressed }) => [
-                      styles.bellBtn,
-                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
-                    ]}
+                    style={({ pressed }) => [styles.bellBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
                   >
                     <View style={{ position: "relative" }}>
                       <Ionicons
@@ -653,7 +1066,12 @@ export default function CustomHeader() {
                     {isWeb && <Text style={styles.bellLabel}>Powiadomienia</Text>}
                   </Pressable>
 
-                  <Pressable onPress={toggleMenu} style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}>
+                  <Pressable
+                    ref={profileBtnRef}
+                    onLayout={measureTourAnchors}
+                    onPress={toggleMenu}
+                    style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}
+                  >
                     <View style={styles.avatarOuter}>
                       <View style={styles.avatarInner}>
                         {user?.photoURL ? (
@@ -676,15 +1094,17 @@ export default function CustomHeader() {
               </>
             )}
 
-            {/* MOBILE WEB – tryb jak natywny */}
             {isMobileWeb && (
               <View style={styles.mobileActions}>
-                {/* MENU (NAV) */}
-                <Pressable onPress={toggleNav} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
+                <Pressable
+                  ref={navToggleRef}
+                  onLayout={measureTourAnchors}
+                  onPress={toggleNav}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                >
                   <Ionicons name="ellipsis-horizontal" size={20} color={palette.navIcon} />
                 </Pressable>
 
-                {/* POWIADOMIENIA */}
                 <Pressable onPress={toggleNotifs} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
                   <View style={{ position: "relative" }}>
                     <Ionicons
@@ -696,16 +1116,21 @@ export default function CustomHeader() {
                   </View>
                 </Pressable>
 
-                {/* PREMIUM */}
                 <Pressable
+                  ref={premiumBtnRef}
+                  onLayout={measureTourAnchors}
                   onPress={() => router.push("/premium" as any)}
                   style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
                   <Ionicons name="sparkles" size={18} color={ACCENT_PREMIUM} />
                 </Pressable>
 
-                {/* PROFIL */}
-                <Pressable onPress={toggleMenu} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
+                <Pressable
+                  ref={profileBtnRef}
+                  onLayout={measureTourAnchors}
+                  onPress={toggleMenu}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                >
                   <View style={styles.avatarOuterSmall}>
                     <View style={styles.avatarInner}>
                       {user?.photoURL ? (
@@ -724,7 +1149,6 @@ export default function CustomHeader() {
         )}
       </View>
 
-      {/* THEME DROPDOWN OVERLAY */}
       {themeOpen && (
         <>
           <Pressable style={isMobileWeb ? styles.backdropDimmed : styles.backdrop} onPress={closeTheme} pointerEvents="auto" />
@@ -737,18 +1161,8 @@ export default function CustomHeader() {
               {
                 opacity: themeAnim,
                 transform: [
-                  {
-                    translateY: themeAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-6, 0],
-                    }),
-                  },
-                  {
-                    scale: themeAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.98, 1],
-                    }),
-                  },
+                  { translateY: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }) },
+                  { scale: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }) },
                 ],
               },
             ]}
@@ -770,19 +1184,13 @@ export default function CustomHeader() {
                 const active = t === theme;
 
                 const swatch = themeSwatchColor(t);
-                const safeTextColor = active
-                  ? palette.navIconActive
-                  : ensureReadableColor(swatch, palette.menuBg, palette.menuText);
+                const safeTextColor = active ? palette.navIconActive : ensureReadableColor(swatch, palette.menuBg, palette.menuText);
 
                 return (
                   <Pressable
                     key={t}
                     onPress={() => handleThemeSelect(t)}
-                    style={({ pressed }) => [
-                      styles.themeItem,
-                      active && styles.themeItemActive,
-                      pressed && styles.themeItemPressed,
-                    ]}
+                    style={({ pressed }) => [styles.themeItem, active && styles.themeItemActive, pressed && styles.themeItemPressed]}
                   >
                     <View style={styles.themeItemLeft}>
                       <View style={[styles.themeSwatch, { backgroundColor: swatch, borderColor: palette.border }]} />
@@ -791,11 +1199,7 @@ export default function CustomHeader() {
                       </Text>
                     </View>
 
-                    {active ? (
-                      <Ionicons name="checkmark" size={16} color={palette.navIconActive} />
-                    ) : (
-                      <View style={{ width: 16 }} />
-                    )}
+                    {active ? <Ionicons name="checkmark" size={16} color={palette.navIconActive} /> : <View style={{ width: 16 }} />}
                   </Pressable>
                 );
               })}
@@ -804,7 +1208,6 @@ export default function CustomHeader() {
         </>
       )}
 
-      {/* NAV PANEL — tylko MOBILE WEB */}
       {isMobileWeb && user && navOpen && (
         <>
           <Pressable style={styles.backdropDimmed} onPress={closeNav} pointerEvents="auto" />
@@ -814,6 +1217,8 @@ export default function CustomHeader() {
             <ScrollView style={styles.mobileNavScroll} contentContainerStyle={styles.mobileNavList}>
               {NAV_ITEMS.map((item) => {
                 const active = pathname === item.route || pathname?.startsWith(item.route);
+                const isMessages = item.route === "/messages";
+
                 return (
                   <Pressable
                     key={item.route}
@@ -827,7 +1232,11 @@ export default function CustomHeader() {
                       pressed && styles.mobileNavItemPressed,
                     ]}
                   >
-                    <Ionicons name={item.icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
+                    <View style={{ position: "relative" }}>
+                      <Ionicons name={item.icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
+                      {isMessages ? <Badge count={unreadMsgCount} /> : null}
+                    </View>
+
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Text style={[styles.mobileNavText, active && styles.mobileNavTextActive]}>{item.label}</Text>
                       {item.premium && <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} />}
@@ -840,7 +1249,6 @@ export default function CustomHeader() {
         </>
       )}
 
-      {/* MENU DROPDOWN */}
       {user && menuOpen && (
         <>
           <Pressable style={isMobileWeb ? styles.backdropDimmed : styles.backdrop} onPress={closeMenu} pointerEvents="auto" />
@@ -852,18 +1260,8 @@ export default function CustomHeader() {
               {
                 opacity: menuAnim,
                 transform: [
-                  {
-                    translateY: menuAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-8, 0],
-                    }),
-                  },
-                  {
-                    scale: menuAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.96, 1],
-                    }),
-                  },
+                  { translateY: menuAnim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) },
+                  { scale: menuAnim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
                 ],
               },
             ]}
@@ -912,14 +1310,9 @@ export default function CustomHeader() {
         </>
       )}
 
-      {/* NOTIFICATION PANEL */}
       {user && notifsOpen && (
         <>
-          <Pressable
-            style={isMobileWeb ? styles.backdropDimmed : styles.backdrop}
-            onPress={closeNotifs}
-            pointerEvents="auto"
-          />
+          <Pressable style={isMobileWeb ? styles.backdropDimmed : styles.backdrop} onPress={closeNotifs} pointerEvents="auto" />
 
           <Animated.View
             pointerEvents="box-none"
@@ -928,18 +1321,8 @@ export default function CustomHeader() {
               {
                 opacity: notifAnim,
                 transform: [
-                  {
-                    translateY: notifAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-8, 0],
-                    }),
-                  },
-                  {
-                    scale: notifAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.96, 1],
-                    }),
-                  },
+                  { translateY: notifAnim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) },
+                  { scale: notifAnim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
                 ],
               },
             ]}
@@ -1019,6 +1402,186 @@ export default function CustomHeader() {
           </Animated.View>
         </>
       )}
+
+      {/* ✅ TOUR (5,6,7,8,10,11,12,13,14) */}
+      {showTour && user && activeCfg && activeCfg.anchorRect && (
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: Platform.OS === "web" ? ("fixed" as any) : "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999999,
+          }}
+        >
+          {(() => {
+            const pad = 10;
+            const a = activeCfg.anchorRect!;
+            const hlX = Math.max(6, a.x - pad);
+            const hlY = Math.max(6, a.y - pad);
+            const hlW = a.w + pad * 2;
+            const hlH = a.h + pad * 2;
+
+            return (
+              <>
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: hlX,
+                    top: hlY,
+                    width: hlW,
+                    height: hlH,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: palette.accent,
+                    backgroundColor: palette.accent + "10",
+                    opacity: tourFade,
+                  }}
+                />
+
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: hlX - 10,
+                    top: hlY - 10,
+                    width: hlW + 20,
+                    height: hlH + 20,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: palette.accent,
+                    backgroundColor: "transparent",
+                    opacity: Animated.multiply(tourFade, tourPulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0] })),
+                    transform: [{ scale: tourPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
+                  }}
+                />
+              </>
+            );
+          })()}
+
+          {(() => {
+            const W = width;
+            const pad = 12;
+            const bubbleW = Math.min(420, Math.max(260, W - pad * 2));
+
+            const a = activeCfg.anchorRect!;
+            const bubbleX = Math.max(pad, Math.min(a.x + a.w - bubbleW, W - pad - bubbleW));
+
+            const bubbleYBase = a.y + a.h + 14;
+
+            // tylko dla kroków profilu (5/6) — obniżamy, gdy menu jest otwarte, żeby nie zasłaniać listy
+            const shouldAvoidMenu = (activeTourStep === 5 || activeTourStep === 6) && menuOpen;
+            const headerTopGuess = Math.max(0, a.y - 12);
+            const menuTopWin = headerTopGuess + 56;
+            const menuEstimatedH = 170;
+            const safeBelowMenu = menuTopWin + menuEstimatedH + 14;
+
+            const bubbleY = shouldAvoidMenu ? Math.max(bubbleYBase, safeBelowMenu) : bubbleYBase;
+
+            const arrowX = a.x + a.w / 2 - 13;
+            const arrowY = bubbleY - 28;
+
+            return (
+              <>
+                <Animated.View pointerEvents="none" style={{ position: "absolute", left: arrowX, top: arrowY, opacity: tourFade }}>
+                  <Ionicons name="arrow-up" size={26} color={palette.accent} />
+                </Animated.View>
+
+                <Animated.View
+                  pointerEvents="auto"
+                  style={{
+                    position: "absolute",
+                    left: bubbleX,
+                    top: bubbleY,
+                    width: bubbleW,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: palette.border,
+                    backgroundColor: palette.card,
+                    padding: 14,
+                    opacity: tourFade,
+                    ...(Platform.OS === "web"
+                      ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.35)" } as any)
+                      : {
+                          shadowColor: "#000",
+                          shadowOpacity: 0.22,
+                          shadowRadius: 20,
+                          shadowOffset: { width: 0, height: 10 },
+                          elevation: 10,
+                        }),
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ color: palette.text, fontWeight: "900", fontSize: 14 }}>{activeCfg.title}</Text>
+
+                    <TouchableOpacity
+                      onPress={closeTourBubbleOnly}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        backgroundColor: palette.bg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                      }}
+                    >
+                      <Ionicons name="close" size={16} color={palette.muted} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={{ color: palette.muted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                    {activeCfg.body}
+                  </Text>
+
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                    <TouchableOpacity
+                      onPress={activeCfg.onPrimary}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 11,
+                        borderRadius: 999,
+                        backgroundColor: palette.accent,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                      }}
+                    >
+                      <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>{activeCfg.primaryLabel}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={activeCfg.onSkip}
+                      style={{
+                        paddingVertical: 11,
+                        paddingHorizontal: 14,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        backgroundColor: palette.bg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                      }}
+                    >
+                      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 13 }}>Pomiń</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={{ color: palette.muted, marginTop: 10, fontSize: 11, fontWeight: "700" }}>
+                    Krok {activeTourStep} / {tourTotal}
+                  </Text>
+                </Animated.View>
+              </>
+            );
+          })()}
+        </View>
+      )}
     </View>
   );
 }
@@ -1050,14 +1613,7 @@ function makePalette({
   colors,
 }: {
   isDark: boolean;
-  colors: {
-    bg: string;
-    card: string;
-    text: string;
-    textMuted: string;
-    accent: string;
-    border: string;
-  };
+  colors: { bg: string; card: string; text: string; textMuted: string; accent: string; border: string };
 }) {
   const accentSoft = hexToRgba(colors.accent, isDark ? 0.18 : 0.12);
 
@@ -1090,7 +1646,6 @@ function makePalette({
   };
 }
 
-/** ✅ Kolor przypisany do nazwy motywu (pełna mapa + fallback) */
 function themeSwatchColor(t: Theme): string {
   const key = String(t || "").toLowerCase();
 
@@ -1099,16 +1654,12 @@ function themeSwatchColor(t: Theme): string {
     light: "#e2e8f0",
     slate: "#475569",
     midnight: "#111827",
-
     ocean: "#06b6d4",
     forest: "#22c55e",
     coffee: "#b45309",
     sand: "#f59e0b",
-
     blue: "#3b82f6",
     green: "#10b981",
-
-    // ✅ brakujące z Twojego screena
     mint: "#34d399",
     teal: "#14b8a6",
     purple: "#a855f7",
@@ -1123,14 +1674,12 @@ function themeSwatchColor(t: Theme): string {
   return THEME_COLORS[key] ?? colorFromString(key);
 }
 
-/** ✅ Fallback: zawsze generuje sensowny kolor z nazwy (żeby nowe motywy też miały kolor) */
 function colorFromString(seed: string) {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
   const h = Math.abs(hash) % 360;
-  // do menu na ciemnym tle: dość jasny i nasycony
   return hslToHex(h, 78, 55);
 }
 
@@ -1161,7 +1710,6 @@ function hslToHex(h: number, s: number, l: number) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/** ✅ Jeśli kolor tekstu ma za słaby kontrast z tłem menu — użyj fallback */
 function ensureReadableColor(colorHex: string, bgHex: string, fallback: string) {
   const c = toRgb(colorHex);
   const b = toRgb(bgHex);
@@ -1176,11 +1724,7 @@ function toRgb(hex: string): { r: number; g: number; b: number } | null {
   const m = /^#([0-9a-fA-F]{6})$/.exec(h);
   if (!m) return null;
   const s = m[1];
-  return {
-    r: parseInt(s.slice(0, 2), 16),
-    g: parseInt(s.slice(2, 4), 16),
-    b: parseInt(s.slice(4, 6), 16),
-  };
+  return { r: parseInt(s.slice(0, 2), 16), g: parseInt(s.slice(2, 4), 16), b: parseInt(s.slice(4, 6), 16) };
 }
 
 function srgbToLinear(v: number) {
@@ -1237,7 +1781,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
     logoWrap: {
       paddingRight: isMobileWeb ? 4 : 6,
       paddingVertical: 4,
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     logoTop: {
       fontSize: isMobileWeb ? 16 : 18,
@@ -1253,7 +1797,6 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       marginTop: -2,
     },
 
-    // ✅ mały, mniej angażujący przycisk (na mobile web: kompaktowa ikonka)
     themeBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -1267,7 +1810,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: "transparent",
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     themeBtnPressed: {
       opacity: 0.9,
@@ -1280,7 +1823,6 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       letterSpacing: 0.35,
     },
 
-    // ✅ dropdown dopasowany do aktualnego motywu
     themeMenu: {
       zIndex: 2200,
       backgroundColor: palette.menuBg,
@@ -1289,7 +1831,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.menuBorder,
       overflow: "hidden",
-      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.28)" } as any) : null),
+      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.28)" } as any) : {}),
     },
     themeMenuHeader: {
       paddingHorizontal: 12,
@@ -1320,7 +1862,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
             scrollbarWidth: "thin",
             scrollbarColor: `${palette.muted} transparent`,
           } as any)
-        : null),
+        : {}),
     },
     themeMenuList: {
       paddingHorizontal: 6,
@@ -1374,7 +1916,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderRadius: 999,
       paddingHorizontal: 2,
       paddingVertical: 2,
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     navBtnHover: {
       backgroundColor: "rgba(15,23,42,0.12)",
@@ -1418,7 +1960,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: "transparent",
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     bellLabel: {
       fontSize: 14,
@@ -1453,7 +1995,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       paddingVertical: 5,
       borderRadius: 999,
       backgroundColor: "transparent",
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     premiumBtnPressed: {
       opacity: 0.9,
@@ -1475,7 +2017,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       backgroundColor: palette.chipBg,
       borderWidth: 1,
       borderColor: palette.border,
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     profileBtnPressed: {
       opacity: 0.9,
@@ -1530,7 +2072,6 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       maxWidth: isWeb ? 160 : 120,
     },
 
-    // MOBILE WEB ACTIONS
     mobileActions: {
       flexDirection: "row",
       alignItems: "center",
@@ -1547,7 +2088,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       justifyContent: "center",
       alignItems: "center",
       backgroundColor: "transparent",
-      ...(isWeb ? ({ cursor: "pointer" } as any) : null),
+      ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
     iconBtnPressed: {
       opacity: 0.9,
@@ -1584,7 +2125,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.menuBorder,
       zIndex: 1000,
-      ...(isWeb ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any) : null),
+      ...(isWeb ? ({ boxShadow: "0 14px 32px rgba(0,0,0,0.35)" } as any) : {}),
     },
     menuItem: {
       flexDirection: "row",
@@ -1618,7 +2159,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderColor: palette.menuBorder,
       overflow: "hidden",
       zIndex: 1001,
-      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any) : null),
+      ...(isWeb ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.38)" } as any) : {}),
     },
 
     notifHeader: {
@@ -1722,7 +2263,6 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       fontSize: 12,
     },
 
-    // MOBILE NAV PANEL
     mobileNavPanel: {
       position: "absolute",
       top: 60,
@@ -1733,7 +2273,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.menuBorder,
       zIndex: 1002,
-      ...(isWeb ? ({ boxShadow: "0 18px 40px rgba(0,0,0,0.45)" } as any) : null),
+      ...(isWeb ? ({ boxShadow: "0 18px 40px rgba(0,0,0,0.45)" } as any) : {}),
     },
     mobileNavTitle: {
       fontSize: 15,
@@ -1778,5 +2318,4 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
     },
   });
 }
-
-// src/components/CustomHeader.tsx
+// src/components/CustomHeader.web.tsx

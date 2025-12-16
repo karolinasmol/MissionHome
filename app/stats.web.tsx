@@ -16,6 +16,7 @@ import {
   Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
@@ -23,7 +24,17 @@ import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 
-/* ----------------------- Helpers ----------------------- */
+// Firestore (jak w Profile.tsx)
+import { db } from "../src/firebase/firebase.web";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  doc as fsDoc,
+} from "firebase/firestore";
+
+/* ----------------------- Helpers (DATE) ----------------------- */
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -47,6 +58,14 @@ function startOfMonth(date: Date) {
   return d;
 }
 
+function startOfNextMonth(date: Date) {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setMonth(d.getMonth() + 1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 function endOfMonth(date: Date) {
   const d = new Date(date);
   d.setMonth(d.getMonth() + 1);
@@ -55,17 +74,68 @@ function endOfMonth(date: Date) {
   return d;
 }
 
-function toJsDate(v: any): Date | null {
-  if (!v) return null;
-  if (v instanceof Date) return v;
-  if (typeof v.toDate === "function") return v.toDate();
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+function startOfDay(date: any) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
-function isWithin(date: Date, start: Date, end: Date) {
-  return date >= start && date <= end;
+function formatDateKey(date: Date) {
+  const d0 = startOfDay(date);
+  const y = d0.getFullYear();
+  const m = String(d0.getMonth() + 1).padStart(2, "0");
+  const d = String(d0.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
+
+function toSafeDate(v: any): Date | null {
+  if (!v) return null;
+  try {
+    if (typeof v.toDate === "function") return v.toDate();
+    if (typeof v.seconds === "number") {
+      const ms = Math.floor(v.seconds * 1000 + (v.nanoseconds || 0) / 1e6);
+      return new Date(ms);
+    }
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
+
+/** [start, endExclusive) */
+function isWithinExclusive(date: Date, start: Date, endExclusive: Date) {
+  return date >= start && date < endExclusive;
+}
+
+/* ----------------------- Helpers (EXP) ----------------------- */
+
+function getEarnedExp(m: any): number {
+  const v =
+    m?.earnedExp ??
+    m?.expEarned ??
+    m?.completedExp ??
+    m?.expAwarded ??
+    m?.earned ??
+    m?.expValue ??
+    0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pickNumber(obj: any, keys: string[]): number | null {
+  for (const k of keys) {
+    const n = Number(obj?.[k]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  for (const k of keys) {
+    const n = Number(obj?.[k]);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/* ----------------------- Formatting ----------------------- */
 
 function formatDateTimeShort(d: Date | null): string {
   if (!d) return "jeszcze nie wykonano";
@@ -87,13 +157,24 @@ function formatDateShort(d: Date) {
 type AggRow = { key: string; label: string; count: number };
 
 type MemberStatsRow = {
-  id: string;
+  id: string; // uid
   label: string;
   avatarInitial: string;
   weekCount: number;
   monthCount: number;
   weekExp: number;
   monthExp: number;
+  totalExp: number; // ✅ z users/{uid}.totalExp
+};
+
+type CompletionEvent = {
+  missionId: string;
+  title: string;
+  date: Date;
+  dateKey: string; // YYYY-MM-DD
+  userId: string;
+  userName?: string | null;
+  exp: number;
 };
 
 type TileId =
@@ -106,7 +187,7 @@ type TileId =
 
 type TileConfig = {
   id: TileId;
-  wide?: boolean; // full row
+  wide?: boolean;
   hidden?: boolean;
 };
 
@@ -233,11 +314,6 @@ function PrimaryButton({
   );
 }
 
-/**
- * ✅ Card z opcją scrollowania środka.
- * - scroll=true => zawartość w ScrollView, nic nie wyjeżdża poza kafelek.
- * - overflow hidden + minHeight:0 => działa poprawnie na web i mobile.
- */
 function Card({
   colors,
   title,
@@ -308,11 +384,112 @@ function Card({
   );
 }
 
+/* ----------------------- Completion events (jak Profile) ----------------------- */
+
+function extractCompletionEvents(missions: any[]): CompletionEvent[] {
+  if (!Array.isArray(missions)) return [];
+
+  const out: CompletionEvent[] = [];
+
+  missions.forEach((m) => {
+    const title = String(m?.title ?? "Bez nazwy");
+    const missionId = String(m?.id ?? m?.docId ?? `${title}-${Math.random()}`);
+
+    const repeatType = m?.repeat?.type ?? "none";
+    const baseExp = getEarnedExp(m);
+    const byDate = m?.completedByByDate || {};
+
+    if (repeatType !== "none") {
+      const completedDates: string[] = Array.isArray(m?.completedDates)
+        ? m.completedDates
+        : [];
+
+      if (completedDates.length > 0) {
+        completedDates.forEach((dateKey) => {
+          const d = new Date(`${dateKey}T00:00:00`);
+          if (isNaN(d.getTime())) return;
+
+          const entry = byDate?.[dateKey];
+          const userId = String(
+            entry?.userId ||
+              entry?.uid ||
+              entry?.user ||
+              m?.assignedToUserId ||
+              ""
+          ).trim();
+          if (!userId) return;
+
+          const entryExp =
+            pickNumber(entry, ["exp", "earnedExp", "expEarned", "gainedExp", "xp"]) ??
+            baseExp ??
+            0;
+
+          const userName =
+            entry?.userName ||
+            entry?.name ||
+            entry?.displayName ||
+            m?.assignedToName ||
+            null;
+
+          out.push({
+            missionId,
+            title,
+            date: d,
+            dateKey,
+            userId,
+            userName,
+            exp: Number(entryExp) || 0,
+          });
+        });
+
+        return;
+      }
+
+      if (m?.completed) {
+        const completedAt = toSafeDate(m?.completedAt);
+        const userId = String(m?.completedByUserId || m?.assignedToUserId || "").trim();
+        if (completedAt && userId) {
+          out.push({
+            missionId,
+            title,
+            date: completedAt,
+            dateKey: formatDateKey(completedAt),
+            userId,
+            userName: m?.completedByName || m?.assignedToName || null,
+            exp: baseExp ?? 0,
+          });
+        }
+      }
+      return;
+    }
+
+    if (m?.completed) {
+      const completedAt = toSafeDate(m?.completedAt);
+      const userId = String(m?.completedByUserId || "").trim();
+      if (!completedAt || !userId) return;
+
+      out.push({
+        missionId,
+        title,
+        date: completedAt,
+        dateKey: formatDateKey(completedAt),
+        userId,
+        userName: m?.completedByName || m?.assignedToName || null,
+        exp: baseExp ?? 0,
+      });
+    }
+  });
+
+  out.sort((a, b) => b.date.getTime() - a.date.getTime());
+  return out;
+}
+
 /* ----------------------- Screen ----------------------- */
 
 const TILE_H = 320;
 
 export default function StatsScreen() {
+  const router = useRouter();
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
   const { members } = useFamily();
@@ -326,21 +503,167 @@ export default function StatsScreen() {
 
   const now = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => startOfWeek(now), [now]);
-  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const weekEndExclusive = useMemo(() => addDays(weekStart, 7), [weekStart]);
   const monthStart = useMemo(() => startOfMonth(now), [now]);
   const monthEnd = useMemo(() => endOfMonth(now), [now]);
+  const monthEndExclusive = useMemo(() => startOfNextMonth(now), [now]);
+
+  /* -------------------- FAMILY UIDs -------------------- */
+
+  const familyUids = useMemo(() => {
+    const list =
+      (members || [])
+        .map((m: any) => String(m?.uid || m?.userId || m?.id || "").trim())
+        .filter(Boolean) || [];
+    return Array.from(new Set(list));
+  }, [members]);
+
+  /* -------------------- USERS SNAPSHOTS (totalExp) -------------------- */
+
+  const [usersByUid, setUsersByUid] = useState<Map<string, any>>(
+    () => new Map()
+  );
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  useEffect(() => {
+    if (!familyUids.length) {
+      setUsersByUid(new Map());
+      setUsersLoading(false);
+      return;
+    }
+
+    setUsersLoading(true);
+    const map = new Map<string, any>();
+    const unsubs: Array<() => void> = [];
+
+    const apply = (uid: string, data: any) => {
+      map.set(uid, data);
+      // clone => trigger render
+      setUsersByUid(new Map(map));
+      setUsersLoading(false);
+    };
+
+    familyUids.forEach((uid) => {
+      unsubs.push(
+        onSnapshot(
+          fsDoc(db, "users", uid),
+          (snap) => {
+            apply(uid, snap.exists() ? { id: snap.id, ...snap.data() } : null);
+          },
+          (err) => {
+            console.log("[Stats] users snapshot error:", err);
+            setUsersLoading(false);
+          }
+        )
+      );
+    });
+
+    return () => {
+      unsubs.forEach((u) => u && u());
+    };
+  }, [familyUids.join("|")]);
+
+  /* -------------------- FAMILY MISSIONS SNAPSHOTS (jak Profile) -------------------- */
+
+  const [familyMissions, setFamilyMissions] = useState<any[]>([]);
+  const [familyMissionsLoading, setFamilyMissionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!familyUids.length) {
+      setFamilyMissions([]);
+      setFamilyMissionsLoading(false);
+      return;
+    }
+
+    const colRef = collection(db, "missions");
+    setFamilyMissionsLoading(true);
+
+    const global = new Map<string, any>();
+    const unsubs: Array<() => void> = [];
+
+    const applySnap = (snap: any) => {
+      snap.forEach((d: any) => {
+        global.set(d.id, { id: d.id, ...d.data() });
+      });
+      setFamilyMissions(Array.from(global.values()));
+      setFamilyMissionsLoading(false);
+    };
+
+    const onErr = (err: any) => {
+      console.log("[Stats] family missions snapshot error:", err);
+      setFamilyMissionsLoading(false);
+    };
+
+    familyUids.forEach((uid) => {
+      unsubs.push(
+        onSnapshot(query(colRef, where("assignedToUserId", "==", uid)), applySnap, onErr)
+      );
+      unsubs.push(
+        onSnapshot(query(colRef, where("createdByUserId", "==", uid)), applySnap, onErr)
+      );
+      unsubs.push(
+        onSnapshot(query(colRef, where("assignedByUserId", "==", uid)), applySnap, onErr)
+      );
+      unsubs.push(
+        onSnapshot(query(colRef, where("completedByUserId", "==", uid)), applySnap, onErr)
+      );
+    });
+
+    return () => {
+      unsubs.forEach((u) => u && u());
+    };
+  }, [familyUids.join("|")]);
+
+  // merge: hook missions + snapshoty rodziny
+  const mergedMissions = useMemo(() => {
+    const map = new Map<string, any>();
+
+    (missions || []).forEach((m: any) => {
+      if (!m) return;
+      const id = String(m.id ?? m.docId ?? "");
+      if (!id) return;
+      map.set(id, m);
+    });
+
+    (familyMissions || []).forEach((m: any) => {
+      if (!m) return;
+      const id = String(m.id ?? m.docId ?? "");
+      if (!id) return;
+      map.set(id, m);
+    });
+
+    return Array.from(map.values());
+  }, [missions, familyMissions]);
+
+  const statsLoading = loading || familyMissionsLoading || usersLoading;
 
   const normalizedMissions = useMemo(
     () =>
-      missions
-        .filter((m: any) => !m.archived)
+      mergedMissions
+        .filter((m: any) => !m?.archived)
         .map((m: any) => ({
           ...m,
-          completedAtJs: toJsDate(m.completedAt),
-          dueDateJs: toJsDate(m.dueDate),
+          completedAtJs: toSafeDate(m.completedAt),
+          dueDateJs: toSafeDate(m.dueDate),
           expValueNum: Number(m.expValue ?? 0),
+          earnedExpNum: getEarnedExp(m),
         })),
-    [missions]
+    [mergedMissions]
+  );
+
+  const completionEvents = useMemo(
+    () => extractCompletionEvents(normalizedMissions),
+    [normalizedMissions]
+  );
+
+  const weekEvents = useMemo(
+    () => completionEvents.filter((e) => isWithinExclusive(e.date, weekStart, weekEndExclusive)),
+    [completionEvents, weekStart, weekEndExclusive]
+  );
+
+  const monthEvents = useMemo(
+    () => completionEvents.filter((e) => isWithinExclusive(e.date, monthStart, monthEndExclusive)),
+    [completionEvents, monthStart, monthEndExclusive]
   );
 
   /* ---------- EXPORT DO EXCELA ---------- */
@@ -358,8 +681,8 @@ export default function StatsScreen() {
             ? m.dueDateJs.toLocaleDateString("pl-PL")
             : "",
           "Utworzone przez": m.createdByName ?? "Nieznane",
-          "Zrealizowane przez": m.assignedToName ?? "Nieznane",
-          EXP: m.expValueNum ?? 0,
+          "Zrealizowane przez": m.completedByName ?? m.assignedToName ?? "Nieznane",
+          EXP: m.earnedExpNum ?? m.expValueNum ?? 0,
         }));
 
       const uncompleted = normalizedMissions
@@ -416,40 +739,24 @@ export default function StatsScreen() {
     }
   };
 
-  // ----- PODSUMOWANIE TYGODNIA / MIESIĄCA -----
-  const weekCompleted = useMemo(
-    () =>
-      normalizedMissions.filter((m) => {
-        if (!m.completed || !m.completedAtJs) return false;
-        return isWithin(m.completedAtJs, weekStart, weekEnd);
-      }),
-    [normalizedMissions, weekStart, weekEnd]
-  );
+  // podsumowania
+  const totalCompletedEvents = completionEvents.length;
 
-  const monthCompleted = useMemo(
-    () =>
-      normalizedMissions.filter((m) => {
-        if (!m.completed || !m.completedAtJs) return false;
-        return isWithin(m.completedAtJs, monthStart, monthEnd);
-      }),
-    [normalizedMissions, monthStart, monthEnd]
-  );
-
-  const totalCompleted = useMemo(
+  const totalCompletedMissions = useMemo(
     () => normalizedMissions.filter((m) => m.completed).length,
     [normalizedMissions]
   );
 
   const completionRate = useMemo(() => {
     if (!normalizedMissions.length) return 0;
-    return Math.round((totalCompleted / normalizedMissions.length) * 100);
-  }, [normalizedMissions.length, totalCompleted]);
+    return Math.round((totalCompletedMissions / normalizedMissions.length) * 100);
+  }, [normalizedMissions.length, totalCompletedMissions]);
 
-  // ----- AGREGACJE PO TYTULE -----
-  const aggregateByTitle = (list: any[]): AggRow[] => {
+  // agregacje
+  const aggregateByTitleFromEvents = (list: CompletionEvent[]): AggRow[] => {
     const map = new Map<string, AggRow>();
-    list.forEach((m) => {
-      const raw = (m.title || "Bez nazwy").trim();
+    list.forEach((e) => {
+      const raw = (e.title || "Bez nazwy").trim();
       if (!raw) return;
       const key = raw.toLowerCase();
       const row = map.get(key) || { key, label: raw, count: 0 };
@@ -460,97 +767,147 @@ export default function StatsScreen() {
   };
 
   const weekAgg = useMemo(
-    () => aggregateByTitle(weekCompleted).slice(0, 5),
-    [weekCompleted]
+    () => aggregateByTitleFromEvents(weekEvents).slice(0, 5),
+    [weekEvents]
   );
   const monthAgg = useMemo(
-    () => aggregateByTitle(monthCompleted).slice(0, 5),
-    [monthCompleted]
+    () => aggregateByTitleFromEvents(monthEvents).slice(0, 5),
+    [monthEvents]
   );
 
   const maxWeekAgg = useMemo(() => (weekAgg[0]?.count ?? 1), [weekAgg]);
   const maxMonthAgg = useMemo(() => (monthAgg[0]?.count ?? 1), [monthAgg]);
 
-  // ----- STATYSTYKI DOMOWNIKÓW -----
-  const membersById = useMemo(() => {
+  // map domowników
+  const membersByUid = useMemo(() => {
     const map = new Map<string, any>();
     (members || []).forEach((m: any) => {
-      if (!m.id) return;
-      map.set(String(m.id), m);
+      const uid = String(m?.uid || m?.userId || m?.id || "").trim();
+      if (!uid) return;
+      map.set(uid, m);
     });
     return map;
   }, [members]);
 
+  const resolveMemberLabel = (uid: string, fallbackName?: string | null) => {
+    const userDoc = usersByUid.get(uid);
+    const mem = membersByUid.get(uid);
+
+    const nameFromUser = userDoc?.displayName || userDoc?.username || userDoc?.email || null;
+    const nameFromMember = mem?.displayName || mem?.username || mem?.email || null;
+
+    const label =
+      nameFromUser ||
+      nameFromMember ||
+      fallbackName ||
+      (uid === "unknown" ? "Nieprzypisane" : "Członek rodziny");
+
+    const initial = ((label?.trim?.()[0] || "?") + "").toUpperCase();
+    return { label, initial };
+  };
+
+  // ✅ Leaderboard: week/month z eventów + totalExp z users
   const memberStats: MemberStatsRow[] = useMemo(() => {
     const map = new Map<string, MemberStatsRow>();
+    const hasFamily = (members || []).length > 0;
 
-    const pushMission = (m: any) => {
-      if (!m.completed || !m.completedAtJs) return;
+    // seed wszyscy domownicy
+    (members || []).forEach((mem: any) => {
+      const uid = String(mem?.uid || mem?.userId || mem?.id || "").trim();
+      if (!uid) return;
 
-      const id = m.assignedToUserId ? String(m.assignedToUserId) : "unknown";
-      const memberDoc = membersById.get(id);
+      const { label, initial } = resolveMemberLabel(uid, null);
+      const totalExp = Math.max(0, Number(usersByUid.get(uid)?.totalExp ?? 0));
 
-      const nameFromMember =
-        memberDoc?.displayName ||
-        memberDoc?.username ||
-        memberDoc?.email ||
-        null;
+      map.set(uid, {
+        id: uid,
+        label,
+        avatarInitial: initial,
+        weekCount: 0,
+        monthCount: 0,
+        weekExp: 0,
+        monthExp: 0,
+        totalExp,
+      });
+    });
 
-      const label =
-        nameFromMember ||
-        m.assignedToName ||
-        m.assignedByName ||
-        (id === "unknown" ? "Nieprzypisane" : "Członek rodziny");
+    const ensure = (uid: string, fallbackName?: string | null) => {
+      const ex = map.get(uid);
+      if (ex) return ex;
 
-      const initial =
-        (label?.trim?.()[0] || "?").toString().toUpperCase() ?? "?";
+      const { label, initial } = resolveMemberLabel(uid, fallbackName);
+      const totalExp = Math.max(0, Number(usersByUid.get(uid)?.totalExp ?? 0));
 
-      const current =
-        map.get(id) || {
-          id,
-          label,
-          avatarInitial: initial,
-          weekCount: 0,
-          monthCount: 0,
-          weekExp: 0,
-          monthExp: 0,
-        };
-
-      const completedAt: Date = m.completedAtJs;
-      const exp = m.expValueNum || 0;
-
-      if (isWithin(completedAt, weekStart, weekEnd)) {
-        current.weekCount += 1;
-        current.weekExp += exp;
-      }
-      if (isWithin(completedAt, monthStart, monthEnd)) {
-        current.monthCount += 1;
-        current.monthExp += exp;
-      }
-
-      map.set(id, current);
+      const row: MemberStatsRow = {
+        id: uid,
+        label,
+        avatarInitial: initial,
+        weekCount: 0,
+        monthCount: 0,
+        weekExp: 0,
+        monthExp: 0,
+        totalExp,
+      };
+      map.set(uid, row);
+      return row;
     };
 
-    normalizedMissions.forEach(pushMission);
+    // week
+    weekEvents.forEach((e) => {
+      const uid = String(e.userId || "unknown");
+      const row = ensure(uid, e.userName || null);
+      row.weekCount += 1;
+      row.weekExp += Number(e.exp || 0);
+    });
 
-    const filtered = Array.from(map.values()).filter(
-      (row) => row.id === "unknown" || membersById.has(row.id)
-    );
+    // month
+    monthEvents.forEach((e) => {
+      const uid = String(e.userId || "unknown");
+      const row = ensure(uid, e.userName || null);
+      row.monthCount += 1;
+      row.monthExp += Number(e.exp || 0);
+    });
 
-    return filtered.sort((a, b) => b.weekCount - a.weekCount);
-  }, [normalizedMissions, membersById, weekStart, weekEnd, monthStart, monthEnd]);
+    // refresh totalExp (gdy snapshot dojdzie później)
+    Array.from(map.values()).forEach((row) => {
+      row.totalExp = Math.max(0, Number(usersByUid.get(row.id)?.totalExp ?? row.totalExp ?? 0));
+      const { label, initial } = resolveMemberLabel(row.id, row.label);
+      row.label = label;
+      row.avatarInitial = initial;
+    });
 
-  // ----- ROZKŁAD TRUDNOŚCI (miesiąc) -----
+    const out = Array.from(map.values()).filter((row) => {
+      if (!hasFamily) return true;
+      if (row.id === "unknown") return row.weekExp > 0 || row.monthExp > 0 || row.totalExp > 0;
+      return true;
+    });
+
+    // sort: tydz. exp desc, potem totalExp desc, potem nazwa
+    out.sort((a, b) => {
+      if (b.weekExp !== a.weekExp) return b.weekExp - a.weekExp;
+      if (b.totalExp !== a.totalExp) return b.totalExp - a.totalExp;
+      if (b.monthExp !== a.monthExp) return b.monthExp - a.monthExp;
+      return a.label.localeCompare(b.label, "pl");
+    });
+
+    return out;
+  }, [members, weekEvents, monthEvents, usersByUid, membersByUid]);
+
+  // trudność
   const difficultyStats = useMemo(() => {
     const out = { easy: 0, medium: 0, hard: 0 };
+    const monthMissionIds = new Set(monthEvents.map((e) => e.missionId));
+    const monthMissions = normalizedMissions.filter((m) =>
+      monthMissionIds.has(String(m.id))
+    );
 
-    monthCompleted.forEach((m) => {
+    monthMissions.forEach((m) => {
       const mode = m.expMode as string | undefined;
       if (mode === "easy") out.easy += 1;
       else if (mode === "medium") out.medium += 1;
       else if (mode === "hard") out.hard += 1;
       else {
-        const exp = m.expValueNum || 0;
+        const exp = Number(m.earnedExpNum ?? m.expValueNum ?? 0);
         if (exp >= 100) out.hard += 1;
         else if (exp >= 50) out.medium += 1;
         else if (exp > 0) out.easy += 1;
@@ -566,24 +923,20 @@ export default function StatsScreen() {
       mediumPct: Math.round((out.medium / total) * 100),
       hardPct: Math.round((out.hard / total) * 100),
     };
-  }, [monthCompleted]);
+  }, [monthEvents, normalizedMissions]);
 
-  // ----- HISTORIA -----
-  const missionsSorted = useMemo(() => {
-    const list = [...normalizedMissions];
-    list.sort((a, b) => {
-      const ad = a.completedAtJs ? a.completedAtJs.getTime() : 0;
-      const bd = b.completedAtJs ? b.completedAtJs.getTime() : 0;
-      return bd - ad;
-    });
-    return list;
-  }, [normalizedMissions]);
-
-  // ----- highlights -----
-  const topMember = useMemo(
-    () => (memberStats.length > 0 ? memberStats[0] : null),
-    [memberStats]
+  const historyEvents = useMemo(
+    () => completionEvents.slice(0, 60),
+    [completionEvents]
   );
+
+  const topMember = useMemo(() => {
+    const active = memberStats.filter(
+      (r) => (r.weekExp || 0) > 0 || (r.monthExp || 0) > 0 || (r.totalExp || 0) > 0
+    );
+    return active.length > 0 ? active[0] : null;
+  }, [memberStats]);
+
   const mostFrequentTask = useMemo(
     () => (monthAgg.length > 0 ? monthAgg[0] : weekAgg[0] || null),
     [monthAgg, weekAgg]
@@ -597,19 +950,20 @@ export default function StatsScreen() {
     return "Dużo trudnych zadań 💪";
   }, [difficultyStats]);
 
-  // ----- Animacje -----
+  // animacje
   const completionAnim = useRef(new Animated.Value(0)).current;
   const easyAnim = useRef(new Animated.Value(0)).current;
   const mediumAnim = useRef(new Animated.Value(0)).current;
   const hardAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!loading) {
+    if (!statsLoading) {
       Animated.timing(completionAnim, {
         toValue: completionRate,
         duration: 650,
         useNativeDriver: false,
       }).start();
+
       Animated.timing(easyAnim, {
         toValue: difficultyStats.easyPct,
         duration: 550,
@@ -627,7 +981,7 @@ export default function StatsScreen() {
       }).start();
     }
   }, [
-    loading,
+    statsLoading,
     completionRate,
     difficultyStats.easyPct,
     difficultyStats.mediumPct,
@@ -674,7 +1028,7 @@ export default function StatsScreen() {
     hard: "#ef4444",
   };
 
-  /* -------------------- Customizable tiles (stable) -------------------- */
+  /* -------------------- Customizable tiles -------------------- */
 
   const DEFAULT_TILES: TileConfig[] = useMemo(
     () => [
@@ -701,11 +1055,7 @@ export default function StatsScreen() {
         const byId = new Map<TileId, TileConfig>();
         saved.forEach((t: any) => {
           if (!t?.id) return;
-          byId.set(t.id, {
-            id: t.id,
-            wide: !!t.wide,
-            hidden: !!t.hidden,
-          });
+          byId.set(t.id, { id: t.id, wide: !!t.wide, hidden: !!t.hidden });
         });
 
         const merged: TileConfig[] = DEFAULT_TILES.map((t) => byId.get(t.id) || t);
@@ -724,9 +1074,7 @@ export default function StatsScreen() {
   }, [DEFAULT_TILES]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      saveLayout(tiles);
-    }, 250);
+    const t = setTimeout(() => saveLayout(tiles), 250);
     return () => clearTimeout(t);
   }, [tiles]);
 
@@ -752,7 +1100,9 @@ export default function StatsScreen() {
   };
 
   const toggleWide = (id: TileId) => {
-    setTiles((prev) => prev.map((t) => (t.id === id ? { ...t, wide: !t.wide } : t)));
+    setTiles((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, wide: !t.wide } : t))
+    );
   };
 
   const visibleTiles = useMemo(() => tiles.filter((t) => !t.hidden), [tiles]);
@@ -782,26 +1132,27 @@ export default function StatsScreen() {
       }
     >();
 
-    const resolveName = (m: any) => {
-      const id = m.assignedToUserId ? String(m.assignedToUserId) : "unknown";
-      const memberDoc = membersById.get(id);
-      const nameFromMember =
-        memberDoc?.displayName || memberDoc?.username || memberDoc?.email || null;
+    const resolveName = (userId: string, fallback?: string | null) => {
+      const userDoc = usersByUid.get(userId);
+      const mem = membersByUid.get(userId);
 
-      const name =
-        nameFromMember ||
-        m.assignedToName ||
-        m.assignedByName ||
-        (id === "unknown" ? "Nieprzypisane" : "Członek rodziny");
-
-      return { id, name };
+      return (
+        userDoc?.displayName ||
+        userDoc?.username ||
+        userDoc?.email ||
+        mem?.displayName ||
+        mem?.username ||
+        mem?.email ||
+        fallback ||
+        (userId === "unknown" ? "Nieprzypisane" : "Członek rodziny")
+      );
     };
 
-    normalizedMissions.forEach((m: any) => {
-      const raw = (m.title || "Bez nazwy").trim();
+    completionEvents.forEach((e) => {
+      const raw = (e.title || "Bez nazwy").trim();
       if (!raw) return;
-
       const key = raw.toLowerCase();
+
       const row =
         map.get(key) || {
           key,
@@ -812,33 +1163,28 @@ export default function StatsScreen() {
           events: [] as Array<{ id: string; date: Date | null; userName: string; exp: number }>,
         };
 
-      if (m.completed && m.completedAtJs) {
-        row.completed += 1;
-        const who = resolveName(m);
-        const p = row.by.get(who.id) || { id: who.id, name: who.name, count: 0 };
-        p.count += 1;
-        row.by.set(who.id, p);
+      row.completed += 1;
 
-        const date: Date | null = m.completedAtJs ?? null;
-        if (date && (!row.lastDone || date.getTime() > row.lastDone.getTime()))
-          row.lastDone = date;
+      const whoName = resolveName(e.userId, e.userName || null);
+      const p = row.by.get(e.userId) || { id: e.userId, name: whoName, count: 0 };
+      p.count += 1;
+      row.by.set(e.userId, p);
 
-        row.events.push({
-          id: String(m.id ?? `${key}-${row.events.length}`),
-          date,
-          userName: who.name,
-          exp: Number(m.expValueNum ?? 0),
-        });
-      }
+      if (!row.lastDone || e.date.getTime() > row.lastDone.getTime()) row.lastDone = e.date;
+
+      row.events.push({
+        id: `${e.missionId}-${e.dateKey}-${e.userId}`,
+        date: e.date,
+        userName: whoName,
+        exp: Number(e.exp || 0),
+      });
 
       map.set(key, row);
     });
 
     const out = Array.from(map.values()).map((r) => {
       const byPeople = Array.from(r.by.values()).sort((a, b) => b.count - a.count);
-      const events = [...r.events].sort(
-        (a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0)
-      );
+      const events = [...r.events].sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
       return { ...r, byPeople, events };
     });
 
@@ -846,7 +1192,7 @@ export default function StatsScreen() {
       b.completed !== a.completed ? b.completed - a.completed : a.label.localeCompare(b.label, "pl")
     );
     return out;
-  }, [normalizedMissions, membersById]);
+  }, [completionEvents, usersByUid, membersByUid]);
 
   const filteredStats = useMemo(() => {
     const q = missionQuery.trim().toLowerCase();
@@ -878,7 +1224,7 @@ export default function StatsScreen() {
           key: "week",
           label: "Ten tydzień",
           hint: "ukończone zadania",
-          value: loading ? "—" : weekCompleted.length,
+          value: statsLoading ? "—" : weekEvents.length,
           icon: "calendar-outline" as const,
           tint: colors.accent,
         },
@@ -886,7 +1232,7 @@ export default function StatsScreen() {
           key: "month",
           label: "Ten miesiąc",
           hint: "ukończone zadania",
-          value: loading ? "—" : monthCompleted.length,
+          value: statsLoading ? "—" : monthEvents.length,
           icon: "stats-chart-outline" as const,
           tint: colors.accent,
         },
@@ -894,7 +1240,7 @@ export default function StatsScreen() {
           key: "total",
           label: "Wykonane łącznie",
           hint: "od początku",
-          value: loading ? "—" : totalCompleted,
+          value: statsLoading ? "—" : totalCompletedEvents,
           icon: "checkmark-done-outline" as const,
           tint: "#22c55e",
         },
@@ -928,24 +1274,15 @@ export default function StatsScreen() {
                   </View>
 
                   <View style={styles.kpiTripleTexts}>
-                    <Text
-                      style={[styles.kpiTripleLabel, { color: colors.text }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[styles.kpiTripleLabel, { color: colors.text }]} numberOfLines={1}>
                       {r.label}
                     </Text>
-                    <Text
-                      style={[styles.kpiTripleHint, { color: colors.textMuted }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[styles.kpiTripleHint, { color: colors.textMuted }]} numberOfLines={1}>
                       {r.hint}
                     </Text>
                   </View>
 
-                  <Text
-                    style={[styles.kpiTripleValue, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
+                  <Text style={[styles.kpiTripleValue, { color: colors.text }]} numberOfLines={1}>
                     {r.value}
                   </Text>
                 </View>
@@ -974,12 +1311,7 @@ export default function StatsScreen() {
                 { borderColor: colors.border, backgroundColor: `${colors.textMuted}10` },
               ]}
             >
-              <Ionicons
-                name="search-outline"
-                size={16}
-                color={colors.textMuted}
-                style={{ marginRight: 8 }}
-              />
+              <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
               <TextInput
                 value={missionQuery}
                 onChangeText={setMissionQuery}
@@ -1000,14 +1332,10 @@ export default function StatsScreen() {
               )}
             </View>
 
-            {loading ? (
-              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>
-                Ładowanie…
-              </Text>
+            {statsLoading ? (
+              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Ładowanie…</Text>
             ) : top.length === 0 ? (
-              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>
-                Brak pasujących misji.
-              </Text>
+              <Text style={[styles.bodyMuted, { color: colors.textMuted, marginTop: 10 }]}>Brak pasujących misji.</Text>
             ) : (
               <View style={{ marginTop: 10 }}>
                 {top.map((t) => (
@@ -1040,9 +1368,7 @@ export default function StatsScreen() {
                         {t.label}
                       </Text>
                       <Text style={[styles.searchMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {t.completed > 0
-                          ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}`
-                          : "jeszcze nie wykonano"}
+                        {t.completed > 0 ? `${t.completed}× • ${formatDateTimeShort(t.lastDone)}` : "jeszcze nie wykonano"}
                       </Text>
                     </View>
 
@@ -1061,12 +1387,7 @@ export default function StatsScreen() {
                     },
                   ]}
                 >
-                  <Ionicons
-                    name="list-outline"
-                    size={16}
-                    color={colors.textMuted}
-                    style={{ marginRight: 8 }}
-                  />
+                  <Ionicons name="list-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
                   <Text style={[styles.linkBtnText, { color: colors.textMuted }]}>
                     Pokaż listę ({filteredStats.length})
                   </Text>
@@ -1087,7 +1408,7 @@ export default function StatsScreen() {
           right={right}
           style={{ flex: 1 }}
         >
-          {loading ? (
+          {statsLoading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
           ) : (
             <View style={{ marginTop: 10, gap: 10 }}>
@@ -1163,6 +1484,7 @@ export default function StatsScreen() {
 
     if (tile.id === "leaderboard") {
       const list = memberStats.slice(0, 10);
+
       return (
         <Card
           colors={colors}
@@ -1171,7 +1493,7 @@ export default function StatsScreen() {
           right={right}
           style={{ flex: 1 }}
         >
-          {loading ? (
+          {statsLoading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
           ) : list.length === 0 ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Brak danych.</Text>
@@ -1187,13 +1509,26 @@ export default function StatsScreen() {
                     ? "#f97316"
                     : colors.accent;
 
-                const pct = Math.min(
-                  100,
-                  Math.round((row.weekCount / (list[0]?.weekCount || 1)) * 100)
+                // bar: preferuj tydzień, ale jak wszyscy mają 0 -> pokaż totalExp
+                const denom = Math.max(
+                  list[0]?.weekExp || 0,
+                  list[0]?.totalExp || 0,
+                  1
                 );
+                const numer = row.weekExp > 0 ? row.weekExp : row.totalExp;
+                const pct = Math.min(100, Math.round((numer / denom) * 100));
 
                 return (
-                  <View key={row.id} style={{ marginBottom: 10 }}>
+                  <Pressable
+                    key={row.id}
+                    onPress={() => {
+                      // ✅ wejście w profil
+                      router.push({ pathname: "/Profile", params: { uid: row.id } });
+                    }}
+                    style={({ pressed }) => [
+                      { marginBottom: 10, opacity: pressed ? 0.9 : 1 },
+                    ]}
+                  >
                     <View style={styles.memberTop}>
                       <View
                         style={[
@@ -1210,11 +1545,10 @@ export default function StatsScreen() {
                         <Text style={[styles.memberName, { color: colors.text }]} numberOfLines={1}>
                           {idx + 1}. {row.label}
                         </Text>
-                        <Text
-                          style={[styles.memberMeta, { color: colors.textMuted }]}
-                          numberOfLines={1}
-                        >
-                          {row.weekCount} tydz. • {row.monthCount} mies.
+
+                        {/* ✅ pokazujemy też totalExp z users */}
+                        <Text style={[styles.memberMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                          {row.weekExp} EXP tydz. • {row.monthExp} EXP mies. • {row.totalExp} EXP łącznie
                         </Text>
                       </View>
 
@@ -1248,7 +1582,7 @@ export default function StatsScreen() {
                         }}
                       />
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
@@ -1267,7 +1601,7 @@ export default function StatsScreen() {
           style={{ height: TILE_H }}
           scroll
         >
-          {loading ? (
+          {statsLoading ? (
             <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
           ) : (
             <View style={{ marginTop: 10 }}>
@@ -1284,9 +1618,7 @@ export default function StatsScreen() {
                           <Text style={[styles.freqLabel, { color: colors.text }]} numberOfLines={1}>
                             {idx + 1}. {r.label}
                           </Text>
-                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>
-                            {r.count}×
-                          </Text>
+                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
                         </View>
                         <View
                           style={[
@@ -1326,9 +1658,7 @@ export default function StatsScreen() {
                           <Text style={[styles.freqLabel, { color: colors.text }]} numberOfLines={1}>
                             {idx + 1}. {r.label}
                           </Text>
-                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>
-                            {r.count}×
-                          </Text>
+                          <Text style={[styles.freqCount, { color: colors.textMuted }]}>{r.count}×</Text>
                         </View>
                         <View
                           style={[
@@ -1366,7 +1696,7 @@ export default function StatsScreen() {
         style={{ height: TILE_H }}
         scroll
       >
-        {loading ? (
+        {statsLoading ? (
           <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Ładowanie…</Text>
         ) : difficultyStats.total === 0 ? (
           <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Brak danych.</Text>
@@ -1404,12 +1734,7 @@ export default function StatsScreen() {
               <View key={row.key} style={{ marginBottom: 12 }}>
                 <View style={styles.diffTop}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Ionicons
-                      name={row.icon}
-                      size={16}
-                      color={row.color}
-                      style={{ marginRight: 8 }}
-                    />
+                    <Ionicons name={row.icon} size={16} color={row.color} style={{ marginRight: 8 }} />
                     <Text style={[styles.diffLabel, { color: colors.text }]}>{row.label}</Text>
                   </View>
                   <Text style={[styles.diffMeta, { color: colors.textMuted }]}>
@@ -1418,9 +1743,7 @@ export default function StatsScreen() {
                 </View>
 
                 <View style={[styles.diffTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                  <Animated.View
-                    style={[styles.diffFill, { width: row.width, backgroundColor: row.color }]}
-                  />
+                  <Animated.View style={[styles.diffFill, { width: row.width, backgroundColor: row.color }]} />
                 </View>
               </View>
             ))}
@@ -1430,24 +1753,12 @@ export default function StatsScreen() {
     );
   };
 
-  // ✅ blur na web jak w achievements/index/ranking
   const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      {/* 🔥 TŁO: orby/gradienty 1:1 jak w Osiągnięciach */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 0,
-        }}
-      >
-        {/* orb 1 */}
+      {/* tło */}
+      <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
         <View
           style={{
             position: "absolute",
@@ -1461,7 +1772,6 @@ export default function StatsScreen() {
             ...(orbBlur as any),
           }}
         />
-        {/* orb 2 */}
         <View
           style={{
             position: "absolute",
@@ -1474,7 +1784,6 @@ export default function StatsScreen() {
             ...(orbBlur as any),
           }}
         />
-        {/* orb 3 */}
         <View
           style={{
             position: "absolute",
@@ -1487,7 +1796,6 @@ export default function StatsScreen() {
             ...(orbBlur as any),
           }}
         />
-        {/* orb 4 */}
         <View
           style={{
             position: "absolute",
@@ -1500,7 +1808,6 @@ export default function StatsScreen() {
             ...(orbBlur as any),
           }}
         />
-        {/* orb 5 */}
         <View
           style={{
             position: "absolute",
@@ -1523,9 +1830,8 @@ export default function StatsScreen() {
           contentContainerStyle={{ paddingVertical: 14, alignItems: "center" }}
         >
           <View style={{ width: "100%", maxWidth: 1344, paddingHorizontal: 16 }}>
-            {/* HERO (fixed) */}
+            {/* HERO */}
             <View style={[styles.hero, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              {/* dekoracyjne kółka jak w Family */}
               <View
                 pointerEvents="none"
                 style={{
@@ -1567,17 +1873,11 @@ export default function StatsScreen() {
                       <Chip
                         colors={colors}
                         icon="calendar-outline"
-                        text={`Tydzień: ${formatDateShort(weekStart)}–${formatDateShort(
-                          addDays(weekEnd, -1)
-                        )}`}
+                        text={`Tydzień: ${formatDateShort(weekStart)}–${formatDateShort(addDays(weekEndExclusive, -1))}`}
                       />
                     </View>
                     <View style={{ marginRight: 8, marginBottom: 8 }}>
-                      <Chip
-                        colors={colors}
-                        icon="stats-chart-outline"
-                        text={`Miesiąc: ${formatDateShort(monthStart)}–${formatDateShort(monthEnd)}`}
-                      />
+                      <Chip colors={colors} icon="stats-chart-outline" text={`Miesiąc: ${formatDateShort(monthStart)}–${formatDateShort(monthEnd)}`} />
                     </View>
                     <View style={{ marginRight: 8, marginBottom: 8 }}>
                       <Chip colors={colors} icon="sparkles-outline" text={badgeText} />
@@ -1607,12 +1907,7 @@ export default function StatsScreen() {
                       },
                     ]}
                   >
-                    <Ionicons
-                      name="options-outline"
-                      size={16}
-                      color={colors.textMuted}
-                      style={{ marginRight: 8 }}
-                    />
+                    <Ionicons name="options-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
                     <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 13, letterSpacing: -0.1 }}>
                       Dostosuj kafelki
                     </Text>
@@ -1641,14 +1936,12 @@ export default function StatsScreen() {
                 <View style={styles.heroProgressRow}>
                   <Text style={[styles.microLabel, { color: colors.textMuted }]}>Progres wszystkich zadań</Text>
                   <Text style={[styles.microValue, { color: colors.text }]}>
-                    {totalCompleted}/{normalizedMissions.length}
+                    {totalCompletedMissions}/{normalizedMissions.length}
                   </Text>
                 </View>
 
-                <View style={[styles.progressTrack, { backgroundColor: trackColor, borderColor: colors.border }]}>
-                  <Animated.View
-                    style={[styles.progressFill, { width: completionWidth, backgroundColor: colors.accent }]}
-                  />
+                <View style={[styles.progressTrack, { backgroundColor: `${colors.textMuted}18`, borderColor: colors.border }]}>
+                  <Animated.View style={[styles.progressFill, { width: completionWidth, backgroundColor: colors.accent }]} />
                 </View>
 
                 <Text style={[styles.microHint, { color: colors.textMuted }]}>
@@ -1657,23 +1950,15 @@ export default function StatsScreen() {
               </View>
             </View>
 
-            {/* Custom tiles (editable) */}
-            <View
-              style={{
-                marginTop: 12,
-                flexDirection: "row",
-                flexWrap: "wrap",
-                marginHorizontal: -6,
-                alignItems: "stretch",
-              }}
-            >
+            {/* tiles */}
+            <View style={{ marginTop: 12, flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6, alignItems: "stretch" }}>
               {visibleTiles.map((t) => (
                 <View
                   key={t.id}
                   style={{
                     paddingHorizontal: 6,
                     marginBottom: 12,
-                    flexBasis: t.wide ? "100%" : itemBasis,
+                    flexBasis: t.wide ? "100%" : columns === 1 ? "100%" : columns === 2 ? "50%" : "33.333%",
                     flexGrow: t.wide ? 0 : 1,
                     alignSelf: "stretch",
                   }}
@@ -1683,30 +1968,31 @@ export default function StatsScreen() {
               ))}
             </View>
 
-            {/* Historia (fixed) */}
+            {/* historia */}
             <View style={{ marginTop: 0 }}>
-              <Card
-                colors={colors}
-                title="Historia zadań"
-                subtitle="Ostatnio wykonane na górze."
-                style={{ marginBottom: 24 }}
-              >
-                {loading ? (
+              <Card colors={colors} title="Historia zadań" subtitle="Ostatnio wykonane na górze." style={{ marginBottom: 24 }}>
+                {statsLoading ? (
                   <ActivityIndicator color={colors.accent} />
-                ) : missionsSorted.length === 0 ? (
-                  <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>
-                    Nie dodano jeszcze żadnych zadań.
-                  </Text>
+                ) : historyEvents.length === 0 ? (
+                  <Text style={[styles.bodyMuted, { color: colors.textMuted }]}>Nie dodano jeszcze żadnych zadań.</Text>
                 ) : (
                   <View style={{ marginTop: 8 }}>
-                    {missionsSorted.map((m: any, idx: number) => {
-                      const lastDone = m.completedAtJs as Date | null;
-                      const lastBy =
-                        m.assignedToName || m.assignedByName || "Nieznany członek rodziny";
-                      const isDone = !!m.completed;
+                    {historyEvents.map((e, idx) => {
+                      const userDoc = usersByUid.get(e.userId);
+                      const mem = membersByUid.get(e.userId);
+
+                      const who =
+                        userDoc?.displayName ||
+                        userDoc?.username ||
+                        userDoc?.email ||
+                        mem?.displayName ||
+                        mem?.username ||
+                        mem?.email ||
+                        e.userName ||
+                        "Nieznany członek rodziny";
 
                       return (
-                        <View key={m.id}>
+                        <View key={`${e.missionId}-${e.dateKey}-${idx}`}>
                           {idx !== 0 && (
                             <View style={{ marginVertical: 10 }}>
                               <Divider colors={colors} />
@@ -1718,39 +2004,27 @@ export default function StatsScreen() {
                               style={[
                                 styles.statusDot,
                                 {
-                                  borderColor: isDone
-                                    ? "rgba(34,197,94,0.55)"
-                                    : "rgba(148,163,184,0.55)",
-                                  backgroundColor: isDone
-                                    ? "rgba(34,197,94,0.14)"
-                                    : "transparent",
+                                  borderColor: "rgba(34,197,94,0.55)",
+                                  backgroundColor: "rgba(34,197,94,0.14)",
                                 },
                               ]}
                             >
-                              <Ionicons
-                                name={isDone ? "checkmark" : "ellipse-outline"}
-                                size={14}
-                                color={isDone ? "#22c55e" : colors.textMuted}
-                              />
+                              <Ionicons name="checkmark" size={14} color="#22c55e" />
                             </View>
 
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                style={[styles.historyTitle, { color: colors.text }]}
-                                numberOfLines={2}
-                              >
-                                {m.title || "Bez nazwy"}
+                              <Text style={[styles.historyTitle, { color: colors.text }]} numberOfLines={2}>
+                                {e.title || "Bez nazwy"}
                               </Text>
 
                               <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                                Ostatnio wykonane:{" "}
-                                <Text style={{ color: colors.text }}>
-                                  {formatDateTimeShort(lastDone)}
-                                </Text>
+                                Wykonane:{" "}
+                                <Text style={{ color: colors.text }}>{formatDateTimeShort(e.date)}</Text>
                               </Text>
 
                               <Text style={[styles.historyMeta, { color: colors.textMuted }]}>
-                                Wykonawca: <Text style={{ color: colors.text }}>{lastBy}</Text>
+                                Wykonawca: <Text style={{ color: colors.text }}>{who}</Text> •{" "}
+                                <Text style={{ color: colors.textMuted, fontWeight: "900" }}>+{e.exp} EXP</Text>
                               </Text>
                             </View>
 
@@ -1766,30 +2040,20 @@ export default function StatsScreen() {
           </View>
         </ScrollView>
 
-        {/* Edit modal */}
+        {/* edit modal */}
         <Modal visible={editOpen} animationType="slide" transparent onRequestClose={() => setEditOpen(false)}>
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
               <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Dostosuj kafelki</Text>
-                <Pressable
-                  onPress={() => setEditOpen(false)}
-                  hitSlop={10}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-                >
+                <Pressable onPress={() => setEditOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
                   <Ionicons name="close" size={22} color={colors.textMuted} />
                 </Pressable>
               </View>
 
               <ScrollView style={{ padding: 14 }} showsVerticalScrollIndicator={false}>
                 {tiles.map((t) => (
-                  <View
-                    key={t.id}
-                    style={[
-                      styles.editRow,
-                      { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` },
-                    ]}
-                  >
+                  <View key={t.id} style={[styles.editRow, { borderColor: colors.border, backgroundColor: `${colors.textMuted}08` }]}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
                         {t.id === "summary"
@@ -1810,43 +2074,19 @@ export default function StatsScreen() {
                     </View>
 
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                      <Pressable
-                        onPress={() => moveTile(t.id, -1)}
-                        hitSlop={10}
-                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
-                      >
+                      <Pressable onPress={() => moveTile(t.id, -1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
                         <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
                       </Pressable>
-                      <Pressable
-                        onPress={() => moveTile(t.id, 1)}
-                        hitSlop={10}
-                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
-                      >
+                      <Pressable onPress={() => moveTile(t.id, 1)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
                         <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
                       </Pressable>
 
-                      <Pressable
-                        onPress={() => toggleWide(t.id)}
-                        hitSlop={10}
-                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
-                      >
-                        <Ionicons
-                          name={t.wide ? "contract-outline" : "expand-outline"}
-                          size={18}
-                          color={colors.textMuted}
-                        />
+                      <Pressable onPress={() => toggleWide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                        <Ionicons name={t.wide ? "contract-outline" : "expand-outline"} size={18} color={colors.textMuted} />
                       </Pressable>
 
-                      <Pressable
-                        onPress={() => toggleHide(t.id)}
-                        hitSlop={10}
-                        style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
-                      >
-                        <Ionicons
-                          name={t.hidden ? "eye-outline" : "eye-off-outline"}
-                          size={18}
-                          color={colors.textMuted}
-                        />
+                      <Pressable onPress={() => toggleHide(t.id)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}>
+                        <Ionicons name={t.hidden ? "eye-outline" : "eye-off-outline"} size={18} color={colors.textMuted} />
                       </Pressable>
                     </View>
                   </View>
@@ -1856,19 +2096,10 @@ export default function StatsScreen() {
                   onPress={resetTiles}
                   style={({ pressed }) => [
                     styles.resetBtn,
-                    {
-                      borderColor: colors.border,
-                      backgroundColor: `${colors.textMuted}08`,
-                      opacity: pressed ? 0.85 : 1,
-                    },
+                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
-                  <Ionicons
-                    name="refresh-outline"
-                    size={16}
-                    color={colors.textMuted}
-                    style={{ marginRight: 8 }}
-                  />
+                  <Ionicons name="refresh-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
                   <Text style={{ color: colors.textMuted, fontWeight: "900" }}>Reset układu</Text>
                 </Pressable>
               </ScrollView>
@@ -1878,11 +2109,7 @@ export default function StatsScreen() {
                   onPress={() => setEditOpen(false)}
                   style={({ pressed }) => [
                     styles.modalCloseBtn,
-                    {
-                      borderColor: colors.border,
-                      backgroundColor: `${colors.textMuted}08`,
-                      opacity: pressed ? 0.85 : 1,
-                    },
+                    { borderColor: colors.border, backgroundColor: `${colors.textMuted}08`, opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
                   <Text style={{ color: colors.text, fontWeight: "900" }}>Zamknij</Text>
@@ -1892,17 +2119,13 @@ export default function StatsScreen() {
           </View>
         </Modal>
 
-        {/* Mission details modal */}
+        {/* mission details modal */}
         <Modal visible={detailsOpen} animationType="slide" transparent onRequestClose={() => setDetailsOpen(false)}>
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalSheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
               <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Misje — szczegóły</Text>
-                <Pressable
-                  onPress={() => setDetailsOpen(false)}
-                  hitSlop={10}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-                >
+                <Pressable onPress={() => setDetailsOpen(false)} hitSlop={10} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
                   <Ionicons name="close" size={22} color={colors.textMuted} />
                 </Pressable>
               </View>
@@ -2097,7 +2320,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 
-  // ✅ 3 przyciski skalują się na mobile (nie zasłaniają treści)
   heroActionsCol: {
     alignItems: "stretch",
     width: 190,
@@ -2179,7 +2401,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  // Summary tile rows
   kpiTripleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2343,7 +2564,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
-  // Search tile
   searchWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -2398,7 +2618,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-  // Modal
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",

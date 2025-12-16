@@ -24,6 +24,13 @@ export type TourStep = {
    */
   actionLabel?: string;
   actionIcon?: React.ComponentProps<typeof Ionicons>["name"];
+
+  /**
+   * ✅ NOWE (bezpieczne, opcjonalne): gdy nie masz anchorów (np. header poza drzewem tego ekranu),
+   * możesz podać "wirtualny" rect w koordynatach OKNA (measureInWindow coords).
+   * Overlay sam przeliczy go na swoje współrzędne (odejmie rootOffset).
+   */
+  virtualAnchor?: AnchorRect | ((dims: { W: number; H: number }) => AnchorRect);
 };
 
 type Props = {
@@ -38,14 +45,34 @@ type Props = {
 
   /**
    * Opcjonalna akcja kroku (np. nawigacja do Ustawień).
-   * To jest celowo generyczne: krok decyduje treścią i actionLabel,
-   * a Ty w parent komponencie robisz navigation.
    */
   onAction?: (step: TourStep) => void;
 };
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function isSettingsLike(step?: TourStep) {
+  const k = String(step?.key ?? "").toLowerCase();
+  const a = String(step?.anchorKey ?? "").toLowerCase();
+  return k === "settings" || a === "settings" || k.includes("setting") || a.includes("setting");
+}
+
+function resolveVirtualAnchor(step: TourStep | undefined, dims: { W: number; H: number }): AnchorRect | undefined {
+  if (!step) return undefined;
+
+  if (typeof step.virtualAnchor === "function") return step.virtualAnchor(dims);
+  if (step.virtualAnchor && typeof step.virtualAnchor === "object") return step.virtualAnchor;
+
+  // ✅ fallback: jeśli to "settings" i brak anchorów -> celuj w prawy górny róg (avatar / menu)
+  if (isSettingsLike(step)) {
+    const size = Platform.OS === "web" ? 56 : 48;
+    const top = Platform.OS === "ios" ? 10 : 8;
+    return { x: dims.W - size - 14, y: top, width: size, height: size };
+  }
+
+  return undefined;
 }
 
 export default function GuidedTourOverlay({
@@ -62,13 +89,23 @@ export default function GuidedTourOverlay({
   const { width: W, height: H } = Dimensions.get("window");
 
   const step = steps[stepIndex];
-  const rawRect = step ? anchors[step.anchorKey] : undefined;
+
+  // rect z parenta (window-coords)
+  const rawRectFromAnchors = step ? anchors[step.anchorKey] : undefined;
+
+  // rect wirtualny (window-coords)
+  const rawVirtualRect = useMemo(() => resolveVirtualAnchor(step, { W, H }), [step, W, H]);
+
+  // używamy anchorów, a jak brak -> wirtualny
+  const rawRect: AnchorRect | undefined = rawRectFromAnchors ?? rawVirtualRect;
 
   const isCheckboxStep = useMemo(() => {
     const k = String(step?.key ?? "").toLowerCase();
     const a = String(step?.anchorKey ?? "").toLowerCase();
     return k === "checkbox" || a === "checkbox" || k.includes("check");
   }, [step?.key, step?.anchorKey]);
+
+  const isSettingsStep = useMemo(() => isSettingsLike(step), [step]);
 
   // ✅ offset root’a overlayu względem okna (na web często ≠ 0 przez header/layout)
   const rootRef = useRef<View | null>(null);
@@ -90,12 +127,7 @@ export default function GuidedTourOverlay({
     const t = setTimeout(() => {
       // @ts-ignore
       rootRef.current?.measureInWindow?.((x: number, y: number) => {
-        if (
-          typeof x === "number" &&
-          typeof y === "number" &&
-          !Number.isNaN(x) &&
-          !Number.isNaN(y)
-        ) {
+        if (typeof x === "number" && typeof y === "number" && !Number.isNaN(x) && !Number.isNaN(y)) {
           setRootOffset({ x, y });
         }
       });
@@ -119,15 +151,27 @@ export default function GuidedTourOverlay({
     const pad = 12;
 
     const bubbleW = Math.min(380, W - pad * 2);
-    const anchorX = rect?.x ?? pad;
-    const bubbleX = clamp(anchorX - 10, pad, W - bubbleW - pad);
 
-    // ✅ szacowana wysokość dymka (checkbox step jest wyższy, bo pokazuje przykład zadania)
-    // Dodajemy trochę miejsca, jeśli krok ma CTA.
+    // ✅ szacowana wysokość dymka
     const hasCTA = Boolean(step?.actionLabel && onAction);
     const estimatedBubbleH = isCheckboxStep ? 270 : hasCTA ? 240 : 190;
 
-    // default: dymek pod elementem
+    // ✅ specjalnie dla settings: dymek w prawym górnym rogu (pod headerem)
+    if (isSettingsStep) {
+      return {
+        bubbleW,
+        bubbleX: clamp(W - pad - bubbleW, pad, W - pad - bubbleW),
+        bubbleY: clamp(86, pad, H - pad - estimatedBubbleH),
+        placement: "bottom" as const,
+        arrowX: rect ? rect.x + rect.width / 2 - 10 : W - 64,
+        arrowY: rect ? rect.y + rect.height + 2 : 40,
+      };
+    }
+
+    // default: dymek przy elemencie
+    const anchorX = rect?.x ?? pad;
+    const bubbleX = clamp(anchorX - 10, pad, W - bubbleW - pad);
+
     let placement: "top" | "bottom" = "bottom";
     let bubbleY = 0;
 
@@ -136,13 +180,9 @@ export default function GuidedTourOverlay({
       const aboveY = rect.y - 16;
 
       // jeśli pod spodem mało miejsca → idź nad
-      if (belowY + estimatedBubbleH > H && aboveY - estimatedBubbleH > 0)
-        placement = "top";
+      if (belowY + estimatedBubbleH > H && aboveY - estimatedBubbleH > 0) placement = "top";
 
-      bubbleY =
-        placement === "bottom"
-          ? belowY
-          : Math.max(pad, aboveY - (estimatedBubbleH - 20));
+      bubbleY = placement === "bottom" ? belowY : Math.max(pad, aboveY - (estimatedBubbleH - 20));
     } else {
       bubbleY = 90;
       placement = "bottom";
@@ -163,13 +203,83 @@ export default function GuidedTourOverlay({
       arrowX: clamp(arrowX, pad, W - pad - 20),
       arrowY: clamp(arrowY, pad, H - pad - 20),
     };
-  }, [W, H, rect, isCheckboxStep, step?.actionLabel, onAction]);
+  }, [W, H, rect, isCheckboxStep, step?.actionLabel, onAction, isSettingsStep]);
 
   if (!visible || !step) return null;
 
-  const showExampleMission = isCheckboxStep && !rawRect;
+  // przykład zadania tylko wtedy, gdy checkbox-step i brak prawdziwego anchor rect z listy zadań
+  // (czyli typowo: user nie ma jeszcze żadnych misji)
+  const showExampleMission = isCheckboxStep && !rawRectFromAnchors;
 
   const showCTA = Boolean(step.actionLabel && onAction);
+
+  // ✅ “linia-strzałka” dla settings (bo to zwykle cel poza ekranem / w headerze)
+  const renderLineArrow = () => {
+    if (!rect) return null;
+
+    const pad = 12;
+
+    const tx = clamp(rect.x + rect.width / 2, pad, W - pad);
+    const ty = clamp(rect.y + rect.height / 2, pad, H - pad);
+
+    // start linii: z prawej strony dymka
+    const sx = ui.bubbleX + ui.bubbleW - 40;
+    const sy = ui.bubbleY + 18;
+
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const len = Math.max(24, Math.sqrt(dx * dx + dy * dy));
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = (angleRad * 180) / Math.PI;
+
+    return (
+      <>
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: tx - 12,
+            top: ty - 12,
+            width: 24,
+            height: 24,
+            borderRadius: 999,
+            backgroundColor: `${accentColor}22`,
+            borderWidth: 1,
+            borderColor: `${accentColor}77`,
+            opacity: fade,
+          }}
+        />
+
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: sx,
+            top: sy,
+            width: len,
+            height: 3,
+            borderRadius: 999,
+            backgroundColor: accentColor,
+            opacity: fade,
+            transform: [{ translateX: len / 2 }, { rotate: `${angleDeg}deg` }, { translateX: -len / 2 }],
+          }}
+        />
+
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: tx - 10,
+            top: ty - 10,
+            opacity: fade,
+            transform: [{ rotate: `${angleDeg}deg` }],
+          }}
+        >
+          <Ionicons name="arrow-forward" size={20} color={accentColor} />
+        </Animated.View>
+      </>
+    );
+  };
 
   return (
     <View
@@ -198,7 +308,7 @@ export default function GuidedTourOverlay({
         pointerEvents="auto"
       />
 
-      {/* podświetlenie elementu */}
+      {/* ✅ podświetlenie elementu (także dla settings – bo mamy virtual rect) */}
       {rect && (
         <Animated.View
           pointerEvents="none"
@@ -226,22 +336,26 @@ export default function GuidedTourOverlay({
         />
       )}
 
-      {/* strzałka */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: ui.arrowX,
-          top: ui.arrowY,
-          opacity: fade,
-        }}
-      >
-        <Ionicons
-          name={ui.placement === "bottom" ? "arrow-down" : "arrow-up"}
-          size={26}
-          color={accentColor}
-        />
-      </Animated.View>
+      {/* strzałka: normalna dla kroków, linia dla settings */}
+      {!isSettingsStep ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: ui.arrowX,
+            top: ui.arrowY,
+            opacity: fade,
+          }}
+        >
+          <Ionicons
+            name={ui.placement === "bottom" ? "arrow-down" : "arrow-up"}
+            size={26}
+            color={accentColor}
+          />
+        </Animated.View>
+      ) : (
+        renderLineArrow()
+      )}
 
       {/* dymek */}
       <Animated.View
@@ -275,9 +389,7 @@ export default function GuidedTourOverlay({
             justifyContent: "space-between",
           }}
         >
-          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "900" }}>
-            {step.title}
-          </Text>
+          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "900" }}>{step.title}</Text>
 
           <TouchableOpacity
             onPress={onClose}
@@ -290,6 +402,7 @@ export default function GuidedTourOverlay({
               backgroundColor: "rgba(255,255,255,0.06)",
               borderWidth: 1,
               borderColor: "rgba(255,255,255,0.08)",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             }}
           >
             <Ionicons name="close" size={18} color="#cbd5e1" />
@@ -323,16 +436,11 @@ export default function GuidedTourOverlay({
               justifyContent: "center",
               flexDirection: "row",
               gap: 8,
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             }}
           >
-            <Ionicons
-              name={step.actionIcon ?? "settings-outline"}
-              size={18}
-              color={accentColor}
-            />
-            <Text style={{ color: accentColor, fontWeight: "900" }}>
-              {step.actionLabel}
-            </Text>
+            <Ionicons name={step.actionIcon ?? "settings-outline"} size={18} color={accentColor} />
+            <Text style={{ color: accentColor, fontWeight: "900" }}>{step.actionLabel}</Text>
           </TouchableOpacity>
         )}
 
@@ -479,6 +587,7 @@ export default function GuidedTourOverlay({
               alignItems: "center",
               borderWidth: 1,
               borderColor: "rgba(255,255,255,0.10)",
+              ...(Platform.OS === "web" ? ({ cursor: stepIndex === 0 ? "default" : "pointer" } as any) : null),
             }}
           >
             <Text style={{ color: "#e2e8f0", fontWeight: "900" }}>Wróć</Text>
@@ -492,6 +601,7 @@ export default function GuidedTourOverlay({
               borderRadius: 999,
               backgroundColor: accentColor,
               alignItems: "center",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             }}
           >
             <Text style={{ color: "#022c22", fontWeight: "900" }}>
@@ -501,7 +611,11 @@ export default function GuidedTourOverlay({
 
           <TouchableOpacity
             onPress={onClose}
-            style={{ paddingVertical: 10, paddingHorizontal: 10 }}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 10,
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+            }}
           >
             <Text style={{ color: "#94a3b8", fontWeight: "800" }}>Pomiń</Text>
           </TouchableOpacity>

@@ -1,6 +1,9 @@
 // app/Profile.tsx
 // ============================================================
-//  CAŁY PLIK – ZMIANA: NAKŁADKA "PREMIUM" NA AVATARZE (WIDOCZNA DLA INNYCH)
+//  CAŁY PLIK – FIX: STATYSTYKI NA CUDZYM PROFILU
+//  - Dla własnego profilu: liczymy z useMissions() (jak było)
+//  - Dla cudzego profilu: pobieramy misje dla viewedUid (snapshoty) i liczymy z nich
+//  - Szanujemy prywatność: gdy showStats=false, nie pobieramy i pokazujemy "ukryte"
 // ============================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -19,7 +22,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { auth } from "../src/firebase/firebase";
 import { db } from "../src/firebase/firebase.web";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  collection,
+  query,
+  where,
+} from "firebase/firestore";
 import { useMissions } from "../src/hooks/useMissions";
 
 /* ---------------------------------------------------------------------- */
@@ -235,7 +245,11 @@ export default function ProfileScreen() {
   );
   const [savingShowStats, setSavingShowStats] = useState(false);
 
-  // FETCH
+  // Dla podglądu cudzych profili: pobieramy misje tego usera (żeby nie było "-" / 0)
+  const [foreignMissions, setForeignMissions] = useState<any[]>([]);
+  const [foreignMissionsLoading, setForeignMissionsLoading] = useState(false);
+
+  // FETCH USER
   useEffect(() => {
     if (!viewedUid) {
       setUserDoc(null);
@@ -269,6 +283,102 @@ export default function ProfileScreen() {
     (rawShowStats === undefined || rawShowStats === null
       ? true
       : !!rawShowStats);
+
+  const canShowStatsToViewer = isOwnProfile || showStats;
+
+  // FETCH MISSIONS FOR VIEWED USER (tylko gdy oglądasz kogoś i staty są jawne)
+  useEffect(() => {
+    if (!viewingSomeoneElse || !viewedUid) {
+      setForeignMissions([]);
+      setForeignMissionsLoading(false);
+      return;
+    }
+
+    // Prywatność: jeśli user ukrył staty -> nie pobieramy nic
+    if (!showStats) {
+      setForeignMissions([]);
+      setForeignMissionsLoading(false);
+      return;
+    }
+
+    const colRef = collection(db, "missions");
+
+    const buckets = {
+      assigned: new Map<string, any>(),
+      created: new Map<string, any>(),
+      assignedBy: new Map<string, any>(),
+      completedBy: new Map<string, any>(),
+    };
+
+    const recompute = () => {
+      const merged = new Map<string, any>();
+      Object.values(buckets).forEach((mp) => {
+        mp.forEach((val, key) => merged.set(key, val));
+      });
+      setForeignMissions(Array.from(merged.values()));
+    };
+
+    setForeignMissionsLoading(true);
+
+    const unsubs: Array<() => void> = [];
+
+    const safeOnSnap =
+      (bucketKey: keyof typeof buckets) => (snap: any) => {
+        const mp = buckets[bucketKey];
+        mp.clear();
+        snap.forEach((d: any) => {
+          mp.set(d.id, { id: d.id, ...d.data() });
+        });
+        recompute();
+        setForeignMissionsLoading(false);
+      };
+
+    const safeOnErr = (err: any) => {
+      console.log("[Profile] foreign missions snapshot error:", err);
+      setForeignMissions([]);
+      setForeignMissionsLoading(false);
+    };
+
+    // 1) misje przypisane do usera
+    unsubs.push(
+      onSnapshot(
+        query(colRef, where("assignedToUserId", "==", viewedUid)),
+        safeOnSnap("assigned"),
+        safeOnErr
+      )
+    );
+
+    // 2) misje utworzone przez usera
+    unsubs.push(
+      onSnapshot(
+        query(colRef, where("createdByUserId", "==", viewedUid)),
+        safeOnSnap("created"),
+        safeOnErr
+      )
+    );
+
+    // 3) (fallback) misje przypisane przez usera (jeśli używasz assignedByUserId)
+    unsubs.push(
+      onSnapshot(
+        query(colRef, where("assignedByUserId", "==", viewedUid)),
+        safeOnSnap("assignedBy"),
+        safeOnErr
+      )
+    );
+
+    // 4) (fallback) misje ukończone przez usera (dla przypadków, gdzie assignedTo nie pasuje)
+    unsubs.push(
+      onSnapshot(
+        query(colRef, where("completedByUserId", "==", viewedUid)),
+        safeOnSnap("completedBy"),
+        safeOnErr
+      )
+    );
+
+    return () => {
+      unsubs.forEach((u) => u && u());
+    };
+  }, [viewingSomeoneElse, viewedUid, showStats]);
 
   const displayName =
     userDoc?.displayName || userDoc?.username || "Użytkownik";
@@ -312,24 +422,38 @@ export default function ProfileScreen() {
   const progress = Math.max(0, Math.min(1, intoLevel / span));
   const toNext = Math.max(0, nextReq - totalExp);
 
-  // MISSIONS STATS
+  const missionsSource = viewingSomeoneElse ? foreignMissions : missions;
+  const missionsSourceLoading = viewingSomeoneElse
+    ? foreignMissionsLoading
+    : missionsLoading;
+
+  // MISSIONS STATS (z właściwego źródła)
   const { completedMissions, createdTasks, activeStreak } = useMemo(() => {
-    if (!viewedUid || !Array.isArray(missions)) {
+    if (!viewedUid || !Array.isArray(missionsSource)) {
       return { completedMissions: 0, createdTasks: 0, activeStreak: 0 };
     }
 
-    const completed = countUserCompletedMissions(missions, viewedUid);
-    const created = countTasksCreatedByUser(missions, viewedUid);
-    const streak = computeActiveStreak(missions, viewedUid);
+    // Prywatność: cudzy profil + ukryte staty
+    if (!isOwnProfile && !showStats) {
+      return {
+        completedMissions: "ukryte" as any,
+        createdTasks: "ukryte" as any,
+        activeStreak: "ukryte" as any,
+      };
+    }
+
+    const completed = countUserCompletedMissions(missionsSource, viewedUid);
+    const created = countTasksCreatedByUser(missionsSource, viewedUid);
+    const streak = computeActiveStreak(missionsSource, viewedUid);
 
     return {
       completedMissions: completed,
       createdTasks: created,
       activeStreak: streak,
     };
-  }, [missions, viewedUid]);
+  }, [missionsSource, viewedUid, isOwnProfile, showStats]);
 
-  const isLoading = userLoading || missionsLoading;
+  const isLoading = userLoading || missionsSourceLoading;
 
   const initialLetter = (displayName || "U")[0]?.toUpperCase?.() || "U";
 
@@ -349,8 +473,6 @@ export default function ProfileScreen() {
       setSavingShowStats(false);
     }
   };
-
-  const canShowStatsToViewer = isOwnProfile || showStats;
 
   return (
     <ScrollView
@@ -585,7 +707,7 @@ export default function ProfileScreen() {
                   >
                     Ukończone misje:{" "}
                     <Text style={{ color: colors.text, fontWeight: "800" }}>
-                      {completedMissions}
+                      {canShowStatsToViewer ? completedMissions : "ukryte"}
                     </Text>
                   </Text>
                 </View>
@@ -781,9 +903,7 @@ export default function ProfileScreen() {
                       height: 18,
                       borderRadius: 999,
                       borderWidth: 1,
-                      borderColor: showStats
-                        ? colors.accent
-                        : colors.border,
+                      borderColor: showStats ? colors.accent : colors.border,
                       backgroundColor: showStats
                         ? colors.accent + "44"
                         : "transparent",
@@ -885,7 +1005,7 @@ function StatCard({
   colors,
 }: {
   label: string;
-  value: number;
+  value: any;
   suffix?: string;
   icon?: any;
   colors: any;
@@ -936,7 +1056,7 @@ function StatCard({
         }}
       >
         {value ?? 0}{" "}
-        {suffix ? (
+        {suffix && typeof value === "number" ? (
           <Text
             style={{
               color: colors.textMuted,

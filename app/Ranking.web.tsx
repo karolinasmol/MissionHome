@@ -480,10 +480,18 @@ function Top3Card({ colors, top3, myUid }: any) {
 }
 
 function PodiumCard({ colors, user, place, myUid, big }: any) {
+  const router = useRouter();
+
   const name = user ? user.displayName || user.username || user.email || "Użytkownik" : "—";
   const exp = user ? Number(user.periodExp || 0) : 0;
   const avatar = user?.photoURL || null;
   const isMe = user?.id && myUid && user.id === myUid;
+
+  const canGoProfile = Boolean(user?.id);
+  const goProfile = () => {
+    if (!user?.id) return;
+    router.push(`/Profile?uid=${user.id}`);
+  };
 
   const medal = place === 1 ? "trophy" : place === 2 ? "medal" : "ribbon";
   const medalColor = place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : "#d97706";
@@ -513,21 +521,29 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
       </View>
 
       <View style={{ alignItems: "center", marginTop: big ? 4 : 2 }}>
-        {avatar ? (
-          <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
-        ) : (
-          <View
-            style={[
-              styles.podiumAvatarGen,
-              { borderColor: colors.border, backgroundColor: colors.card },
-              big && styles.podiumAvatarBig,
-            ]}
-          >
-            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 16 : 14 }}>
-              {(name?.[0] || "U").toUpperCase()}
-            </Text>
-          </View>
-        )}
+        {/* ✅ Klik na avatar w TOP3 -> /Profile?uid=... */}
+        <TouchableOpacity
+          onPress={goProfile}
+          disabled={!canGoProfile}
+          activeOpacity={0.85}
+          style={{ borderRadius: big ? 14 : 12 }}
+        >
+          {avatar ? (
+            <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
+          ) : (
+            <View
+              style={[
+                styles.podiumAvatarGen,
+                { borderColor: colors.border, backgroundColor: colors.card },
+                big && styles.podiumAvatarBig,
+              ]}
+            >
+              <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 16 : 14 }}>
+                {(name?.[0] || "U").toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         <Text style={{ color: colors.text, fontWeight: "900", marginTop: 4, fontSize: 11 }} numberOfLines={1}>
           {name}

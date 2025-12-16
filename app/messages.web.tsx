@@ -29,6 +29,7 @@ import {
   setDoc,
   getDoc,
   Timestamp,
+  updateDoc,
 } from "firebase/firestore";
 
 function conversationIdFor(a: string, b: string) {
@@ -342,7 +343,7 @@ export default function MessagesMobile() {
     );
   }, [familyMembers, selectedUid]);
 
-  /* ------------------ LOAD MESSAGES ------------------ */
+  /* ------------------ LOAD MESSAGES + MARK READ ------------------ */
   useEffect(() => {
     if (!myUid || !selectedUid) {
       setMessages([]);
@@ -350,6 +351,14 @@ export default function MessagesMobile() {
     }
 
     const convId = conversationIdFor(myUid, selectedUid);
+    const convRef = doc(db, "messages", convId);
+
+    // Upewnij się, że dokument konwersacji istnieje (żeby updateDoc nie walił errorami)
+    setDoc(
+      convRef,
+      { users: [myUid, selectedUid], createdAt: serverTimestamp() },
+      { merge: true }
+    ).catch(() => {});
 
     const qy = query(
       collection(db, `messages/${convId}/messages`),
@@ -359,6 +368,14 @@ export default function MessagesMobile() {
     const unsub = onSnapshot(qy, (snap) => {
       const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as ChatMsg[];
       setMessages(arr);
+
+      // ✅ Mark as read, jeśli ostatnia wiadomość jest "przychodząca"
+      const latest = arr?.[0];
+      if (latest?.sender && latest.sender !== myUid) {
+        updateDoc(convRef, {
+          [`readAt.${myUid}`]: serverTimestamp(),
+        }).catch(() => {});
+      }
 
       requestAnimationFrame(() => {
         listRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -393,12 +410,27 @@ export default function MessagesMobile() {
           createdAt: serverTimestamp(),
           users: [myUid, selectedUid],
         });
+      } else {
+        // dbamy, żeby users zawsze były (na wypadek starych danych)
+        await setDoc(
+          convRef,
+          { users: [myUid, selectedUid] },
+          { merge: true }
+        );
       }
 
       await addDoc(collection(db, `messages/${convId}/messages`), {
         sender: myUid,
         text: trimmed,
         createdAt: serverTimestamp(),
+      });
+
+      // ✅ Metadane rozmowy do badge/ikonki w headerze
+      await updateDoc(convRef, {
+        lastMessageAt: serverTimestamp(),
+        lastMessageSender: myUid,
+        lastMessageText: trimmed,
+        [`readAt.${myUid}`]: serverTimestamp(),
       });
 
       setText("");
@@ -538,6 +570,8 @@ export default function MessagesMobile() {
 
     const time = formatTimePL(msg.createdAt);
 
+    const isIncomingFromFamily = !isMine && !!selectedUid && msg.sender === selectedUid;
+
     return (
       <View
         style={{
@@ -572,18 +606,49 @@ export default function MessagesMobile() {
             {msg.text}
           </Text>
 
-          {!!time && (
-            <Text
+          {(!!time || isIncomingFromFamily) && (
+            <View
               style={{
                 marginTop: 6,
-                fontSize: 11,
-                color: isMine ? "#01403A" : colors.textMuted,
-                alignSelf: "flex-end",
-                fontWeight: "900",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10 as any,
               }}
             >
-              {time}
-            </Text>
+              {isIncomingFromFamily ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 as any }}>
+                  <Ionicons
+                    name="arrow-down-circle"
+                    size={12}
+                    color={colors.textMuted}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: colors.textMuted,
+                      fontWeight: "900",
+                    }}
+                  >
+                    Przychodząca (rodzina)
+                  </Text>
+                </View>
+              ) : (
+                <View />
+              )}
+
+              {!!time && (
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: isMine ? "#01403A" : colors.textMuted,
+                    fontWeight: "900",
+                  }}
+                >
+                  {time}
+                </Text>
+              )}
+            </View>
           )}
         </View>
       </View>
@@ -1323,5 +1388,4 @@ export default function MessagesMobile() {
     </SafeAreaView>
   );
 }
-
 //src/views/messages.web.tsx

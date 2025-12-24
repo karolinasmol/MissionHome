@@ -1,4 +1,4 @@
-// app/settings.tsx
+// app/settings.web.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -37,6 +37,8 @@ import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import uuid from "react-native-uuid";
 
+import { runTransaction } from "firebase/firestore";
+
 import {
   collection,
   deleteDoc,
@@ -48,6 +50,8 @@ import {
   where,
   setDoc,
   auth,
+  db,
+  serverTimestamp,
 } from "../src/firebase/firebase.web";
 
 const BUCKET = "domowe-443e7.firebasestorage.app";
@@ -332,61 +336,223 @@ export default function SettingsScreen() {
     setShowNickConfirmModal(true);
   };
 
-  const performNickChange = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
+    const performNickChange = async () => {
+      const user = auth.currentUser;
 
-    const trimmed = nick.trim();
-    const newLower = trimmed.toLowerCase();
+      // 🔎 DEBUG helper
+      const DEBUG_NICK = true;
+      const dlog = (...args: any[]) => {
+        if (!DEBUG_NICK) return;
+        try {
+          console.log("[nick][debug]", ...args);
+        } catch {}
+      };
 
-    setSavingNick(true);
+      if (!user) {
+        dlog("ABORT: auth.currentUser is null/undefined");
+        return;
+      }
 
-    try {
-      const q = query(
-        collection("users"),
-        where("usernameLower", "==", newLower),
-        limit(1)
-      );
-      const snap = await getDocs(q);
+      const trimmed = nick.trim();
+      const newLower = trimmed.toLowerCase();
 
-      if (!snap.empty) {
-        const found = snap.docs[0];
-        if (found.id !== user.uid) {
+      setSavingNick(true);
+
+      try {
+        dlog("START", {
+          at: new Date().toISOString(),
+          platform: Platform.OS,
+          currentUserUid: user.uid,
+          currentUserEmail: user.email,
+          currentUserDisplayName: user.displayName,
+        });
+
+        // 🔎 token/claims (czy Firestore powinien wysyłać auth)
+        try {
+          const tokenRes = await user.getIdTokenResult?.();
+          dlog("ID_TOKEN_RESULT", {
+            authTime: tokenRes?.authTime,
+            issuedAtTime: tokenRes?.issuedAtTime,
+            expirationTime: tokenRes?.expirationTime,
+            signInProvider: tokenRes?.signInProvider,
+            claimsKeys: tokenRes?.claims ? Object.keys(tokenRes.claims) : [],
+          });
+        } catch (e: any) {
+          dlog("ID_TOKEN_RESULT FAILED", e?.code, e?.message);
+        }
+
+        // walidacja (prosta i czytelna)
+        const ok = /^[a-zA-Z0-9_.-]{3,20}$/.test(trimmed);
+        dlog("VALIDATION", { trimmed, ok, newLower });
+
+        if (!ok) {
           setShowNickConfirmModal(false);
+          openNickInfo(
+            "Nieprawidłowy nick",
+            "Użyj 3–20 znaków: litery, cyfry oraz . _ -"
+          );
+          return;
+        }
+
+        // 🔎 Firestore / project sanity
+        dlog("FIRESTORE", {
+          projectId: (db as any)?.app?.options?.projectId,
+        });
+
+        const userRef = doc("users", user.uid);
+        const newNameRef = doc("usernames", newLower);
+
+        dlog("REFS", {
+          userRefPath: (userRef as any)?.path,
+          newNameRefPath: (newNameRef as any)?.path,
+        });
+
+        let txAttempt = 0;
+
+        await runTransaction(db, async (tx) => {
+          txAttempt += 1;
+          dlog(`TX_BEGIN attempt=${txAttempt}`);
+
+          // 1) user doc
+          dlog("TX_GET userRef", (userRef as any)?.path);
+          const userSnap = await tx.get(userRef);
+          dlog("TX_GOT userRef", { exists: userSnap.exists() });
+
+          const userData = userSnap.exists() ? (userSnap.data() as any) : {};
+          const oldLower = (userData?.usernameLower || "").toString().toLowerCase();
+
+          dlog("TX_USER_DATA", {
+            oldLower,
+            hasUsernameLower: !!oldLower,
+            displayNameInDb: userData?.displayName,
+            nickInDb: userData?.nick,
+          });
+
+          // 2) check if taken
+          dlog("TX_GET newNameRef", (newNameRef as any)?.path);
+          const takenSnap = await tx.get(newNameRef);
+          dlog("TX_GOT newNameRef", { exists: takenSnap.exists() });
+
+          if (takenSnap.exists()) {
+            const taken = takenSnap.data() as any;
+            dlog("TX_TAKEN_DOC", taken);
+
+            if (taken?.uid && taken.uid !== user.uid) {
+              dlog("TX_ABORT: NICK_TAKEN", { takenUid: taken.uid, me: user.uid });
+              throw Object.assign(new Error("NICK_TAKEN"), { code: "nick/taken" });
+            }
+          }
+
+          // 3) release old
+          if (oldLower && oldLower !== newLower) {
+            const oldNameRef = doc("usernames", oldLower);
+            dlog("TX_GET oldNameRef", (oldNameRef as any)?.path);
+
+            const oldSnap = await tx.get(oldNameRef);
+            dlog("TX_GOT oldNameRef", { exists: oldSnap.exists() });
+
+            if (oldSnap.exists()) {
+              const old = oldSnap.data() as any;
+              dlog("TX_OLD_DOC", old);
+
+              if (old?.uid === user.uid) {
+                dlog("TX_DELETE oldNameRef", (oldNameRef as any)?.path);
+                tx.delete(oldNameRef);
+              } else {
+                dlog("TX_SKIP delete oldNameRef: owner mismatch", {
+                  oldUid: old?.uid,
+                  me: user.uid,
+                });
+              }
+            }
+          } else {
+            dlog("TX_SKIP release oldLower", { oldLower, newLower });
+          }
+
+          // 4) reserve new
+          dlog("TX_SET newNameRef", { uid: user.uid, newLower });
+          tx.set(
+            newNameRef,
+            { uid: user.uid, createdAt: serverTimestamp() },
+            { merge: true }
+          );
+
+          // 5) update profile
+          const payload = {
+            displayName: trimmed,
+            nick: trimmed,
+            usernameLower: newLower,
+            photoURL: user.photoURL || avatar || "",
+            email: user.email || "",
+            updatedAt: serverTimestamp(),
+          };
+
+          dlog("TX_SET userRef merge", payload);
+          tx.set(userRef, payload, { merge: true });
+
+          dlog(`TX_END attempt=${txAttempt}`);
+        });
+
+        dlog("TX_COMMIT_OK");
+
+        // update w Auth (po transakcji)
+        try {
+          dlog("AUTH updateProfile start", { displayName: trimmed });
+          await updateProfile(user, { displayName: trimmed });
+          dlog("AUTH updateProfile ok");
+        } catch (e: any) {
+          console.error("[nick] updateProfile failed:", e?.code, e?.message, e);
+        }
+
+        setDisplayNameState(trimmed);
+        setShowNickConfirmModal(false);
+        setShowNickSuccessModal(true);
+
+        dlog("DONE_OK");
+      } catch (e: any) {
+        console.error("[nick] FAILED:", e?.code, e?.message, e);
+
+        // 🔎 extra info for permission-denied
+        if (e?.code === "permission-denied" || e?.message?.includes?.("permission")) {
+          try {
+            const tokenRes2 = await auth.currentUser?.getIdTokenResult?.();
+            dlog("PERM_DENIED token snapshot", {
+              currentUserUid: auth.currentUser?.uid,
+              claimsKeys: tokenRes2?.claims ? Object.keys(tokenRes2.claims) : [],
+              expirationTime: tokenRes2?.expirationTime,
+            });
+          } catch (e2: any) {
+            dlog("PERM_DENIED getIdTokenResult failed", e2?.code, e2?.message);
+          }
+        }
+
+        setShowNickConfirmModal(false);
+
+        if (e?.code === "nick/taken" || e?.message === "NICK_TAKEN") {
           openNickInfo(
             "Ten nick jest zajęty",
             "Wybierz proszę inną nazwę użytkownika."
           );
-          setSavingNick(false);
-          return;
+        } else {
+          openNickInfo(
+            "Nie udało się zmienić nicku",
+            `${e?.code ?? ""} ${e?.message ?? ""}`.trim() ||
+              "Spróbuj ponownie za chwilę."
+          );
         }
+      } finally {
+        setSavingNick(false);
+        try {
+          // końcowy log stanu auth (czasem auth znika w trakcie)
+          const u2 = auth.currentUser;
+          console.log("[nick][debug] FINALLY auth:", {
+            uid: u2?.uid,
+            email: u2?.email,
+            displayName: u2?.displayName,
+          });
+        } catch {}
       }
-
-      await Promise.all([
-        updateProfile(user, { displayName: trimmed }),
-        setDoc(
-          doc("users", user.uid),
-          {
-            displayName: trimmed,
-            nick: trimmed,
-            usernameLower: newLower,
-            photoURL: user.photoURL || avatar,
-            email: user.email,
-          },
-          { merge: true }
-        ),
-      ]);
-
-      setDisplayNameState(trimmed);
-      setShowNickConfirmModal(false);
-      setShowNickSuccessModal(true);
-    } catch {
-      setShowNickConfirmModal(false);
-      openNickInfo("Nie udało się zmienić nicku", "Spróbuj ponownie za chwilę.");
-    } finally {
-      setSavingNick(false);
-    }
-  };
+    };
 
   /* ZMIANA HASŁA -------------------------------------------------- */
 
@@ -1706,4 +1872,4 @@ const styles = StyleSheet.create({
   },
 });
 
-// app/settings.tsx
+// app/settings.web.tsx

@@ -110,9 +110,23 @@ export default function CustomHeader() {
   const { width } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
   const useNative = Platform.OS !== "web";
+
+  // ✅ MOBILE WEB (telefon)
   const isMobileWeb = isWeb && width < 720;
 
-  const styles = useMemo(() => makeStyles(palette, isWeb, isMobileWeb), [palette, isWeb, isMobileWeb]);
+  // ✅ TIGHT WEB (jeszcze desktop, ale już brakuje miejsca — chowamy etykiety po prawej/na theme)
+  const isTightWeb = isWeb && width < 1320;
+
+  // ✅ NARROW WEB (zmniejszone okno na PC / tablet) — wpływa na spacing w stylach
+  const isNarrowWeb = isWeb && width < 1320;
+
+  // ✅ kiedy zwijamy header na web (żeby nic się nie nakładało)
+  const isCollapsedWeb = isMobileWeb || (isWeb && width < 1120);
+
+  const hideRightLabels = isWeb && isTightWeb; // ✅ klucz: niech prawa strona nie rozpycha i nie nachodzi
+  const hideThemeLabel = isWeb && isTightWeb; // ✅ dodatkowo theme label potrafi dobić układ
+
+  const styles = useMemo(() => makeStyles(palette, isWeb, isMobileWeb, isNarrowWeb), [palette, isWeb, isMobileWeb, isNarrowWeb]);
 
   const themeLabel = THEME_LABELS?.[theme] ?? String(theme);
   const themeLabelUpper = String(themeLabel).toUpperCase();
@@ -129,7 +143,7 @@ export default function CustomHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuAnim = useRef(new Animated.Value(0)).current;
 
-  // NAV PANEL (MOBILE WEB)
+  // NAV PANEL (MOBILE + NARROW WEB)
   const [navOpen, setNavOpen] = useState(false);
 
   // NOTIFICATIONS PANEL
@@ -236,7 +250,7 @@ export default function CustomHeader() {
     };
   }, [isWeb, themeAnchor, isMobileWeb, width]);
 
-  // NAV STRUCTURE (do użycia w panelu mobilnym)
+  // NAV STRUCTURE (do użycia w panelu)
   const NAV_ITEMS: NavItem[] = [
     { icon: "calendar-outline", label: "Kalendarz", route: "/calendar" },
     { icon: "people-outline", label: "Rodzina", route: "/family", premium: true },
@@ -309,8 +323,9 @@ export default function CustomHeader() {
     else openMenu();
   };
 
+  // ✅ NAV (MOBILE + NARROW WEB)
   const openNav = () => {
-    if (!isMobileWeb) return;
+    if (!isCollapsedWeb) return;
     closeThemeInstant();
     closeMenuInstant();
     closeNotifsInstant();
@@ -320,7 +335,7 @@ export default function CustomHeader() {
   const closeNav = () => setNavOpen(false);
 
   const toggleNav = () => {
-    if (!isMobileWeb) return;
+    if (!isCollapsedWeb) return;
     if (navOpen) closeNav();
     else openNav();
   };
@@ -539,7 +554,7 @@ export default function CustomHeader() {
   const premiumBtnRef = useRef<any>(null);
   const messagesBtnRef = useRef<any>(null);
 
-  const navToggleRef = useRef<any>(null); // mobile web ellipsis
+  const navToggleRef = useRef<any>(null); // mobile + narrow web ellipsis
   const navCalRef = useRef<any>(null);
   const navFamilyRef = useRef<any>(null);
   const navStatsRef = useRef<any>(null);
@@ -929,7 +944,7 @@ export default function CustomHeader() {
       10: {
         title: "Kalendarz",
         body: "Kalendarz to centrum planu: zadania, terminy i ogarnianie tygodnia w jednym miejscu.",
-        anchorRect: isMobileWeb ? navToggleRect : navCalRect,
+        anchorRect: isCollapsedWeb ? navToggleRect : navCalRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(10),
         onSkip: () => finishTour(),
@@ -937,7 +952,7 @@ export default function CustomHeader() {
       11: {
         title: "Rodzina",
         body: "W Rodzinie dodajesz domowników i zarządzasz wspólną przestrzenią oraz uprawnieniami.",
-        anchorRect: isMobileWeb ? navToggleRect : navFamilyRect,
+        anchorRect: isCollapsedWeb ? navToggleRect : navFamilyRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(11),
         onSkip: () => finishTour(),
@@ -945,7 +960,7 @@ export default function CustomHeader() {
       12: {
         title: "Statystyki",
         body: "Statystyki pokazują jak idzie ogarnianie: postępy, aktywność i trendy w czasie.",
-        anchorRect: isMobileWeb ? navToggleRect : navStatsRect,
+        anchorRect: isCollapsedWeb ? navToggleRect : navStatsRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(12),
         onSkip: () => finishTour(),
@@ -953,7 +968,7 @@ export default function CustomHeader() {
       13: {
         title: "Osiągnięcia",
         body: "Osiągnięcia dodają trochę zabawy: odznaki za regularność i konkretne cele.",
-        anchorRect: isMobileWeb ? navToggleRect : navAchRect,
+        anchorRect: isCollapsedWeb ? navToggleRect : navAchRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(13),
         onSkip: () => finishTour(),
@@ -962,7 +977,7 @@ export default function CustomHeader() {
         title: "Ranking",
         body:
           "Ranking porównuje wyniki w formie zabawy i motywacji.\n\nJeśli wolisz prywatność, możesz wyłączyć udostępnianie szczegółowych statystyk w Profilu.",
-        anchorRect: isMobileWeb ? navToggleRect : navRankRect,
+        anchorRect: isCollapsedWeb ? navToggleRect : navRankRect,
         primaryLabel: "Koniec",
         onPrimary: () => finishTour(),
         onSkip: () => finishTour(),
@@ -980,7 +995,7 @@ export default function CustomHeader() {
     navStatsRect,
     navAchRect,
     navRankRect,
-    isMobileWeb,
+    isCollapsedWeb,
   ]);
 
   const activeCfg = activeTourStep ? tourConfig[activeTourStep] : null;
@@ -1002,15 +1017,17 @@ export default function CustomHeader() {
           >
             <Ionicons name="color-palette" size={isMobileWeb ? 18 : 16} color={palette.muted} />
 
-            {isWeb && !isMobileWeb && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
+            {/* ✅ chowamy label też na "tight web", żeby nie pchało layoutu */}
+            {isWeb && !isCollapsedWeb && !hideThemeLabel && <Text style={styles.themeBtnText}>{themeLabelUpper}</Text>}
 
-            {!isMobileWeb && <Ionicons name={themeOpen ? "chevron-up" : "chevron-down"} size={14} color={palette.muted} />}
+            {!isCollapsedWeb && <Ionicons name={themeOpen ? "chevron-up" : "chevron-down"} size={14} color={palette.muted} />}
           </Pressable>
         </View>
 
         {!user ? null : (
           <>
-            {!isMobileWeb && (
+            {/* ✅ pełny desktop tylko gdy NIE jest collapsed */}
+            {!isCollapsedWeb && (
               <>
                 <View style={styles.center}>
                   <NavButton ref={navCalRef} icon="calendar-outline" label="Kalendarz" route="/calendar" />
@@ -1025,9 +1042,9 @@ export default function CustomHeader() {
                     ref={premiumBtnRef}
                     onLayout={measureTourAnchors}
                     onPress={() => router.push("/premium" as any)}
-                    style={({ pressed }) => [styles.premiumBtn, pressed && styles.premiumBtnPressed]}
+                    style={({ pressed }) => [styles.premiumBtn, pressed && styles.premiumBtnPressed, hideRightLabels && styles.premiumBtnCompact]}
                   >
-                    {isWeb && <Text style={styles.premiumText}>Premium</Text>}
+                    {isWeb && !hideRightLabels && <Text style={styles.premiumText}>Premium</Text>}
                     <Ionicons name="sparkles" size={18} color={ACCENT_PREMIUM} />
                   </Pressable>
 
@@ -1035,14 +1052,18 @@ export default function CustomHeader() {
                     ref={messagesBtnRef}
                     onLayout={measureTourAnchors}
                     onPress={() => router.push("/messages" as any)}
-                    style={({ pressed }) => [styles.bellBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.bellBtn,
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                      hideRightLabels && styles.bellBtnCompact,
+                    ]}
                   >
                     <View style={{ position: "relative" }}>
                       <Ionicons name="chatbubbles-outline" size={20} color={palette.navIcon} />
                       <Badge count={unreadMsgCount} />
                     </View>
 
-                    {isWeb && (
+                    {isWeb && !hideRightLabels && (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Text style={styles.bellLabel}>Wiadomości</Text>
                         <Ionicons name="sparkles" size={14} color={ACCENT_PREMIUM} style={{ marginTop: 1 }} />
@@ -1052,7 +1073,11 @@ export default function CustomHeader() {
 
                   <Pressable
                     onPress={toggleNotifs}
-                    style={({ pressed }) => [styles.bellBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.bellBtn,
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                      hideRightLabels && styles.bellBtnCompact,
+                    ]}
                   >
                     <View style={{ position: "relative" }}>
                       <Ionicons
@@ -1063,14 +1088,14 @@ export default function CustomHeader() {
                       <Badge count={unreadCount} />
                     </View>
 
-                    {isWeb && <Text style={styles.bellLabel}>Powiadomienia</Text>}
+                    {isWeb && !hideRightLabels && <Text style={styles.bellLabel}>Powiadomienia</Text>}
                   </Pressable>
 
                   <Pressable
                     ref={profileBtnRef}
                     onLayout={measureTourAnchors}
                     onPress={toggleMenu}
-                    style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed]}
+                    style={({ pressed }) => [styles.profileBtn, pressed && styles.profileBtnPressed, hideRightLabels && styles.profileBtnCompact]}
                   >
                     <View style={styles.avatarOuter}>
                       <View style={styles.avatarInner}>
@@ -1084,9 +1109,11 @@ export default function CustomHeader() {
                       </View>
                     </View>
 
-                    <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
-                      {shownName}
-                    </Text>
+                    {!hideRightLabels && (
+                      <Text style={styles.profileName} numberOfLines={1} ellipsizeMode="tail">
+                        {shownName}
+                      </Text>
+                    )}
 
                     <Ionicons name={menuOpen ? "chevron-up" : "chevron-down"} size={16} color={palette.profileChevron} />
                   </Pressable>
@@ -1094,7 +1121,8 @@ export default function CustomHeader() {
               </>
             )}
 
-            {isMobileWeb && (
+            {/* ✅ collapsed: mobile + narrow web (bez nakładania) */}
+            {isCollapsedWeb && (
               <View style={styles.mobileActions}>
                 <Pressable
                   ref={navToggleRef}
@@ -1103,6 +1131,18 @@ export default function CustomHeader() {
                   style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
                 >
                   <Ionicons name="ellipsis-horizontal" size={20} color={palette.navIcon} />
+                </Pressable>
+
+                <Pressable
+                  ref={messagesBtnRef}
+                  onLayout={measureTourAnchors}
+                  onPress={() => router.push("/messages" as any)}
+                  style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                >
+                  <View style={{ position: "relative" }}>
+                    <Ionicons name="chatbubbles-outline" size={20} color={palette.navIcon} />
+                    <Badge count={unreadMsgCount} />
+                  </View>
                 </Pressable>
 
                 <Pressable onPress={toggleNotifs} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
@@ -1208,7 +1248,8 @@ export default function CustomHeader() {
         </>
       )}
 
-      {isMobileWeb && user && navOpen && (
+      {/* ✅ NAV PANEL: działa na mobile + narrow web */}
+      {isCollapsedWeb && user && navOpen && (
         <>
           <Pressable style={styles.backdropDimmed} onPress={closeNav} pointerEvents="auto" />
           <View style={styles.mobileNavPanel}>
@@ -1747,7 +1788,7 @@ function contrastRatio(a: { r: number; g: number; b: number }, b: { r: number; g
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isMobileWeb: boolean) {
+function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isMobileWeb: boolean, isNarrowWeb: boolean) {
   return StyleSheet.create({
     wrap: {
       width: "100%",
@@ -1767,16 +1808,18 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: isMobileWeb ? 10 : 14,
+      paddingHorizontal: isMobileWeb || isNarrowWeb ? 10 : 14,
       paddingVertical: isMobileWeb ? 6 : 6,
       minHeight: isMobileWeb ? 48 : 0,
+      minWidth: 0, // ✅ ważne na web (żeby flex mógł się ścisnąć)
     },
 
     left: {
       flexDirection: "row",
       alignItems: "center",
-      gap: isMobileWeb ? 8 : 10,
-      flexShrink: 1,
+      gap: isMobileWeb || isNarrowWeb ? 8 : 10,
+      flexShrink: 0,
+      minWidth: 0,
     },
     logoWrap: {
       paddingRight: isMobileWeb ? 4 : 6,
@@ -1908,8 +1951,11 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       flex: 1,
       flexDirection: "row",
       alignItems: "center",
-      marginLeft: 20,
-      gap: 18,
+      marginLeft: isNarrowWeb ? 12 : 20,
+      gap: isNarrowWeb ? 12 : 18,
+      minWidth: 0,
+      flexShrink: 1,
+      ...(isWeb ? ({ overflow: "hidden" } as any) : {}), // ✅ klucz: niech nie nachodzi na prawą stronę
     },
 
     navBtn: {
@@ -1931,6 +1977,7 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       gap: 6,
       paddingHorizontal: 6,
       paddingVertical: 4,
+      minWidth: 0,
     },
     navLabel: {
       fontSize: 14,
@@ -1945,8 +1992,10 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
     right: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: isNarrowWeb ? 8 : 10,
       marginLeft: 12,
+      flexShrink: 0,
+      minWidth: 0,
     },
 
     bellBtn: {
@@ -1961,6 +2010,10 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderColor: palette.border,
       backgroundColor: "transparent",
       ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
+    },
+    bellBtnCompact: {
+      paddingHorizontal: 10,
+      gap: 0,
     },
     bellLabel: {
       fontSize: 14,
@@ -1997,6 +2050,9 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       backgroundColor: "transparent",
       ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
     },
+    premiumBtnCompact: {
+      paddingHorizontal: 8,
+    },
     premiumBtnPressed: {
       opacity: 0.9,
       transform: [{ scale: 0.97 }],
@@ -2018,6 +2074,10 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       borderWidth: 1,
       borderColor: palette.border,
       ...(isWeb ? ({ cursor: "pointer" } as any) : {}),
+    },
+    profileBtnCompact: {
+      paddingHorizontal: 8,
+      gap: 8,
     },
     profileBtnPressed: {
       opacity: 0.9,
@@ -2069,7 +2129,9 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
       fontSize: 14,
       fontWeight: "800",
       color: palette.text,
-      maxWidth: isWeb ? 160 : 120,
+      maxWidth: isWeb ? (isNarrowWeb ? 110 : 160) : 120,
+      flexShrink: 1,
+      minWidth: 0,
     },
 
     mobileActions: {

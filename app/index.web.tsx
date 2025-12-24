@@ -30,8 +30,7 @@ import {
 
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
-import { db } from "../src/firebase/firebase.web";
-import { auth } from "../src/firebase/firebase";
+import { db, auth, onAuthStateChanged } from "../src/firebase/firebase.web";
 
 // ✅ otwieramy krok 5 w globalnym CustomHeader (żeby nie dublować headera na ekranie)
 import { setTourStep5Open as setTourStep5OpenBus } from "../src/utils/tourStep5Bus";
@@ -39,6 +38,9 @@ import { setTourStep5Open as setTourStep5OpenBus } from "../src/utils/tourStep5B
 /* --------------------------------------------------------- */
 /* ------------------------ HELPERS ------------------------- */
 /* --------------------------------------------------------- */
+
+// ✅ WEB-only: wyłączamy native driver na stałe (usuwa warning na web)
+const USE_NATIVE_DRIVER = false;
 
 function startOfDay(date: Date) {
   const d = new Date(date);
@@ -279,8 +281,8 @@ function isMissionDoneOnDate(m: any, date: Date) {
 type FireworkParticle = {
   id: string;
   missionId: string;
-  originX: number;
-  originY: number;
+  originX: number; // ✅ już względem screenRef
+  originY: number; // ✅ już względem screenRef
   translateX: Animated.Value;
   translateY: Animated.Value;
   scale: Animated.Value;
@@ -338,25 +340,25 @@ function useFireworkManager() {
           toValue: targetX,
           duration: p.duration,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.translateY, {
           toValue: targetY,
           duration: p.duration,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.scale, {
           toValue: 1.3,
           duration: p.duration * 0.6,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.opacity, {
           toValue: 0,
           duration: p.duration,
           delay: p.delay + p.duration * 0.4,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ]).start(() => {
         setParticles((prev) => prev.filter((pp) => pp.id !== p.id));
@@ -383,17 +385,39 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function isHTMLElement(node: any): node is HTMLElement {
+  return !!node && typeof node.getBoundingClientRect === "function";
+}
+
 async function measureRect(node: any): Promise<Rect | null> {
   return new Promise((resolve) => {
     try {
-      if (!node || !node.measureInWindow) return resolve(null);
-      node.measureInWindow((x: number, y: number, width: number, height: number) => {
-        if ([x, y, width, height].some((v) => typeof v !== "number" || Number.isNaN(v))) {
-          resolve(null);
-        } else {
-          resolve({ x, y, width, height });
-        }
-      });
+      if (!node) return resolve(null);
+
+      // ✅ WEB: DOM
+      if (isHTMLElement(node)) {
+        const r = node.getBoundingClientRect();
+        return resolve({
+          x: r.left,
+          y: r.top,
+          width: r.width,
+          height: r.height,
+        });
+      }
+
+      // ✅ RN: measureInWindow
+      if (node.measureInWindow) {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          if ([x, y, width, height].some((v) => typeof v !== "number" || Number.isNaN(v))) {
+            resolve(null);
+          } else {
+            resolve({ x, y, width, height });
+          }
+        });
+        return;
+      }
+
+      resolve(null);
     } catch {
       resolve(null);
     }
@@ -408,6 +432,7 @@ function GuidedTourOverlay({
   getScreenNode,
   onClose,
   onFinish,
+  refreshToken, // ✅ gdy zmienia się lista zadań / anchor, wymuś re-measure
 }: {
   visible: boolean;
   colors: any;
@@ -416,6 +441,7 @@ function GuidedTourOverlay({
   getScreenNode: () => any;
   onClose: () => void;
   onFinish: () => void;
+  refreshToken?: any;
 }) {
   const { width: W, height: H } = useWindowDimensions();
   const [idx, setIdx] = useState(0);
@@ -431,6 +457,7 @@ function GuidedTourOverlay({
   const refresh = useCallback(async () => {
     if (!visible || !step) return;
 
+    // mały debounce – RNW + DOM potrafią zwrócić 0x0 tuż po re-renderze
     await new Promise((r) => setTimeout(r, 60));
 
     const screenNode = getScreenNode?.();
@@ -457,7 +484,28 @@ function GuidedTourOverlay({
       width: rect.width,
       height: rect.height,
     });
-  }, [visible, step?.id, getNodeForStep, getScreenNode, W, H, step]);
+  }, [visible, step, getNodeForStep, getScreenNode, W, H]);
+
+  // ✅ lekkie throttlowanie odświeżeń (scroll/resize)
+  const pendingRef = useRef(false);
+  const scheduleRefresh = useCallback(() => {
+    if (!visible) return;
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+
+    const run = () => {
+      pendingRef.current = false;
+      refresh();
+    };
+
+    // @ts-ignore
+    if (typeof requestAnimationFrame === "function") {
+      // @ts-ignore
+      requestAnimationFrame(run);
+    } else {
+      setTimeout(run, 16);
+    }
+  }, [visible, refresh]);
 
   useEffect(() => {
     if (!visible) return;
@@ -472,13 +520,13 @@ function GuidedTourOverlay({
     Animated.timing(fade, {
       toValue: 1,
       duration: 180,
-      useNativeDriver: true,
+      useNativeDriver: USE_NATIVE_DRIVER,
     }).start();
 
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 720, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 720, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 720, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(pulse, { toValue: 0, duration: 720, useNativeDriver: USE_NATIVE_DRIVER }),
       ])
     );
 
@@ -498,10 +546,33 @@ function GuidedTourOverlay({
     refresh();
   }, [idx, visible, refresh]);
 
+  // ✅ gdy zmieni się anchor (np. przyszły zadania z Firestore), odśwież highlight
+  useEffect(() => {
+    if (!visible) return;
+    refresh();
+  }, [refreshToken, visible, refresh]);
+
+  // ✅ WEB: przewijanie/resize w trakcie toura – highlight ma nadążać
+  useEffect(() => {
+    if (!visible) return;
+    if (Platform.OS !== "web") return;
+    if (typeof window === "undefined") return;
+
+    const on = () => scheduleRefresh();
+    window.addEventListener("resize", on);
+    window.addEventListener("scroll", on, true);
+
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("scroll", on, true);
+    };
+  }, [visible, scheduleRefresh]);
+
   if (!visible || !step) return null;
 
   const safeTarget: Rect =
-    target ?? ({
+    target ??
+    ({
       x: W / 2 - 120,
       y: H / 2 - 40,
       width: 240,
@@ -543,8 +614,9 @@ function GuidedTourOverlay({
       />
 
       <Animated.View
-        pointerEvents="none"
+        // ✅ RNW: pointerEvents prop deprecated → style.pointerEvents (cast for TS)
         style={{
+          ...({ pointerEvents: "none" } as any),
           position: "absolute",
           left: hlX,
           top: hlY,
@@ -565,8 +637,8 @@ function GuidedTourOverlay({
       />
 
       <Animated.View
-        pointerEvents="none"
         style={{
+          ...({ pointerEvents: "none" } as any),
           position: "absolute",
           left: hlX - 10,
           top: hlY - 10,
@@ -595,8 +667,8 @@ function GuidedTourOverlay({
       />
 
       <Animated.View
-        pointerEvents="none"
         style={{
+          ...({ pointerEvents: "none" } as any),
           position: "absolute",
           left: hlX - 18,
           top: hlY - 18,
@@ -716,7 +788,7 @@ function GuidedTourOverlay({
 
           <TouchableOpacity
             onPress={() => {
-              if (isLast) onFinish();
+              if (idx === steps.length - 1) onFinish();
               else setIdx((p) => Math.min(steps.length - 1, p + 1));
             }}
             style={{
@@ -729,14 +801,16 @@ function GuidedTourOverlay({
               ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             }}
           >
-            <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>{isLast ? "Dalej" : "Dalej"}</Text>
+            <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>
+              {idx === steps.length - 1 ? "Zakończ" : "Dalej"}
+            </Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
 
       <Animated.View
-        pointerEvents="none"
         style={{
+          ...({ pointerEvents: "none" } as any),
           position: "absolute",
           left: arrowLeft,
           top: arrowTop,
@@ -1078,6 +1152,9 @@ export default function HomeScreen() {
   // ✅ ref do kontenera ekranu (GuidedTourOverlay odejmuje offset)
   const screenRef = useRef<any>(null);
 
+  // ✅ ref do scrolla (żeby po zmianie dnia wracać na górę i “odświeżać” sekcje)
+  const scrollRef = useRef<any>(null);
+
   // refy do checkboxów
   const checkboxRefs = useRef<Record<string, any>>({});
   const demoCheckboxAnchorRef = useRef<any>(null);
@@ -1091,8 +1168,6 @@ export default function HomeScreen() {
   const addTaskAnchorRef = useRef<any>(null);
 
   const [tourOpen, setTourOpen] = useState(false);
-
-  console.log("🟦 RENDER HOME – missions count:", missions?.length);
 
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [repeatDeleteDialog, setRepeatDeleteDialog] = useState<{ mission: any; dateKey: string } | null>(null);
@@ -1109,12 +1184,122 @@ export default function HomeScreen() {
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-  const today = useMemo(() => startOfDay(new Date()), []);
 
-  const currentUser = auth.currentUser;
+  // ✅ dziś jako STATE (żeby po północy UI nie “zamrażało” logiki inPast / streak)
+  const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = startOfDay(new Date());
+      setToday((prev) => (isSameDay(prev, now) ? prev : now));
+    }, 60 * 1000); // co minutę wystarczy
+    return () => clearInterval(t);
+  }, []);
+
+  const [currentUser, setCurrentUser] = useState(() => auth.currentUser);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => setCurrentUser(u));
+    return unsub;
+  }, []);
+
   const myUid = currentUser?.uid ?? null;
   const myPhotoURL = currentUser?.photoURL || null;
   const myDisplayName = currentUser?.displayName || null;
+
+  // ✅ OPTIMISTIC UI (żeby po kliknięciu checkboxa od razu było widać "Wykonane")
+  const [optimisticDone, setOptimisticDone] = useState<Record<string, true>>({});
+
+  // ✅ HOLD SORT (żeby po odkliknięciu misja nie przeskakiwała od razu na dół)
+  const COMPLETE_PREVIEW_MS = 900;
+  const [holdSort, setHoldSort] = useState<Record<string, number>>({});
+  const holdTimersRef = useRef<Record<string, any>>({});
+  useEffect(() => {
+    return () => {
+      Object.values(holdTimersRef.current).forEach((t) => {
+        try {
+          clearTimeout(t);
+        } catch {}
+      });
+      holdTimersRef.current = {};
+    };
+  }, []);
+
+  const makeDoneKey = useCallback((m: any, date: Date) => {
+    const id = String(m?.id ?? "");
+    if (!id) return "";
+    const repeat = m?.repeat?.type ?? "none";
+    if (repeat !== "none") return `${id}::${formatDateKey(date)}`;
+    return id;
+  }, []);
+
+  const isMissionDoneOnDateUI = useCallback(
+    (m: any, date: Date) => {
+      const k = makeDoneKey(m, date);
+      if (k && optimisticDone[k]) return true;
+      return isMissionDoneOnDate(m, date);
+    },
+    [optimisticDone, makeDoneKey]
+  );
+
+  // czyścimy optimistic po zmianie usera
+  useEffect(() => {
+    setOptimisticDone({});
+    setHoldSort({});
+    // czyścimy timery hold
+    Object.values(holdTimersRef.current).forEach((t) => {
+      try {
+        clearTimeout(t);
+      } catch {}
+    });
+    holdTimersRef.current = {};
+  }, [myUid]);
+
+  // czyścimy optimistic, gdy snapshot już "dogoni" stan
+  useEffect(() => {
+    if (!missions || !Array.isArray(missions)) return;
+    setOptimisticDone((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+
+      const next = { ...prev };
+      let changed = false;
+
+      for (const k of keys) {
+        const parts = k.split("::");
+        const id = parts[0];
+        const dk = parts[1] || null;
+
+        const m = (missions as any[]).find((x) => String(x?.id ?? "") === String(id));
+        if (!m) {
+          delete next[k];
+          changed = true;
+          continue;
+        }
+
+        if (dk) {
+          const dt = parseISODate(dk);
+          if (dt && isMissionDoneOnDate(m, dt)) {
+            delete next[k];
+            changed = true;
+          }
+        } else {
+          if (!!m.completed) {
+            delete next[k];
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [missions]);
+
+  // ✅ po zmianie dnia: przewiń na górę (to mocno poprawia “odświeżanie sekcji” UX)
+  useEffect(() => {
+    try {
+      scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+    } catch {}
+  }, [selectedDate]);
 
   /* --------------------------------------------------------- */
   /* ✅ LISTA UID-ÓW CZŁONKÓW RODZINY (do filtrów widoczności) */
@@ -1164,22 +1349,34 @@ export default function HomeScreen() {
     if (!myUid) return;
 
     const userDocRef = doc(db, "users", myUid);
-    const unsub = onSnapshot(userDocRef, (snap) => {
-      const data = snap.data() as any;
-      if (data) {
-        setUserStats({
-          level: (data.level as number | undefined) ?? 1,
-          totalExp: (data.totalExp as number | undefined) ?? 0,
-        });
 
-        const seen = !!data?.onboarding?.welcomeSeen;
-        setWelcomeModalOpen(!seen);
-        setWelcomeModalReady(true);
-      } else {
+    const unsub = onSnapshot(
+      userDocRef,
+      (snap) => {
+        const data = snap.data() as any;
+        if (data) {
+          setUserStats({
+            level: (data.level as number | undefined) ?? 1,
+            totalExp: (data.totalExp as number | undefined) ?? 0,
+          });
+
+          const seen = !!data?.onboarding?.welcomeSeen;
+          setWelcomeModalOpen(!seen);
+          setWelcomeModalReady(true);
+        } else {
+          setWelcomeModalOpen(true);
+          setWelcomeModalReady(true);
+        }
+      },
+      (err) => {
+        console.error("🟥 users/{uid} onSnapshot error:", err?.code, err?.message, err);
+
+        // żeby UI nie wywalało overlay’a na twarz
+        setUserStats({ level: 1, totalExp: 0 });
         setWelcomeModalOpen(true);
         setWelcomeModalReady(true);
       }
-    });
+    );
 
     return unsub;
   }, [myUid]);
@@ -1327,20 +1524,28 @@ export default function HomeScreen() {
 
   const missionsForDaySorted = useMemo(() => {
     const list = [...missionsForDay];
+
+    // ✅ ważne: do SORTOWANIA trzymamy świeżo odkliknięte misje "na miejscu" przez ~900ms
+    const isDoneForSort = (m: any) => {
+      const k = makeDoneKey(m, selectedDate);
+      if (k && holdSort[k]) return false; // hold = traktuj jak "nie-done" tylko do sortu
+      return isMissionDoneOnDateUI(m, selectedDate);
+    };
+
     list.sort((a, b) => {
-      const ac = isMissionDoneOnDate(a, selectedDate) ? 1 : 0;
-      const bc = isMissionDoneOnDate(b, selectedDate) ? 1 : 0;
+      const ac = isDoneForSort(a) ? 1 : 0;
+      const bc = isDoneForSort(b) ? 1 : 0;
       if (ac !== bc) return ac - bc;
       const ae = (a.expValue ?? 0) as number;
       const be = (b.expValue ?? 0) as number;
       return be - ae;
     });
     return list;
-  }, [missionsForDay, selectedDate]);
+  }, [missionsForDay, selectedDate, isMissionDoneOnDateUI, makeDoneKey, holdSort]);
 
   const hasCompletedMissionOnDate = (date: Date) => {
     const list = filterMissionsForDate(visibleMissions, date);
-    return list.some((m) => isMissionDoneOnDate(m, date));
+    return list.some((m) => isMissionDoneOnDateUI(m, date));
   };
 
   const streak = useMemo(() => {
@@ -1350,7 +1555,7 @@ export default function HomeScreen() {
 
     for (let i = 0; i < MAX_DAYS; i++) {
       const list = filterMissionsForDate(visibleMissions, cursor);
-      const anyCompleted = list.some((m) => isMissionDoneOnDate(m, cursor));
+      const anyCompleted = list.some((m) => isMissionDoneOnDateUI(m, cursor));
 
       if (!anyCompleted) break;
 
@@ -1359,7 +1564,7 @@ export default function HomeScreen() {
     }
 
     return count;
-  }, [visibleMissions, today]);
+  }, [visibleMissions, today, isMissionDoneOnDateUI]);
 
   /* --------------------------------------------------------- */
   /* ---------------------- HUD METRICS ----------------------- */
@@ -1410,10 +1615,10 @@ export default function HomeScreen() {
 
   const dayEarned = useMemo(() => {
     return missionsForDaySorted.reduce((acc, m) => {
-      if (!isMissionDoneOnDate(m, selectedDate)) return acc;
+      if (!isMissionDoneOnDateUI(m, selectedDate)) return acc;
       return acc + ((m.expValue as number | undefined) ?? 0);
     }, 0);
-  }, [missionsForDaySorted, selectedDate]);
+  }, [missionsForDaySorted, selectedDate, isMissionDoneOnDateUI]);
 
   const dayPossible = useMemo(() => {
     return missionsForDaySorted.reduce((acc, m) => acc + ((m.expValue as number | undefined) ?? 0), 0);
@@ -1429,23 +1634,48 @@ export default function HomeScreen() {
       return;
     }
 
-    const alreadyDone = isMissionDoneOnDate(mission, selectedDate);
-    if (alreadyDone) {
-      // @ts-ignore
-      window.alert("To zadanie jest już oznaczone jako wykonane ✅");
-      return;
-    }
+    const alreadyDone = isMissionDoneOnDateUI(mission, selectedDate);
+    if (alreadyDone) return; // ✅ już wykonane = nic nie rób (bez spamu alertami)
 
-    const isTodaySelected = isSameDay(selectedDate, new Date());
+    // ✅ nie róbmy porównań na "new Date()" w środku — używamy today (startOfDay)
+    const isTodaySelected = isSameDay(selectedDate, today);
     if (!isTodaySelected) {
       setTimeTravelDialogOpen(true);
       return;
     }
 
+    // ✅ OPTIMISTIC: od razu ustawiamy done w UI
+    const doneKey = makeDoneKey(mission, selectedDate);
+    if (doneKey) {
+      setOptimisticDone((prev) => (prev[doneKey] ? prev : { ...prev, [doneKey]: true }));
+
+      // ✅ HOLD: utrzymaj pozycję w liście na chwilę (żeby user zobaczył ✅ + EXP)
+      const expiresAt = Date.now() + COMPLETE_PREVIEW_MS;
+      setHoldSort((prev) => ({ ...prev, [doneKey]: expiresAt }));
+
+      if (holdTimersRef.current[doneKey]) {
+        try {
+          clearTimeout(holdTimersRef.current[doneKey]);
+        } catch {}
+      }
+
+      holdTimersRef.current[doneKey] = setTimeout(() => {
+        setHoldSort((prev) => {
+          if (!prev[doneKey]) return prev;
+          const next = { ...prev };
+          delete next[doneKey];
+          return next;
+        });
+        try {
+          delete holdTimersRef.current[doneKey];
+        } catch {}
+      }, COMPLETE_PREVIEW_MS);
+    }
+
     const doUpdate = async () => {
       try {
         const repeat = mission?.repeat?.type ?? "none";
-        const todayKey = formatDateKey(new Date());
+        const todayKey = formatDateKey(today);
 
         const byUserId = myUid ?? null;
         const byName = myDisplayName || "Ty";
@@ -1474,14 +1704,41 @@ export default function HomeScreen() {
         });
       } catch (err: any) {
         console.error("🟥 COMPLETE ERROR:", err?.code, err?.message, err);
+
+        // ✅ rollback optimistic + hold jeśli zapis nie wyjdzie
+        if (doneKey) {
+          setOptimisticDone((prev) => {
+            if (!prev[doneKey]) return prev;
+            const next = { ...prev };
+            delete next[doneKey];
+            return next;
+          });
+
+          setHoldSort((prev) => {
+            if (!prev[doneKey]) return prev;
+            const next = { ...prev };
+            delete next[doneKey];
+            return next;
+          });
+
+          if (holdTimersRef.current[doneKey]) {
+            try {
+              clearTimeout(holdTimersRef.current[doneKey]);
+            } catch {}
+            try {
+              delete holdTimersRef.current[doneKey];
+            } catch {}
+          }
+        }
+
         alert("Błąd podczas oznaczania jako wykonane.");
       }
     };
 
     if (anim) {
       Animated.sequence([
-        Animated.timing(anim, { toValue: 0.94, duration: 120, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.94, duration: 120, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(anim, { toValue: 1, duration: 120, useNativeDriver: USE_NATIVE_DRIVER }),
       ]).start(() => doUpdate());
     } else {
       doUpdate();
@@ -1553,13 +1810,21 @@ export default function HomeScreen() {
     }
   };
 
+  const webConfirm = (msg: string) => {
+    try {
+      // @ts-ignore
+      return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(msg) : true;
+    } catch {
+      return true;
+    }
+  };
+
   const handleDelete = (mission: any) => {
     const isRepeating = mission?.repeat?.type && mission.repeat.type !== "none";
     const dateKey = formatDateKey(selectedDate);
 
     if (!isRepeating) {
-      // @ts-ignore
-      const ok = window.confirm("Czy na pewno chcesz usunąć to zadanie?");
+      const ok = webConfirm("Czy na pewno chcesz usunąć to zadanie?");
       if (ok) deleteSeries(mission);
       return;
     }
@@ -1815,6 +2080,13 @@ export default function HomeScreen() {
     } catch {}
   };
 
+  // ✅ token do wymuszenia re-measure w tourze (zmiana dnia / lista / pierwszy checkbox)
+  const tourRefreshToken = useMemo(() => {
+    const firstId = missionsForDaySorted?.[0]?.id ?? "none";
+    const len = missionsForDaySorted?.length ?? 0;
+    return `${formatDateKey(selectedDate)}|${firstId}|${len}`;
+  }, [selectedDate, missionsForDaySorted]);
+
   /* --------------------------------------------------------- */
   /* -------------------------- FOOTER ------------------------ */
   /* --------------------------------------------------------- */
@@ -1880,7 +2152,7 @@ export default function HomeScreen() {
           </View>
 
           <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", marginTop: 10, textAlign: "center" }}>
-            © {new Date().getFullYear()} MissionHome — wszystkie prawa zastrzeżone
+            © {new Date().getFullYear()} MissionHome - wszystkie prawa zastrzeżone
           </Text>
         </View>
       </View>
@@ -1895,7 +2167,17 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View ref={screenRef} style={{ flex: 1 }}>
         {/* tło: “orby” */}
-        <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
+        <View
+          style={{
+            ...({ pointerEvents: "none" } as any), // ✅ RNW: pointerEvents prop deprecated
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 0,
+          }}
+        >
           <View
             style={{
               position: "absolute",
@@ -1959,6 +2241,7 @@ export default function HomeScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1, zIndex: 1 }}
           contentContainerStyle={{
             flexGrow: 1,
@@ -2419,7 +2702,7 @@ export default function HomeScreen() {
                 const creator = getCreatorMember(m);
                 const diff = getDifficultyLabel(m);
                 const expProgress = getExpProgress(m);
-                const isDone = isMissionDoneOnDate(m, selectedDate);
+                const isDone = isMissionDoneOnDateUI(m, selectedDate);
                 const expValue = (m.expValue ?? 0) as number;
 
                 const samePersonAssignedAndCreator = creator && assigned ? isSameMember(assigned, creator) : false;
@@ -2472,15 +2755,20 @@ export default function HomeScreen() {
                           }}
                         >
                           <TouchableOpacity
-                            onPress={() => {
+                            disabled={isDone}
+                            onPress={async () => {
+                              if (!m.id) return;
+
                               const node = checkboxRefs.current[m.id];
-                              if (node && node.measureInWindow) {
-                                node.measureInWindow((x: number, y: number, width: number, height: number) => {
-                                  const cx = x + width / 2;
-                                  const cy = y + height / 2;
-                                  triggerFirework(m.id, cx, cy);
-                                  handleComplete({ ...m }, rowAnim);
-                                });
+                              const [rect, screenRect] = await Promise.all([measureRect(node), measureRect(screenRef.current)]);
+                              const offX = screenRect?.x ?? 0;
+                              const offY = screenRect?.y ?? 0;
+
+                              if (rect) {
+                                const cx = rect.x - offX + rect.width / 2;
+                                const cy = rect.y - offY + rect.height / 2;
+                                triggerFirework(m.id, cx, cy);
+                                handleComplete({ ...m }, rowAnim);
                               } else {
                                 triggerFirework(m.id, 200, 200);
                                 handleComplete({ ...m }, rowAnim);
@@ -2495,7 +2783,8 @@ export default function HomeScreen() {
                               borderWidth: 1,
                               borderColor: isDone ? "#22c55e77" : colors.border,
                               backgroundColor: isDone ? "#22c55e18" : colors.bg,
-                              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                              opacity: isDone ? 0.8 : 1,
+                              ...(Platform.OS === "web" ? ({ cursor: isDone ? "default" : "pointer" } as any) : null),
                             }}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                           >
@@ -2779,6 +3068,7 @@ export default function HomeScreen() {
           getScreenNode={() => screenRef.current}
           onClose={closeTour}
           onFinish={finishTour}
+          refreshToken={tourRefreshToken}
         />
 
         {/* WEB modal do usuwania zadań cyklicznych */}
@@ -2950,7 +3240,17 @@ export default function HomeScreen() {
 
         {/* 🔥 fajerwerki */}
         {!tourOpen && fireworkParticles.length > 0 && (
-          <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
+          <View
+            style={{
+              ...({ pointerEvents: "none" } as any), // ✅ RNW: pointerEvents prop deprecated
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+            }}
+          >
             {fireworkParticles.map((p) => (
               <Animated.View
                 key={p.id}

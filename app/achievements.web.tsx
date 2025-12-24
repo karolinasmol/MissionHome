@@ -1,5 +1,5 @@
 // app/stats.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   Image,
   ActivityIndicator,
   useWindowDimensions,
+  Animated,
+  Easing,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -217,7 +219,7 @@ const ACHIEVEMENTS: Achievement[] = [
 
 function progressFor(stats: MHStats, a: Achievement) {
   const progress = Math.max(0, Math.floor(num(stats[a.statKey])));
-  let tierIndex = 0; // zdobyte tery (0..len)
+  let tierIndex = 0;
   let currentThreshold = 0;
   let nextThreshold: number | null = null;
 
@@ -269,6 +271,35 @@ function computeNextTier(a: Achievement, p: ReturnType<typeof progressFor>) {
 }
 
 /* =========================
+   Czytelne etykiety licznika (“wartość”)
+========================= */
+
+function statMeta(statKey: StatKey) {
+  switch (statKey) {
+    case "missionsCompletedTotal":
+      return { label: "Wykonane", icon: "checkmark-done-outline" as const };
+    case "totalExp":
+      return { label: "EXP", icon: "flash-outline" as const };
+    case "streakDays":
+      return { label: "Dni z rzędu", icon: "flame-outline" as const };
+    case "missionsCreatedTotal":
+      return { label: "Utworzone", icon: "create-outline" as const };
+    case "hardCompletedTotal":
+      return { label: "Hardy", icon: "skull-outline" as const };
+    case "missionsCompletedForOthers":
+      return { label: "Dla innych", icon: "hand-left-outline" as const };
+    case "missionsCompletedOnTime":
+      return { label: "Na czas", icon: "time-outline" as const };
+    case "missionsCompletedWeek":
+      return { label: "W tym tyg.", icon: "calendar-outline" as const };
+    case "missionsCompletedMonth":
+      return { label: "W tym mies.", icon: "calendar-number-outline" as const };
+    default:
+      return { label: "Licznik", icon: "stats-chart-outline" as const };
+  }
+}
+
+/* =========================
    Obrazki rang
 ========================= */
 
@@ -299,7 +330,7 @@ function AchievementImage({
         style={{
           width: size,
           height: size,
-          borderRadius: 14,
+          borderRadius: 16,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.accent + "18",
@@ -318,7 +349,7 @@ function AchievementImage({
       style={{
         width: size,
         height: size,
-        borderRadius: 14,
+        borderRadius: 16,
         resizeMode: "cover",
       }}
     />
@@ -328,6 +359,68 @@ function AchievementImage({
 /* =========================
    UI Bits
 ========================= */
+
+function softShadow(colors: any) {
+  const native =
+    Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOpacity: 0.16,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 10 },
+        }
+      : Platform.OS === "android"
+      ? { elevation: 4 }
+      : null;
+
+  const web =
+    Platform.OS === "web"
+      ? ({
+          boxShadow: "0 14px 34px rgba(0,0,0,0.18)",
+        } as any)
+      : null;
+
+  return {
+    ...(native as any),
+    ...(web as any),
+    borderColor: colors.border,
+  };
+}
+
+function GlassCard({
+  children,
+  colors,
+  style,
+}: {
+  children: React.ReactNode;
+  colors: any;
+  style?: any;
+}) {
+  const webGlass =
+    Platform.OS === "web"
+      ? ({
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+        } as any)
+      : null;
+
+  return (
+    <View
+      style={[
+        styles.cardBase,
+        {
+          backgroundColor: Platform.OS === "web" ? colors.card + "E6" : colors.card,
+          ...softShadow(colors),
+        },
+        webGlass as any,
+        style,
+      ]}
+    >
+      <View pointerEvents="none" style={[styles.cardTopLine, { backgroundColor: colors.accent + "55" }]} />
+      {children}
+    </View>
+  );
+}
 
 function Pill({
   colors,
@@ -344,15 +437,15 @@ function Pill({
     tone === "orange"
       ? "#f973161a"
       : tone === "muted"
-      ? colors.border + "22"
-      : colors.accent + "1a";
+      ? colors.border + "18"
+      : colors.accent + "16";
 
   const border =
     tone === "orange"
       ? "#f9731677"
       : tone === "muted"
-      ? colors.border + "55"
-      : colors.accent + "66";
+      ? colors.border + "4F"
+      : colors.accent + "55";
 
   const fg =
     tone === "orange" ? "#f97316" : tone === "muted" ? colors.textMuted : colors.accent;
@@ -382,13 +475,14 @@ function ProgressBar({
       style={[
         ui.progressTrack,
         {
-          height: compact ? 8 : 12,
+          height: compact ? 9 : 12,
           borderColor: colors.border,
           backgroundColor: colors.cardSoft || colors.bg,
         },
       ]}
     >
       <View style={[ui.progressFill, { width: `${pct}%`, backgroundColor: colors.accent }]} />
+      <View pointerEvents="none" style={[ui.progressShine, { backgroundColor: "#fff", opacity: 0.08 }]} />
     </View>
   );
 }
@@ -413,8 +507,9 @@ function TierSegments({
             style={[
               ui.seg,
               {
-                backgroundColor: on ? colors.accent : colors.border + "55",
-                borderColor: on ? colors.accent : colors.border + "99",
+                backgroundColor: on ? colors.accent : colors.border + "40",
+                borderColor: on ? colors.accent : colors.border + "88",
+                opacity: on ? 1 : 0.9,
               },
             ]}
           />
@@ -433,8 +528,8 @@ function MiniChip({
   colors: any;
   tone?: "muted" | "accent";
 }) {
-  const bg = tone === "accent" ? colors.accent + "18" : colors.border + "20";
-  const border = tone === "accent" ? colors.accent + "55" : colors.border + "55";
+  const bg = tone === "accent" ? colors.accent + "14" : colors.border + "16";
+  const border = tone === "accent" ? colors.accent + "4F" : colors.border + "44";
   const fg = tone === "accent" ? colors.accent : colors.textMuted;
 
   return (
@@ -461,7 +556,11 @@ function Header({
 }) {
   return (
     <View style={[header.wrap, stacked && header.wrapStack]}>
-      <TouchableOpacity onPress={onBack} activeOpacity={0.85} style={header.backBtn}>
+      <TouchableOpacity
+        onPress={onBack}
+        activeOpacity={0.85}
+        style={[header.backBtn, { borderColor: colors.border, backgroundColor: colors.cardSoft || "transparent" }]}
+      >
         <Ionicons name="arrow-back" size={18} color={colors.text} />
         <Text style={[header.backText, { color: colors.text }]}>Powrót</Text>
       </TouchableOpacity>
@@ -480,7 +579,81 @@ function Header({
         )}
       </View>
 
-      <View style={{ width: stacked ? 0 : 80 }} />
+      <View style={{ width: stacked ? 0 : 84 }} />
+    </View>
+  );
+}
+
+/* =========================
+   Pulsujący “interaktywny” wrap dla ikonek
+========================= */
+
+function PulseWrap({
+  children,
+  colors,
+  intensity = 1,
+}: {
+  children: React.ReactNode;
+  colors: any;
+  intensity?: number;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const glow = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const sUp = 1 + 0.04 * intensity;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: sUp,
+            duration: 1200,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glow, {
+            toValue: 0.62,
+            duration: 1200,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glow, {
+            toValue: 0.35,
+            duration: 1200,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, [scale, glow, intensity]);
+
+  return (
+    <View style={{ position: "relative" }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.pulseGlow,
+          {
+            backgroundColor: colors.accent + "22",
+            opacity: glow,
+            transform: [{ scale: scale }],
+            ...(Platform.OS === "web" ? ({ filter: "blur(14px)" } as any) : null),
+          },
+        ]}
+      />
+      <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>
     </View>
   );
 }
@@ -507,11 +680,16 @@ export default function StatsScreen() {
 
   const isSM = width < 520 || isMobileWeb;
   const isMD = width >= 520 && width < 980;
-  const containerMaxWidth = 1040;
 
-  const padH = isSM ? 12 : isMD ? 16 : 20;
-  const iconSize = isSM ? 40 : 44;
-  const iconWrap = isSM ? 50 : 56;
+  const containerMaxWidth = 1060;
+  const padH = isSM ? 12 : isMD ? 16 : 22;
+
+  // ✅ SZERSZE KARTY OSIĄGNIĘĆ
+  // było: const achMaxWidth = isSM ? containerMaxWidth : 880;
+  const achMaxWidth = isSM ? containerMaxWidth : isMD ? 980 : containerMaxWidth;
+
+  const iconSize = isSM ? 42 : 46;
+  const iconWrap = isSM ? 54 : 60;
 
   const { missions, loading: missionsLoading } = useMissions();
   const { members } = useFamily();
@@ -568,9 +746,7 @@ export default function StatsScreen() {
         assignedAtJs: toJsDate(
           (m as any)?.assignedAt ?? (m as any)?.assignedAtTs ?? (m as any)?.assignedDate ?? null
         ),
-        createdAtJs: toJsDate(
-          (m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate
-        ),
+        createdAtJs: toJsDate((m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate),
       }));
   }, [missions]);
 
@@ -600,10 +776,7 @@ export default function StatsScreen() {
     };
   }, [uid, familyMemberIds]);
 
-  const visibleMissions = useMemo(() => normalizedMissions.filter(isMineForStats), [
-    normalizedMissions,
-    isMineForStats,
-  ]);
+  const visibleMissions = useMemo(() => normalizedMissions.filter(isMineForStats), [normalizedMissions, isMineForStats]);
 
   const myCompleted = useMemo(() => {
     const myId = uid ? String(uid) : null;
@@ -619,26 +792,22 @@ export default function StatsScreen() {
   }, [visibleMissions, uid]);
 
   const myWeekCompleted = useMemo(
-    () =>
-      myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, weekStart, weekEnd)),
+    () => myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, weekStart, weekEnd)),
     [myCompleted, weekStart, weekEnd]
   );
 
   const myMonthCompleted = useMemo(
-    () =>
-      myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)),
+    () => myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)),
     [myCompleted, monthStart, monthEnd]
   );
 
-  const weekExp = useMemo(
-    () => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
-    [myWeekCompleted]
-  );
+  const weekExp = useMemo(() => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0), [
+    myWeekCompleted,
+  ]);
 
-  const monthExp = useMemo(
-    () => myMonthCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
-    [myMonthCompleted]
-  );
+  const monthExp = useMemo(() => myMonthCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0), [
+    myMonthCompleted,
+  ]);
 
   const totalCompleted = myCompleted.length;
 
@@ -686,7 +855,10 @@ export default function StatsScreen() {
     myCompleted.forEach((m: any) => {
       const d: Date | null = m.completedAtJs;
       if (!d) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(
+        2,
+        "0"
+      )}`;
       byDay.add(key);
     });
 
@@ -697,7 +869,9 @@ export default function StatsScreen() {
     let cursor = new Date(today);
 
     for (let i = 0; i < 365 * 2; i++) {
-      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(
+        cursor.getDate()
+      ).padStart(2, "0")}`;
       if (!byDay.has(key)) break;
 
       count++;
@@ -739,29 +913,27 @@ export default function StatsScreen() {
     return base.trim()?.[0]?.toUpperCase() || "U";
   }, [myDisplayName, auth.currentUser?.email]);
 
-  const levelPack = useMemo(
-    () => computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1),
-    [userDoc?.totalExp, userDoc?.level]
-  );
+  const levelPack = useMemo(() => computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1), [
+    userDoc?.totalExp,
+    userDoc?.level,
+  ]);
 
   const busy = missionsLoading || userLoading;
-
-  // ✅ blur na web jak w index/ranking
   const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      {/* 🔥 TŁO: orby/gradienty jak w index.tsx */}
+      {/* TŁO */}
       <View pointerEvents="none" style={styles.bgOrbs}>
         <View
           style={{
             position: "absolute",
-            width: 320,
-            height: 320,
+            width: 340,
+            height: 340,
             borderRadius: 999,
-            backgroundColor: colors.accent + "28",
-            top: -150,
-            left: -120,
+            backgroundColor: colors.accent + "26",
+            top: -160,
+            left: -140,
             opacity: 1,
             ...(orbBlur as any),
           }}
@@ -769,47 +941,47 @@ export default function StatsScreen() {
         <View
           style={{
             position: "absolute",
-            width: 260,
-            height: 260,
+            width: 280,
+            height: 280,
             borderRadius: 999,
-            backgroundColor: "#22c55e22",
-            top: -90,
-            right: -120,
+            backgroundColor: "#22c55e20",
+            top: -110,
+            right: -140,
             ...(orbBlur as any),
           }}
         />
         <View
           style={{
             position: "absolute",
-            width: 220,
-            height: 220,
+            width: 240,
+            height: 240,
             borderRadius: 999,
-            backgroundColor: "#a855f720",
+            backgroundColor: "#a855f71c",
             top: 210,
-            left: -90,
+            left: -110,
             ...(orbBlur as any),
           }}
         />
         <View
           style={{
             position: "absolute",
-            width: 300,
-            height: 300,
+            width: 320,
+            height: 320,
             borderRadius: 999,
-            backgroundColor: "#0ea5e920",
-            top: 420,
-            right: -150,
+            backgroundColor: "#0ea5e91c",
+            top: 440,
+            right: -170,
             ...(orbBlur as any),
           }}
         />
         <View
           style={{
             position: "absolute",
-            width: 180,
-            height: 180,
+            width: 200,
+            height: 200,
             borderRadius: 999,
-            backgroundColor: "#f9731620",
-            top: 720,
+            backgroundColor: "#f973161a",
+            top: 760,
             left: 40,
             ...(orbBlur as any),
           }}
@@ -818,10 +990,7 @@ export default function StatsScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingHorizontal: padH, maxWidth: containerMaxWidth },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingHorizontal: padH, maxWidth: containerMaxWidth }]}
         style={{ zIndex: 1 }}
       >
         <Header
@@ -832,44 +1001,54 @@ export default function StatsScreen() {
           stacked={isSM}
         />
 
-        {/* HERO CARD */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {/* HERO */}
+        <GlassCard colors={colors}>
           <View style={[styles.heroRow, isSM && styles.heroRowStack]}>
             {/* PROFILE */}
-            <View
-              style={[
-                styles.profileBox,
-                { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg },
-              ]}
-            >
-              {myPhotoURL ? (
-                <Image
-                  source={{ uri: myPhotoURL }}
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: colors.bg, width: isSM ? 52 : 58, height: isSM ? 52 : 58 },
-                  ]}
-                />
-              ) : (
+            <View style={[styles.profileBox, { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg }]}>
+              <View style={styles.avatarCol}>
                 <View
+                  pointerEvents="none"
                   style={[
-                    styles.avatar,
+                    styles.avatarGlow,
                     {
-                      width: isSM ? 52 : 58,
-                      height: isSM ? 52 : 58,
-                      backgroundColor: colors.accent + "1a",
-                      borderColor: colors.accent + "55",
-                      borderWidth: 1,
-                      alignItems: "center",
-                      justifyContent: "center",
+                      backgroundColor: colors.accent + "22",
+                      ...(Platform.OS === "web" ? ({ filter: "blur(16px)" } as any) : null),
                     },
                   ]}
-                >
-                  <Text style={{ color: colors.accent, fontSize: isSM ? 20 : 22, fontWeight: "900" }}>
-                    {myInitial}
-                  </Text>
-                </View>
-              )}
+                />
+                {myPhotoURL ? (
+                  <Image
+                    source={{ uri: myPhotoURL }}
+                    style={[
+                      styles.avatar,
+                      {
+                        backgroundColor: colors.bg,
+                        width: isSM ? 54 : 60,
+                        height: isSM ? 54 : 60,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatar,
+                      {
+                        width: isSM ? 54 : 60,
+                        height: isSM ? 54 : 60,
+                        backgroundColor: colors.accent + "14",
+                        borderColor: colors.accent + "55",
+                        borderWidth: 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: colors.accent, fontSize: isSM ? 20 : 22, fontWeight: "900" }}>{myInitial}</Text>
+                  </View>
+                )}
+              </View>
 
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.name, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
@@ -879,13 +1058,20 @@ export default function StatsScreen() {
                     ? auth.currentUser.email.split("@")[0]
                     : myInitial}
                 </Text>
-                <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
-                  Statystyki użytkownika
-                </Text>
+
+                <View style={styles.profileSubRow}>
+                  <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
+                    Statystyki użytkownika
+                  </Text>
+                  <View style={[styles.dot, { backgroundColor: colors.border }]} />
+                  <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
+                    {totalCompleted} zadań
+                  </Text>
+                </View>
               </View>
             </View>
 
-            {/* LEVEL + STATS */}
+            {/* LEVEL */}
             <View style={{ flex: 1, minWidth: 0 }}>
               {busy ? (
                 <View style={{ paddingVertical: 18 }}>
@@ -894,9 +1080,14 @@ export default function StatsScreen() {
               ) : (
                 <>
                   <View style={styles.levelTop}>
-                    <Text style={[styles.levelTitle, { color: colors.text }]} numberOfLines={1}>
-                      Poziom {levelPack.level}
-                    </Text>
+                    <View style={{ minWidth: 0, flexShrink: 1 }}>
+                      <Text style={[styles.levelTitle, { color: colors.text }]} numberOfLines={1}>
+                        Poziom {levelPack.level}
+                      </Text>
+                      <Text style={[styles.levelMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        EXP w poziomie: {levelPack.into}/{levelPack.span} • Suma: {levelPack.exp}
+                      </Text>
+                    </View>
 
                     <Pill
                       colors={colors}
@@ -905,10 +1096,6 @@ export default function StatsScreen() {
                       tone="muted"
                     />
                   </View>
-
-                  <Text style={[styles.sub, { color: colors.textMuted, marginBottom: 8 }]} numberOfLines={1}>
-                    EXP w poziomie: {levelPack.into}/{levelPack.span} • Suma: {levelPack.exp}
-                  </Text>
 
                   <ProgressBar value={levelPack.pct} colors={colors} />
 
@@ -921,117 +1108,167 @@ export default function StatsScreen() {
               )}
             </View>
           </View>
+        </GlassCard>
+
+        <View style={styles.sectionHead}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Twoje osiągnięcia</Text>
+          <View style={[styles.sectionBadge, { backgroundColor: colors.border + "18", borderColor: colors.border + "44" }]}>
+            <Ionicons name="trophy-outline" size={14} color={colors.textMuted} />
+            <Text style={[styles.sectionBadgeText, { color: colors.textMuted }]}>{ACHIEVEMENTS.length} kategorii</Text>
+          </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Twoje osiągnięcia</Text>
-
+        {/* LIST */}
         <View style={styles.list}>
           {ACHIEVEMENTS.map((a) => {
             const p = progressFor(mhStats, a);
             const n = computeNextTier(a, p);
 
             const currentTierName =
-              p.tierIndex <= 0
-                ? "—"
-                : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
+              p.tierIndex <= 0 ? "—" : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
 
             const barMax = p.nextThreshold ?? p.currentThreshold;
             const barPct = percent(p.progress, barMax);
 
-            const progressLabel =
-              p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
+            const progressLabel = p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
+
+            const isMaxed = !n.hasNext;
+            const railColor = isMaxed ? "#22c55e" : colors.accent;
+
+            const meta = statMeta(a.statKey);
 
             return (
               <View
                 key={a.id}
                 style={[
                   styles.achCard,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                  isSM && { padding: 12 },
+                  {
+                    backgroundColor: Platform.OS === "web" ? colors.card + "E6" : colors.card,
+                    borderColor: colors.border,
+                    ...(softShadow(colors) as any),
+                    maxWidth: achMaxWidth,
+                    alignSelf: "center",
+                  },
+                  Platform.OS === "web"
+                    ? ({
+                        backdropFilter: "blur(10px)",
+                        WebkitBackdropFilter: "blur(10px)",
+                      } as any)
+                    : null,
                 ]}
               >
+                {/* Accent rail */}
+                <View pointerEvents="none" style={[styles.achRail, { backgroundColor: railColor + "55", borderColor: railColor + "66" }]} />
+
                 <View style={styles.achRow}>
+                  {/* ICON */}
                   <View
                     style={[
                       styles.iconWrap,
                       {
-                        width: iconWrap,
-                        height: iconWrap,
+                        width: isSM ? 56 : 62,
+                        height: isSM ? 56 : 62,
                         borderColor: colors.border,
-                        backgroundColor: colors.accent + "0f",
+                        backgroundColor: colors.accent + "0E",
                       },
                     ]}
                   >
-                    <AchievementImage id={a.id} colors={{ ...colors }} size={iconSize} />
+                    <PulseWrap colors={colors} intensity={isMaxed ? 0.7 : 1.2}>
+                      <AchievementImage id={a.id} colors={{ ...colors }} size={isSM ? 44 : 48} />
+                    </PulseWrap>
+
+                    <View
+                      style={[
+                        styles.cornerBadge,
+                        {
+                          backgroundColor: isMaxed ? "#22c55e22" : colors.accent + "1A",
+                          borderColor: isMaxed ? "#22c55e66" : colors.accent + "55",
+                        },
+                      ]}
+                    >
+                      <Ionicons name={isMaxed ? "checkmark" : "sparkles-outline"} size={12} color={isMaxed ? "#22c55e" : colors.accent} />
+                    </View>
                   </View>
 
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    {/* HEADER */}
-                    <View style={styles.achHeaderRow}>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
-                          {a.label}
-                        </Text>
-                        <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
-                          {a.description}
-                        </Text>
-                      </View>
-
-                      <View style={styles.valueBox}>
-                        <Text style={[styles.valueNum, { color: colors.text }]} numberOfLines={1}>
-                          {p.progress}
-                        </Text>
-                        <Text style={[styles.valueSub, { color: colors.textMuted }]} numberOfLines={1}>
-                          wartość
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* CHIPS */}
-                    <View style={styles.chipsRow}>
-                      <MiniChip label={`Tytuł: ${currentTierName}`} colors={colors} tone="muted" />
-                      <MiniChip
-                        label={`Tier: ${p.tierIndex}/${a.thresholds.length}`}
-                        colors={colors}
-                        tone="accent"
-                      />
-                    </View>
-
-                    {/* NEXT INFO */}
-                    <View style={styles.nextRow}>
-                      {n.hasNext ? (
-                        <>
-                          <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
-                            Kolejny tytuł:{" "}
-                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextTierName}</Text>
+                  {/* CONTENT */}
+                  <View style={[styles.achContentRow, isSM && styles.achContentRowStack]}>
+                    {/* LEFT */}
+                    <View style={styles.achMainCol}>
+                      <View style={styles.achHeaderRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
+                            {a.label}
                           </Text>
-                          <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
-                            Następny próg:{" "}
-                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextThreshold}</Text>{" "}
-                            • Brakuje:{" "}
-                            <Text style={{ color: colors.text, fontWeight: "900" }}>{n.remaining}</Text>
+                          <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
+                            {a.description}
                           </Text>
-                        </>
-                      ) : (
-                        <Text style={[styles.nextText, { color: colors.textMuted }]} numberOfLines={1}>
-                          Wszystkie progi zdobyte ✅
-                        </Text>
-                      )}
-                    </View>
+                        </View>
 
-                    {/* PROGRESS */}
-                    <View style={{ marginTop: 10 }}>
-                      <View style={styles.progressRow}>
-                        <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
-                          Postęp: {progressLabel}
-                        </Text>
+                        <View style={styles.valueBox}>
+                          <Text style={[styles.valueNum, { color: colors.text }]} numberOfLines={1}>
+                            {p.progress}
+                          </Text>
+                          <View style={styles.valueSubRow}>
+                            <Ionicons name={meta.icon} size={13} color={colors.textMuted} />
+                            <Text style={[styles.valueSub, { color: colors.textMuted }]} numberOfLines={1}>
+                              {meta.label}
+                            </Text>
+                          </View>
+                        </View>
                       </View>
 
-                      <ProgressBar value={barPct} colors={colors} compact />
+                      <View style={styles.chipsRow}>
+                        <MiniChip label={`Tytuł: ${currentTierName}`} colors={colors} tone="muted" />
+                        <MiniChip label={`Tier: ${p.tierIndex}/${a.thresholds.length}`} colors={colors} tone="accent" />
+                      </View>
+                    </View>
 
-                      {/* ✅ zamiast kropek po boku: segmenty pod paskiem */}
+                    {/* RIGHT */}
+                    <View
+                      style={[
+                        styles.achMetaCol,
+                        isSM ? { borderTopColor: colors.border + "55" } : { borderLeftColor: colors.border + "55" },
+                      ]}
+                    >
+                      <View style={styles.metaTopRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          {n.hasNext ? (
+                            <>
+                              <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                                Kolejny tytuł: <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextTierName}</Text>
+                              </Text>
+                              <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                                Próg: <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextThreshold}</Text> • Brakuje:{" "}
+                                <Text style={{ color: colors.text, fontWeight: "900" }}>{n.remaining}</Text>
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                              Wszystkie progi zdobyte ✅
+                            </Text>
+                          )}
+                        </View>
+
+                        <View style={[styles.kpiPill, { borderColor: colors.border, backgroundColor: colors.border + "12" }]}>
+                          <Ionicons name="speedometer-outline" size={14} color={colors.textMuted} />
+                          <Text style={[styles.kpiText, { color: colors.textMuted }]} numberOfLines={1}>
+                            {barPct}%
+                          </Text>
+                        </View>
+                      </View>
+
                       <View style={{ marginTop: 10 }}>
-                        <TierSegments total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+                        <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                          Postęp ({meta.label}): {progressLabel}
+                        </Text>
+
+                        <View style={{ marginTop: 8 }}>
+                          <ProgressBar value={barPct} colors={colors} compact />
+                        </View>
+
+                        <View style={{ marginTop: 10 }}>
+                          <TierSegments total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -1073,10 +1310,20 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
 
-  card: {
+  cardBase: {
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 22,
+    padding: 16,
+    overflow: "hidden",
+  },
+  cardTopLine: {
+    position: "absolute",
+    top: 0,
+    left: 14,
+    right: 14,
+    height: 2,
+    borderRadius: 999,
+    opacity: 0.85,
   },
 
   heroRow: {
@@ -1095,18 +1342,48 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    maxWidth: 360,
+    maxWidth: 380,
+    overflow: "hidden",
+  },
+
+  avatarCol: {
+    position: "relative",
+  },
+  avatarGlow: {
+    position: "absolute",
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    top: 4,
+    left: 4,
   },
 
   avatar: {
-    borderRadius: 16,
+    borderRadius: 18,
+    borderWidth: 1,
   },
 
   name: {
     fontSize: 15,
     fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+
+  profileSubRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  dot: {
+    width: 4,
+    height: 4,
+    borderRadius: 999,
+    opacity: 0.9,
   },
 
   sub: {
@@ -1116,11 +1393,11 @@ const styles = StyleSheet.create({
 
   levelTop: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
     minWidth: 0,
-    marginBottom: 4,
+    marginBottom: 8,
   },
 
   levelTitle: {
@@ -1128,20 +1405,50 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     flexShrink: 1,
     minWidth: 0,
+    letterSpacing: 0.2,
+  },
+
+  levelMeta: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.92,
+    marginTop: 4,
   },
 
   pillsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 10,
+    marginTop: 12,
+  },
+
+  sectionHead: {
+    marginTop: 14,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
 
   sectionTitle: {
     fontSize: 18,
     fontWeight: "900",
-    marginTop: 14,
-    marginBottom: 10,
+    letterSpacing: 0.2,
+  },
+
+  sectionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  sectionBadgeText: {
+    fontSize: 11,
+    fontWeight: "900",
   },
 
   list: {
@@ -1150,21 +1457,91 @@ const styles = StyleSheet.create({
 
   achCard: {
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 22,
+    padding: 12,
+    overflow: "hidden",
+    width: "100%",
+  },
+
+  achRail: {
+    position: "absolute",
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 4,
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    opacity: 0.95,
   },
 
   achRow: {
     flexDirection: "row",
     gap: 12,
+    alignItems: "flex-start",
   },
 
   iconWrap: {
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    position: "relative",
+    overflow: "hidden",
+  },
+
+  cornerBadge: {
+    position: "absolute",
+    right: 6,
+    top: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pulseGlow: {
+    position: "absolute",
+    left: -10,
+    right: -10,
+    top: -10,
+    bottom: -10,
+    borderRadius: 999,
+  },
+
+  achContentRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "stretch",
+  },
+  achContentRowStack: {
+    flexDirection: "column",
+  },
+
+  achMainCol: {
+    flex: 1.05,
+    minWidth: 0,
+  },
+
+  achMetaCol: {
+    flex: 0.95,
+    minWidth: 0,
+    paddingLeft: 12,
+    borderLeftWidth: 1,
+    paddingTop: 0,
+  },
+
+  metaTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
   },
 
   achHeaderRow: {
@@ -1179,29 +1556,39 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     flexShrink: 1,
     minWidth: 0,
+    letterSpacing: 0.15,
   },
 
   achDesc: {
     fontSize: 12,
     fontWeight: "800",
     opacity: 0.95,
-    marginTop: 3,
+    marginTop: 4,
+    lineHeight: 16,
   },
 
   valueBox: {
     alignItems: "flex-end",
     flexShrink: 0,
-    minWidth: 64,
+    minWidth: 92,
   },
 
   valueNum: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "900",
+    letterSpacing: 0.1,
+  },
+
+  valueSubRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
 
   valueSub: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "900",
   },
 
   chipsRow: {
@@ -1211,28 +1598,31 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
-  nextRow: {
-    marginTop: 8,
-    gap: 2,
-  },
-
-  nextText: {
+  metaText: {
     fontSize: 12,
     fontWeight: "800",
-  },
-
-  progressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 8,
-    flexWrap: "wrap",
+    lineHeight: 16,
   },
 
   progressLabel: {
     fontSize: 12,
     fontWeight: "800",
+  },
+
+  kpiPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+
+  kpiText: {
+    fontSize: 11,
+    fontWeight: "900",
   },
 });
 
@@ -1247,19 +1637,21 @@ const header = StyleSheet.create({
   wrapStack: {
     flexDirection: "column",
     alignItems: "flex-start",
-    gap: 6,
+    gap: 8,
   },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   backText: {
     fontWeight: "900",
     fontSize: 14,
+    letterSpacing: 0.1,
   },
   titleCol: {
     flex: 1,
@@ -1270,13 +1662,15 @@ const header = StyleSheet.create({
     fontSize: 20,
     fontWeight: "900",
     textAlign: "center",
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 12,
     fontWeight: "800",
     opacity: 0.9,
     textAlign: "center",
-    marginTop: 2,
+    marginTop: 3,
+    lineHeight: 16,
   },
 });
 
@@ -1304,14 +1698,22 @@ const ui = StyleSheet.create({
     borderRadius: 999,
     overflow: "hidden",
     borderWidth: 1,
+    position: "relative",
   },
   progressFill: {
+    height: "100%",
+  },
+  progressShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     height: "100%",
   },
 
   chip: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
     maxWidth: "100%",

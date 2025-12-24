@@ -391,6 +391,9 @@ export default function MessagesMobile() {
   const sendMessage = async () => {
     if (!myUid || !selectedUid) return;
 
+    // ✅ blokada po stronie UI (Premium wymagane)
+    if (!isPremium) return;
+
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -412,11 +415,7 @@ export default function MessagesMobile() {
         });
       } else {
         // dbamy, żeby users zawsze były (na wypadek starych danych)
-        await setDoc(
-          convRef,
-          { users: [myUid, selectedUid] },
-          { merge: true }
-        );
+        await setDoc(convRef, { users: [myUid, selectedUid] }, { merge: true });
       }
 
       await addDoc(collection(db, `messages/${convId}/messages`), {
@@ -512,7 +511,8 @@ export default function MessagesMobile() {
     );
   };
 
-  const canSend = !!text.trim() && !!selectedUid;
+  // ✅ Premium gating: przycisk nieaktywny bez premium
+  const canSend = !!text.trim() && !!selectedUid && isPremium;
 
   const bubbleRadii = (isMine: boolean, joinTop: boolean, joinBottom: boolean) => {
     const R = 18;
@@ -1187,25 +1187,38 @@ export default function MessagesMobile() {
                     style={{
                       flex: 1,
                       borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.bg,
+                      borderWidth: 0,
+                      borderColor: "transparent",
+                      backgroundColor: "transparent",
                       paddingHorizontal: 12,
                       paddingVertical: Platform.OS === "ios" ? 10 : 6,
                       marginRight: 10,
+                      opacity: isPremium ? 1 : 0.75,
                     }}
                   >
                     <TextInput
                       ref={(r) => (inputRef.current = r)}
-                      placeholder="Napisz wiadomość…"
+                      placeholder={
+                        isPremium ? "Napisz wiadomość…" : "Premium wymagane do wysyłania…"
+                      }
                       placeholderTextColor={colors.textMuted}
                       value={text}
                       onChangeText={setText}
+                      editable={isPremium}
                       style={{
                         color: colors.text,
                         fontSize: 15,
                         fontWeight: "800",
                         maxHeight: 110,
+                        backgroundColor: "transparent",
+                        borderWidth: 0,
+                        ...(Platform.OS === "web"
+                          ? ({
+                              outlineStyle: "none",
+                              outlineWidth: 0,
+                              boxShadow: "none",
+                            } as any)
+                          : {}),
                       }}
                       multiline
                       blurOnSubmit={false}

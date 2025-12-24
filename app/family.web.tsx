@@ -1070,7 +1070,7 @@ export default function FamilyScreen() {
             .filter((x) => x.status === "pending")
             .sort(
               (a: any, b: any) =>
-                (b?.createdAt?.seconds || 0) - (a?.createdAt?.seconds || 0)
+                (b?.createdAt?.seconds || 0) - (a?.updatedAt?.seconds || 0)
             )
         );
       },
@@ -1468,84 +1468,72 @@ export default function FamilyScreen() {
     return null;
   };
 
-  const sendFamilyInvite = async (f: FriendshipDoc) => {
-    if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
-    if (!myProfile)
-      return showModal(
-        "Brak profilu",
-        "Brakuje Twojego profilu z /users.",
-        "error"
-      );
-    if (!familyId)
-      return showModal(
-        "Brak rodziny",
-        "Najpierw utwórz rodzinę MAX.",
-        "info"
-      );
-    if (!iAmOwner)
-      return showModal(
-        "Brak uprawnień",
-        "Tylko właściciel rodziny może zapraszać.",
-        "info"
-      );
+ const sendFamilyInvite = async (f: FriendshipDoc) => {
+   if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
+   if (!myProfile)
+     return showModal("Brak profilu", "Brakuje Twojego profilu z /users.", "error");
+   if (!familyId) return showModal("Brak rodziny", "Najpierw utwórz rodzinę MAX.", "info");
+   if (!iAmOwner) return showModal("Brak uprawnień", "Tylko właściciel rodziny może zapraszać.", "info");
 
-    const other = otherProfileFromFriendship(f);
-    const toUid = String(other?.uid || "");
-    if (!toUid) return;
+   const other = otherProfileFromFriendship(f);
+   const toUid = String(other?.uid || "");
+   if (!toUid) return;
 
-    const reason = familyInviteDisabledReason(toUid);
-    if (reason) {
-      if (reason.includes("Premium")) router.push("/premium");
-      return showModal("Nie można", reason, "info");
-    }
+   const reason = familyInviteDisabledReason(toUid);
+   if (reason) {
+     if (reason.includes("Premium")) router.push("/premium");
+     return showModal("Nie można", reason, "info");
+   }
 
-    setFamilyInvActionId(toUid);
-    try {
-      const memSnap = await getDocs(
-        query(
-          collection(db, "families", String(familyId), "members"),
-          limit(MAX_FAMILY + 1)
-        )
-      );
-      if (memSnap.size >= MAX_FAMILY) {
-        showModal("Limit", `Rodzina ma już ${MAX_FAMILY} osób.`, "info");
-        return;
-      }
+   setFamilyInvActionId(toUid);
 
-      const invId = familyInviteId(String(familyId), myUid, toUid);
+   // 1) sprawdź LIMIT (READ members)
+   try {
+     const memSnap = await getDocs(
+       query(collection(db, "families", String(familyId), "members"), limit(MAX_FAMILY + 1))
+     );
+     console.log("[familyInvite] members read OK, size=", memSnap.size);
 
-      await setDoc(
-        doc(db, "family_invites", invId),
-        {
-          familyId: String(familyId),
-          fromUserId: myUid,
-          fromDisplayName: displayNameOf(myProfile),
-          fromEmail: myProfile.email || auth.currentUser?.email || "",
-          toUserId: toUid,
-          toDisplayName: displayNameOf(other),
-          toEmail: other?.email || "",
-          status: "pending",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+     if (memSnap.size >= MAX_FAMILY) {
+       showModal("Limit", `Rodzina ma już ${MAX_FAMILY} osób.`, "info");
+       return;
+     }
+   } catch (err: any) {
+     console.error("[familyInvite] members read FAIL:", err?.code, err?.message, err);
+     showModal("Błąd (members read)", err?.message || "Brak uprawnień do members.", "error");
+     return;
+   }
 
-      showModal(
-        "Wysłano ✅",
-        "Zaproszenie do rodziny MAX zostało wysłane.",
-        "success"
-      );
-    } catch (e: any) {
-      showModal(
-        "Błąd",
-        e?.message || "Nie udało się wysłać zaproszenia do rodziny.",
-        "error"
-      );
-    } finally {
-      setFamilyInvActionId(null);
-    }
-  };
+   // 2) create invite (WRITE family_invites)
+   try {
+     const invId = familyInviteId(String(familyId), myUid, toUid);
+     await setDoc(
+       doc(db, "family_invites", invId),
+       {
+         familyId: String(familyId),
+         fromUserId: myUid,
+         fromDisplayName: displayNameOf(myProfile),
+         fromEmail: myProfile.email || auth.currentUser?.email || "",
+         toUserId: toUid,
+         toDisplayName: displayNameOf(other),
+         toEmail: other?.email || "",
+         status: "pending",
+         createdAt: serverTimestamp(),
+         updatedAt: serverTimestamp(),
+       },
+       { merge: true }
+     );
+
+     console.log("[familyInvite] invite write OK:", invId);
+     showModal("Wysłano ✅", "Zaproszenie do rodziny MAX zostało wysłane.", "success");
+   } catch (err: any) {
+     console.error("[familyInvite] invite write FAIL:", err?.code, err?.message, err);
+     showModal("Błąd (invite write)", err?.message || "Nie udało się wysłać zaproszenia.", "error");
+   } finally {
+     setFamilyInvActionId(null);
+   }
+ };
+
 
   const leaveFamily = async () => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
@@ -3820,5 +3808,3 @@ export default function FamilyScreen() {
     </View>
   );
 }
-
-//src/screens/family.web.tsx

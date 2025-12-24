@@ -11,11 +11,23 @@ export interface MissionRepeat {
 export interface CreateMissionInput {
   title: string;
 
+  // ✅ jeśli misja ma być “rodzinna”
+  familyId?: string | null;
+
   assignedToUserId: string;
   assignedToName: string;
 
   assignedByUserId?: string | null;
   assignedByName?: string | null;
+
+  // ✅ avatary (opcjonalnie)
+  assignedByAvatarUrl?: string | null;
+  assignedToAvatarUrl?: string | null;
+
+  // ✅ creator (opcjonalnie, ale najczęściej ustawisz na siebie)
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  createdByAvatarUrl?: string | null;
 
   dueDate: Date;
   repeat: MissionRepeat;
@@ -30,27 +42,43 @@ export async function createMission(input: CreateMissionInput) {
     throw new Error("Brak zalogowanego użytkownika");
   }
 
-  const createdByUserId = user.uid;
-  const createdByName = user.displayName || input.assignedByName || "Ty";
+  const createdByUserId = (input.createdByUserId || user.uid) as string;
+  const createdByName =
+    input.createdByName || user.displayName || input.assignedByName || "Ty";
+
+  const assignedByUserId = (input.assignedByUserId || createdByUserId) as string;
+  const assignedByName = input.assignedByName || createdByName;
 
   const docData = {
-    title: input.title,
-    dueDate: input.dueDate, // Firestore zrobi z tego Timestamp
+    title: input.title.trim(),
+
+    // ✅ ważne: jak brak rodziny -> null (dla rules i query)
+    familyId: input.familyId ?? null,
+
+    dueDate: input.dueDate, // Firestore zamieni na Timestamp
     repeat: input.repeat || { type: "none" as RepeatType },
 
     // kto jest adresatem zadania
     assignedToUserId: input.assignedToUserId,
     assignedToName: input.assignedToName,
+    assignedToAvatarUrl: input.assignedToAvatarUrl ?? null,
 
-    // kto przypisał (jeśli wysyłasz task komuś)
-    assignedByUserId: input.assignedByUserId || createdByUserId,
-    assignedByName: input.assignedByName || createdByName,
+    // kto przypisał
+    assignedByUserId,
+    assignedByName,
+    assignedByAvatarUrl: input.assignedByAvatarUrl ?? null,
 
     // kto utworzył dokument
     createdByUserId,
     createdByName,
+    createdByAvatarUrl: input.createdByAvatarUrl ?? (user.photoURL ?? null),
 
+    // status
     completed: false,
+    completedAt: null,
+    completedByUserId: null,
+    completedByName: null,
+
     archived: false,
     skipDates: [],
 
@@ -63,3 +91,5 @@ export async function createMission(input: CreateMissionInput) {
 
   await addDoc(collection(db, "missions"), docData);
 }
+
+//src/services/missions.ts

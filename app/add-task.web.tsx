@@ -160,7 +160,10 @@ type TitleSuggestion = {
 
 export default function AddTaskScreen() {
   const router = useRouter();
-  const { members, loading: famLoading } = useFamily();
+
+  // ✅ bierzemy też family (żeby jawnie przekazać familyId do createMission)
+  const { family, members, loading: famLoading } = useFamily();
+
   const { missions } = useMissions();
   const params = useLocalSearchParams<{ date?: string }>();
 
@@ -204,6 +207,16 @@ export default function AddTaskScreen() {
   const myUid = currentUser?.uid ?? null;
   const myDisplayName = currentUser?.displayName || "Ty";
   const myPhotoURL = currentUser?.photoURL || null;
+
+  // ✅ familyId (null jeśli brak)
+  const familyId = useMemo(() => {
+    const fid =
+      (family as any)?.id ??
+      (family as any)?.familyId ??
+      (family as any)?.fid ??
+      null;
+    return fid ? String(fid) : null;
+  }, [family]);
 
   const initialDate = params.date ? new Date(params.date) : new Date();
 
@@ -354,7 +367,8 @@ export default function AddTaskScreen() {
     return res;
   }, [allTitleSuggestions, title]);
 
-  const showSuggestions = titleFocused && title.trim().length > 0 && filteredSuggestions.length > 0;
+  const showSuggestions =
+    titleFocused && title.trim().length > 0 && filteredSuggestions.length > 0;
 
   /* ---------- KALENDARZ ---------- */
 
@@ -406,11 +420,24 @@ export default function AddTaskScreen() {
     const assignedByUserId = myUid;
     const assignedByName = myDisplayName || "Ty";
 
+    // ✅ jawnie ustawiamy createdBy (często to jest warunek w rules/odczytach)
+    const createdByUserId = myUid;
+    const createdByName = myDisplayName || "Ty";
+
     try {
       setSaving(true);
 
       await createMission({
         title: title.trim(),
+
+        // ✅ familyId jawnie (null jeśli brak)
+        familyId: familyId ?? null,
+
+        // ✅ creator/assigner/assignee – spójne z Twoimi dokumentami w bazie
+        createdByUserId,
+        createdByName,
+        createdByAvatarUrl: myPhotoURL,
+
         assignedToUserId,
         assignedToName,
 
@@ -427,9 +454,13 @@ export default function AddTaskScreen() {
       });
 
       router.back();
-    } catch (e) {
-      console.error(e);
-      alert("Błąd zapisu!");
+    } catch (e: any) {
+      console.error("createMission error:", e?.code, e?.message, e);
+      alert(
+        e?.code === "permission-denied"
+          ? "Rules blokują zapis (permission-denied)"
+          : "Błąd zapisu!"
+      );
     } finally {
       setSaving(false);
     }
@@ -482,10 +513,7 @@ export default function AddTaskScreen() {
             marginBottom: 16,
           }}
         >
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={{ marginRight: 8 }}
-          >
+          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
           <Text style={{ color: C.text, fontSize: 18, fontWeight: "700" }}>
@@ -512,10 +540,7 @@ export default function AddTaskScreen() {
           }}
         >
           {selected.avatarUrl ? (
-            <Image
-              source={{ uri: selected.avatarUrl }}
-              style={{ width: 42, height: 42, borderRadius: 999 }}
-            />
+            <Image source={{ uri: selected.avatarUrl }} style={{ width: 42, height: 42, borderRadius: 999 }} />
           ) : (
             <View
               style={{
@@ -534,30 +559,15 @@ export default function AddTaskScreen() {
           )}
 
           <View>
-            <Text
-              style={{
-                color: C.text,
-                fontSize: 15,
-                fontWeight: "700",
-              }}
-            >
+            <Text style={{ color: C.text, fontSize: 15, fontWeight: "700" }}>
               {selected.label}
             </Text>
-            <Text style={{ color: C.subtle, fontSize: 12 }}>
-              Poziom {selected.level}
-            </Text>
+            <Text style={{ color: C.subtle, fontSize: 12 }}>Poziom {selected.level}</Text>
           </View>
         </View>
 
         {/* MEMBER CHIPS */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {memberChips.map((m) => {
             const active = m.id === selected.id;
             return (
@@ -573,32 +583,16 @@ export default function AddTaskScreen() {
                   backgroundColor: active ? C.primaryAlpha : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? C.primary : C.text,
-                    fontSize: 13,
-                  }}
-                >
-                  {m.label}
-                </Text>
+                <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>{m.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
         {/* TRUDNOŚĆ */}
-        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
-          Trudność zadania
-        </Text>
+        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>Trudność zadania</Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {DIFFICULTY_OPTIONS.map((opt) => {
             const active = difficulty === opt.type;
             return (
@@ -614,12 +608,7 @@ export default function AddTaskScreen() {
                   backgroundColor: active ? C.primaryAlpha : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? C.primary : C.text,
-                    fontSize: 13,
-                  }}
-                >
+                <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>
                   {opt.label} ({opt.exp} EXP)
                 </Text>
               </TouchableOpacity>
@@ -628,18 +617,9 @@ export default function AddTaskScreen() {
         </View>
 
         {/* REPEAT */}
-        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
-          Cykliczność
-        </Text>
+        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>Cykliczność</Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {REPEAT_OPTIONS.map((o) => {
             const active = o.type === repeatType;
             return (
@@ -655,23 +635,14 @@ export default function AddTaskScreen() {
                   backgroundColor: active ? C.primaryAlpha : "transparent",
                 }}
               >
-                <Text
-                  style={{
-                    color: active ? C.primary : C.text,
-                    fontSize: 13,
-                  }}
-                >
-                  {o.label}
-                </Text>
+                <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>{o.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
         {/* TITLE INPUT */}
-        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
-          Nazwa zadania
-        </Text>
+        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>Nazwa zadania</Text>
 
         <View style={{ position: "relative", marginBottom: 20 }}>
           <TextInput
@@ -681,7 +652,6 @@ export default function AddTaskScreen() {
             placeholderTextColor={C.placeholder}
             onFocus={() => setTitleFocused(true)}
             onBlur={() => {
-              // mały delay, żeby klik w sugestię zdążył wejść (web/mobile)
               setTimeout(() => setTitleFocused(false), 120);
             }}
             style={{
@@ -730,24 +700,10 @@ export default function AddTaskScreen() {
                       borderTopColor: withAlpha(C.borderStrong, 0.7),
                     }}
                   >
-                    <Text
-                      style={{
-                        color: C.text,
-                        fontSize: 13,
-                        fontWeight: "700",
-                      }}
-                      numberOfLines={1}
-                    >
+                    <Text style={{ color: C.text, fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
                       {s.label}
                     </Text>
-                    <Text
-                      style={{
-                        color: C.subtle,
-                        fontSize: 11,
-                        marginTop: 2,
-                      }}
-                      numberOfLines={1}
-                    >
+                    <Text style={{ color: C.subtle, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
                       {s.count}×{lastLabel ? ` • ostatnio: ${lastLabel}` : ""}
                     </Text>
                   </TouchableOpacity>
@@ -758,9 +714,7 @@ export default function AddTaskScreen() {
         </View>
 
         {/* DATE INPUT */}
-        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
-          Data (RRRR-MM-DD)
-        </Text>
+        <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>Data (RRRR-MM-DD)</Text>
 
         <TextInput
           value={inputDate}
@@ -785,9 +739,7 @@ export default function AddTaskScreen() {
           }}
         />
 
-        <Text style={{ color: C.text, marginBottom: 10, fontSize: 15 }}>
-          {formatDayLong(chosenDate)}
-        </Text>
+        <Text style={{ color: C.text, marginBottom: 10, fontSize: 15 }}>{formatDayLong(chosenDate)}</Text>
 
         {/* KALENDARZ */}
         <View
@@ -827,17 +779,8 @@ export default function AddTaskScreen() {
               <Ionicons name="chevron-back" size={16} color={C.text} />
             </TouchableOpacity>
 
-            <Text
-              style={{
-                color: C.text,
-                fontSize: 14,
-                fontWeight: "600",
-              }}
-            >
-              {currentMonth.toLocaleDateString("pl-PL", {
-                month: "long",
-                year: "numeric",
-              })}
+            <Text style={{ color: C.text, fontSize: 14, fontWeight: "600" }}>
+              {currentMonth.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
             </Text>
 
             <TouchableOpacity
@@ -879,11 +822,9 @@ export default function AddTaskScreen() {
           {/* Days Grid */}
           <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             {daysGrid.map((d, i) => {
-              if (!d)
-                return <View key={i} style={{ width: "14.28%", height: 34 }} />;
+              if (!d) return <View key={i} style={{ width: "14.28%", height: 34 }} />;
 
-              const selectedDay =
-                d.toDateString() === chosenDate.toDateString();
+              const selectedDay = d.toDateString() === chosenDate.toDateString();
 
               return (
                 <TouchableOpacity
@@ -926,13 +867,7 @@ export default function AddTaskScreen() {
         </View>
 
         {/* SAVE BUTTONS */}
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: 10,
-          }}
-        >
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={{

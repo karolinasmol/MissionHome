@@ -1,15 +1,8 @@
-// src/hooks/useMissions.ts
-import { useEffect, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-  Query,
-} from "firebase/firestore";
-import { db } from "../firebase/firebase.web";
-import { auth } from "../firebase/firebase";
+import { useEffect, useRef, useState } from "react";
+import { collection, onSnapshot, query, where, limit, or } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+
+import { db, auth } from "../firebase/firebase";
 import { Mission } from "../context/TasksContext";
 
 interface UseMissionsResult {
@@ -35,112 +28,91 @@ export function useMissions(): UseMissionsResult {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [uid, setUid] = useState<string | null>(auth?.currentUser?.uid ?? null);
+
+  // ✅ trzymamy mapę misji w ref — szybkie aktualizacje po docChanges()
+  const missionsMapRef = useRef<Map<string, Mission>>(new Map());
+  const unsubRef = useRef<null | (() => void)>(null);
+
+  // ✅ zawsze czekamy na Auth (żeby nie odpalać zapytań jako "niezalogowany")
   useEffect(() => {
-    const currentUser = auth.currentUser;
-    const myUid = currentUser?.uid ?? null;
-    const colRef = collection(db, "missions");
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid ?? null);
+    });
+    return unsub;
+  }, []);
 
-    // === PRZYPADEK 1: brak zalogowanego usera – fallback: wszystkie misje ===
-    if (!myUid) {
-      const qAll = query(colRef, orderBy("dueDate", "asc"));
-
-      const unsub = onSnapshot(
-        qAll,
-        (snap) => {
-          const list: Mission[] = [];
-
-          snap.forEach((docSnap) => {
-            list.push({
-              id: docSnap.id,
-              ...(docSnap.data() as any),
-            });
-          });
-
-          list.sort((a, b) => getDueTime(a) - getDueTime(b));
-          setMissions(list);
-          setLoading(false);
-        },
-        (err) => {
-          console.error("Error loading missions (no user):", err);
-          setLoading(false);
-        }
-      );
-
-      return () => unsub();
+  useEffect(() => {
+    // sprzątnij poprzedni listener
+    if (unsubRef.current) {
+      unsubRef.current();
+      unsubRef.current = null;
     }
 
-    // === PRZYPADEK 2: zalogowany user – jego misje + od niego ===
+    // reset stanu na zmianę usera
+    missionsMapRef.current = new Map();
+    setMissions([]);
 
-    // 🔥 KLUCZOWE: auto-chore misje wpadają przez assignedToUserId == myUid
-    const qAssignedToMe: Query = query(
+    // ✅ brak usera = nie czytamy nic z missions (Rules i tak zablokują)
+    if (!uid) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    const colRef = collection(db, "missions");
+
+    // ✅ JEDEN listener, jedna lista, brak “bucket overwrite”
+    // Dokument pojawia się tylko raz, a update (completed/completedDates) od razu odświeża UI.
+    const q = query(
       colRef,
-      where("assignedToUserId", "==", myUid)
+      or(
+        where("assignedToUserId", "==", uid),
+        where("assignedByUserId", "==", uid),
+        where("createdByUserId", "==", uid)
+      ),
+      limit(500)
     );
 
-    const qByMe: Query = query(colRef, where("assignedByUserId", "==", myUid));
+    unsubRef.current = onSnapshot(
+      q,
+      (snap) => {
+        // incremental updates (najszybsze + najmniej bugów referencji)
+        snap.docChanges().forEach((ch) => {
+          const id = ch.doc.id;
 
-    const qCreatedByMe: Query = query(
-      colRef,
-      where("createdByUserId", "==", myUid)
-    );
-
-    // lokalna pamięć misji
-    const cache = new Map<string, Mission>();
-    let firstLoaded = false;
-
-    const handleSnapshot = (snap: any) => {
-      let changed = false;
-
-      snap.docChanges().forEach((change: any) => {
-        const id = change.doc.id;
-
-        if (change.type === "removed") {
-          if (cache.has(id)) {
-            cache.delete(id);
-            changed = true;
+          if (ch.type === "removed") {
+            missionsMapRef.current.delete(id);
+            return;
           }
-          return;
-        }
 
-        const data = change.doc.data() as any;
-        const mission: Mission = { id, ...data };
+          // ✅ zawsze nowy obiekt (ważne dla React/wyliczeń useMemo w UI)
+          missionsMapRef.current.set(id, { id, ...(ch.doc.data() as any) } as Mission);
+        });
 
-        cache.set(id, mission);
-        changed = true;
-      });
+        const list = Array.from(missionsMapRef.current.values())
+          .map((m) => ({ ...(m as any) } as Mission)) // ✅ nowa referencja per element
+          .sort((a, b) => getDueTime(a) - getDueTime(b));
 
-      if (changed) {
-        const list = Array.from(cache.values()).sort(
-          (a, b) => getDueTime(a) - getDueTime(b)
-        );
         setMissions(list);
-      }
-
-      if (!firstLoaded) {
-        firstLoaded = true;
+        setLoading(false);
+      },
+      (err: any) => {
+        console.error("Error loading missions:", err?.code, err?.message, err);
         setLoading(false);
       }
-    };
-
-    const handleError = (err: any) => {
-      console.error("Error loading missions:", err);
-      if (!firstLoaded) {
-        firstLoaded = true;
-        setLoading(false);
-      }
-    };
-
-    // subskrypcje
-    const unsub1 = onSnapshot(qAssignedToMe, handleSnapshot, handleError);
-    const unsub2 = onSnapshot(qByMe, handleSnapshot, handleError);
-    const unsub3 = onSnapshot(qCreatedByMe, handleSnapshot, handleError);
+    );
 
     return () => {
-      unsub1();
-      unsub2();
-      unsub3();
+      if (unsubRef.current) {
+        unsubRef.current();
+        unsubRef.current = null;
+      }
     };
-  }, []);
+  }, [uid]);
 
   return { missions, loading };
 }
+
+// src/hooks/useMissions.ts

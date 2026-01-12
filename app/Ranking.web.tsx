@@ -1,4 +1,4 @@
-// app/Ranking.tsx
+// app/Ranking.web.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
@@ -9,14 +9,22 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
 import { useThemeColors } from "../src/context/ThemeContext";
-import { db } from "../src/firebase/firebase.web";
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
-import { auth } from "../src/firebase/firebase";
+
+// ✅ UJEDNOLICONE: wszystko z firebase.web (db + auth + helpery + onIdTokenChanged)
+import {
+  auth,
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  onIdTokenChanged,
+} from "../src/firebase/firebase.web";
 
 /* ===========================================
    Helpers – daty
@@ -94,7 +102,18 @@ function fmtCompact(n: number) {
 export default function RankingScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
-  const myUid = auth.currentUser?.uid ?? null;
+
+  // ✅ authReady: startujemy snapshoty dopiero gdy mamy token / auth się zainicjalizował
+  const [authReady, setAuthReady] = useState(false);
+  const [myUid, setMyUid] = useState<string | null>(auth.currentUser?.uid ?? null);
+
+  useEffect(() => {
+    const unsub = onIdTokenChanged(auth, (user) => {
+      setMyUid(user?.uid ?? null);
+      setAuthReady(true);
+    });
+    return unsub;
+  }, []);
 
   const [users, setUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -104,27 +123,49 @@ export default function RankingScreen() {
 
   /* Fetch users */
   useEffect(() => {
-    const q = query(collection(db, "users"), orderBy("totalExp", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const arr: any[] = [];
-      snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
-      setUsers(arr);
-      setLoadingUsers(false);
-    });
+    if (!authReady) return;
+
+    const q = query(collection("users"), orderBy("totalExp", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const arr: any[] = [];
+        snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+        setUsers(arr);
+        setLoadingUsers(false);
+      },
+      (err) => {
+        console.error("Firestore users snapshot error:", err);
+        setUsers([]);
+        setLoadingUsers(false);
+      }
+    );
+
     return unsub;
-  }, []);
+  }, [authReady]);
 
   /* Fetch missions */
   useEffect(() => {
-    const q = query(collection(db, "missions"), orderBy("completedAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const arr: any[] = [];
-      snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
-      setMissions(arr);
-      setLoadingMissions(false);
-    });
+    if (!authReady) return;
+
+    const q = query(collection("missions"), orderBy("completedAt", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const arr: any[] = [];
+        snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+        setMissions(arr);
+        setLoadingMissions(false);
+      },
+      (err) => {
+        console.error("Firestore missions snapshot error:", err);
+        setMissions([]);
+        setLoadingMissions(false);
+      }
+    );
+
     return unsub;
-  }, []);
+  }, [authReady]);
 
   /* Ranking mode */
   const [mode, setMode] = useState<"day" | "week" | "month" | "all">("day");
@@ -145,8 +186,7 @@ export default function RankingScreen() {
       const e = range.end!;
       return `${s.toLocaleDateString("pl-PL")} – ${e.toLocaleDateString("pl-PL")}`;
     }
-    if (mode === "month")
-      return cursorDate.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
+    if (mode === "month") return cursorDate.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
     return "Cały czas";
   }, [cursorDate, mode, range]);
 
@@ -181,9 +221,12 @@ export default function RankingScreen() {
       .sort((a, b) => b.periodExp - a.periodExp);
   }, [users, missions, mode, range]);
 
-  const busy = loadingUsers || loadingMissions;
+  // ✅ busy uwzględnia authReady (żeby nie wisieć na spinnerze zanim auth się podniesie)
+  const busy = !authReady || loadingUsers || loadingMissions;
 
   const top3 = useMemo(() => ranking.slice(0, 3), [ranking]);
+  const myIndex = useMemo(() => ranking.findIndex((u) => u.id === myUid), [ranking, myUid]);
+  const myUser = myIndex >= 0 ? ranking[myIndex] : null;
 
   const movePrev = useCallback(() => {
     if (mode === "day") setCursorDate((d) => addDays(d, -1));
@@ -289,145 +332,180 @@ export default function RankingScreen() {
           <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
-        <ScrollView
-          style={{ flex: 1, zIndex: 1 }}
-          contentContainerStyle={[styles.scroll, { paddingBottom: 24 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* HEADER CARD */}
-          <View
-            style={[
-              styles.topBarCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.border,
-                position: "relative",
-                overflow: "hidden",
-              },
-            ]}
+        <>
+          <ScrollView
+            style={{ flex: 1, zIndex: 1 }}
+            contentContainerStyle={[styles.scroll, { paddingBottom: myUser ? 120 : 24 }]}
+            showsVerticalScrollIndicator={false}
           >
-            {/* dekoracyjne kółka (jak w kalendarzu/family) */}
+            {/* HEADER CARD */}
             <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                top: -80,
-                right: -70,
-                width: 180,
-                height: 180,
-                borderRadius: 999,
-                backgroundColor: colors.accent,
-                opacity: 0.1,
-              }}
-            />
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                bottom: -90,
-                left: -70,
-                width: 200,
-                height: 200,
-                borderRadius: 999,
-                backgroundColor: colors.accent,
-                opacity: 0.07,
-              }}
-            />
+              style={[
+                styles.topBarCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  position: "relative",
+                  overflow: "hidden",
+                },
+              ]}
+            >
+              {/* dekoracyjne kółka (jak w kalendarzu/family) */}
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: -80,
+                  right: -70,
+                  width: 180,
+                  height: 180,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  opacity: 0.1,
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: -90,
+                  left: -70,
+                  width: 200,
+                  height: 200,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  opacity: 0.07,
+                }}
+              />
 
-            <View style={styles.heroTop}>
-              <TouchableOpacity
-                onPress={() => router.back()}
-                hitSlop={12}
-                style={[styles.iconBtn, { borderColor: colors.border }]}
-                activeOpacity={0.9}
-              >
-                <Ionicons name="arrow-back" size={20} color={colors.text} />
-              </TouchableOpacity>
-
-              <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
-                <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
-                  Ranking
-                </Text>
-                <Text
-                  style={{ color: colors.text, opacity: 0.65, marginTop: 2, fontWeight: "800" }}
-                  numberOfLines={1}
-                >
-                  {periodLabel}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={resetNow}
-                hitSlop={12}
-                style={[styles.iconBtn, { borderColor: colors.border }]}
-                activeOpacity={0.9}
-              >
-                <Ionicons name="time-outline" size={20} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {/* MODE BUTTONS */}
-            <View style={styles.modeRow}>
-              <ModeBtn label="Dzień" mode="day" current={mode} setMode={setMode} colors={colors} />
-              <ModeBtn label="Tydzień" mode="week" current={mode} setMode={setMode} colors={colors} />
-              <ModeBtn label="Miesiąc" mode="month" current={mode} setMode={setMode} colors={colors} />
-              <ModeBtn label="Całość" mode="all" current={mode} setMode={setMode} colors={colors} />
-            </View>
-
-            {/* DATE NAV */}
-            {mode !== "all" && (
-              <View style={styles.dateNav}>
+              <View style={styles.heroTop}>
                 <TouchableOpacity
-                  onPress={movePrev}
-                  hitSlop={10}
-                  style={[styles.chevBtn, { borderColor: colors.border }]}
+                  onPress={() => router.back()}
+                  hitSlop={12}
+                  style={[styles.iconBtn, { borderColor: colors.border }]}
                   activeOpacity={0.9}
                 >
-                  <Ionicons name="chevron-back" size={18} color={colors.text} />
+                  <Ionicons name="arrow-back" size={20} color={colors.text} />
                 </TouchableOpacity>
 
-                <View style={[styles.datePill, { borderColor: colors.border, backgroundColor: colors.bg }]}>
-                  <Ionicons name="calendar-outline" size={14} color={colors.text} style={{ opacity: 0.75 }} />
-                  <Text style={{ color: colors.text, fontWeight: "900", marginLeft: 8 }} numberOfLines={1}>
+                <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+                  <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
+                    Ranking
+                  </Text>
+                  <Text style={{ color: colors.text, opacity: 0.65, marginTop: 2, fontWeight: "800" }} numberOfLines={1}>
                     {periodLabel}
                   </Text>
                 </View>
 
                 <TouchableOpacity
-                  onPress={moveNext}
-                  hitSlop={10}
-                  style={[styles.chevBtn, { borderColor: colors.border }]}
+                  onPress={resetNow}
+                  hitSlop={12}
+                  style={[styles.iconBtn, { borderColor: colors.border }]}
                   activeOpacity={0.9}
                 >
-                  <Ionicons name="chevron-forward" size={18} color={colors.text} />
+                  <Ionicons name="time-outline" size={20} color={colors.text} />
                 </TouchableOpacity>
               </View>
-            )}
-          </View>
 
-          {/* TOP 3 (jak w native) */}
-          <Top3Card colors={colors} top3={top3} myUid={myUid} />
+              {/* MODE BUTTONS */}
+              <View style={styles.modeRow}>
+                <ModeBtn label="Dzień" mode="day" current={mode} setMode={setMode} colors={colors} />
+                <ModeBtn label="Tydzień" mode="week" current={mode} setMode={setMode} colors={colors} />
+                <ModeBtn label="Miesiąc" mode="month" current={mode} setMode={setMode} colors={colors} />
+                <ModeBtn label="Całość" mode="all" current={mode} setMode={setMode} colors={colors} />
+              </View>
 
-          {/* RANKING LIST */}
-          {ranking.length ? (
-            ranking.map((u, idx) => (
-              <TouchableOpacity
-                key={u.id}
-                onPress={() => router.push(`/Profile?uid=${u.id}`)}
-                activeOpacity={0.85}
-              >
-                <RankRow user={u} place={idx + 1} isMe={u.id === myUid} colors={colors} exp={u.periodExp} />
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
-              <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>Brak danych</Text>
-              <Text style={{ color: colors.text, opacity: 0.7, marginTop: 4 }}>
-                Ukończ misję albo poczekaj aż dane się zsynchronizują.
-              </Text>
+              {/* DATE NAV */}
+              {mode !== "all" && (
+                <View style={styles.dateNav}>
+                  <TouchableOpacity
+                    onPress={movePrev}
+                    hitSlop={10}
+                    style={[styles.chevBtn, { borderColor: colors.border }]}
+                    activeOpacity={0.9}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={colors.text} />
+                  </TouchableOpacity>
+
+                  <View style={[styles.datePill, { borderColor: colors.border, backgroundColor: colors.bg }]}>
+                    <Ionicons name="calendar-outline" size={14} color={colors.text} style={{ opacity: 0.75 }} />
+                    <Text style={{ color: colors.text, fontWeight: "900", marginLeft: 8 }} numberOfLines={1}>
+                      {periodLabel}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={moveNext}
+                    hitSlop={10}
+                    style={[styles.chevBtn, { borderColor: colors.border }]}
+                    activeOpacity={0.9}
+                  >
+                    <Ionicons name="chevron-forward" size={18} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
+
+            {/* TOP 3 */}
+            <Top3Card colors={colors} top3={top3} myUid={myUid} />
+
+            {/* RANKING LIST */}
+            {ranking.length ? (
+              ranking.map((u, idx) => (
+                <TouchableOpacity key={u.id} onPress={() => router.push(`/Profile?uid=${u.id}`)} activeOpacity={0.85}>
+                  <RankRow user={u} place={idx + 1} isMe={u.id === myUid} colors={colors} exp={u.periodExp} />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>Brak danych</Text>
+                <Text style={{ color: colors.text, opacity: 0.7, marginTop: 4 }}>
+                  Ukończ misję albo poczekaj aż dane się zsynchronizują.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+
+          {/* ✅ FLOATING "TY" */}
+          {!!myUser && (
+            <Pressable
+              onPress={() => router.push(`/Profile?uid=${myUser.id}`)}
+              style={({ pressed }) => [
+                styles.webFloatWrap,
+                { opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.995 : 1 }] },
+              ]}
+            >
+              <View
+                style={[
+                  styles.webFloatInner,
+                  {
+                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    ...(Platform.OS === "web" ? ({ boxShadow: "0 16px 40px rgba(0,0,0,0.18)" } as any) : null),
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  <View style={[styles.floatBadge, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
+                    <Ionicons name="person" size={12} color={colors.accent} />
+                    <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 12, marginLeft: 6 }}>Ty</Text>
+                  </View>
+
+                  <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                    {myIndex + 1}. {myUser.displayName || myUser.username || myUser.email || "Użytkownik"}
+                  </Text>
+                </View>
+
+                <View style={[styles.floatExp, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
+                  <Ionicons name="sparkles" size={12} color={"#022c22"} />
+                  <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 6 }}>
+                    {fmtCompact(myUser.periodExp)} EXP
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
           )}
-        </ScrollView>
+        </>
       )}
     </View>
   );
@@ -451,9 +529,7 @@ function ModeBtn({ label, mode, current, setMode, colors }: any) {
         },
       ]}
     >
-      <Text style={{ color: active ? "#022c22" : colors.text, fontWeight: "900", fontSize: 12 }}>
-        {label}
-      </Text>
+      <Text style={{ color: active ? "#022c22" : colors.text, fontWeight: "900", fontSize: 12 }}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -510,7 +586,9 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <View style={[styles.podiumPlace, { backgroundColor: medalColor + "22", borderColor: medalColor + "55" }]}>
           <Ionicons name={medal as any} size={13} color={medalColor} />
-          <Text style={{ color: medalColor, fontWeight: "900", marginLeft: 6, fontSize: 12 }}>{place}</Text>
+          <Text style={{ color: medalColor, fontWeight: "900", marginLeft: 6, fontSize: 12 }}>
+            {place}
+          </Text>
         </View>
 
         {isMe && (
@@ -521,13 +599,7 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
       </View>
 
       <View style={{ alignItems: "center", marginTop: big ? 4 : 2 }}>
-        {/* ✅ Klik na avatar w TOP3 -> /Profile?uid=... */}
-        <TouchableOpacity
-          onPress={goProfile}
-          disabled={!canGoProfile}
-          activeOpacity={0.85}
-          style={{ borderRadius: big ? 14 : 12 }}
-        >
+        <TouchableOpacity onPress={goProfile} disabled={!canGoProfile} activeOpacity={0.85} style={{ borderRadius: big ? 14 : 12 }}>
           {avatar ? (
             <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
           ) : (
@@ -702,7 +774,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: "row",
     gap: 8,
-    flexWrap: "wrap", // ✅ telefon iOS/Android: ładnie się łamie
+    flexWrap: "wrap",
   },
 
   modeBtn: {
@@ -763,7 +835,7 @@ const styles = StyleSheet.create({
 
   podiumCard: {
     flex: 1,
-    minWidth: 0, // ✅ web/mobile: tekst się nie rozjeżdża
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: 14,
     padding: 6,
@@ -874,6 +946,45 @@ const styles = StyleSheet.create({
     padding: 14,
     marginTop: 8,
   },
-});
 
-// app/Ranking.tsx
+  // ✅ Floating "Ty" na WEB (fixed + centrowany jak maxWidth scrolla)
+  webFloatWrap: {
+    position: "fixed" as any,
+    left: 0,
+    right: 0,
+    bottom: 16,
+    zIndex: 50,
+    paddingHorizontal: 14,
+  },
+
+  webFloatInner: {
+    width: "100%",
+    maxWidth: 900,
+    alignSelf: "center",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  floatBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  floatExp: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+});

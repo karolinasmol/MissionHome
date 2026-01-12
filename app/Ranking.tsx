@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
   FlatList,
   Platform,
   Pressable,
-  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -18,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../src/context/ThemeContext";
 import { db, auth } from "../src/firebase/firebase";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { onIdTokenChanged } from "firebase/auth";
 
 /* ===========================================
    Helpers – daty
@@ -89,44 +89,31 @@ function fmtCompact(n: number) {
 }
 
 /* ===========================================
-   Ranking Screen
+   Ranking Screen (NATIVE)
 =========================================== */
 
 export default function RankingScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
   const insets = useSafeAreaInsets();
-  const myUid = auth.currentUser?.uid ?? null;
+
+  // ✅ authReady jak na web (żeby nie mielić snapshotów zanim auth wstanie)
+  const [authReady, setAuthReady] = useState(false);
+  const [myUid, setMyUid] = useState<string | null>(auth.currentUser?.uid ?? null);
+
+  useEffect(() => {
+    const unsub = onIdTokenChanged(auth, (user) => {
+      setMyUid(user?.uid ?? null);
+      setAuthReady(true);
+    });
+    return unsub;
+  }, []);
 
   const [users, setUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
 
   const [missions, setMissions] = useState<any[]>([]);
   const [loadingMissions, setLoadingMissions] = useState(true);
-
-  /* Fetch users */
-  useEffect(() => {
-    const q = query(collection(db, "users"), orderBy("totalExp", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const arr: any[] = [];
-      snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
-      setUsers(arr);
-      setLoadingUsers(false);
-    });
-    return unsub;
-  }, []);
-
-  /* Fetch missions */
-  useEffect(() => {
-    const q = query(collection(db, "missions"), orderBy("completedAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const arr: any[] = [];
-      snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
-      setMissions(arr);
-      setLoadingMissions(false);
-    });
-    return unsub;
-  }, []);
 
   /* Ranking mode */
   const [mode, setMode] = useState<"day" | "week" | "month" | "all">("day");
@@ -147,11 +134,53 @@ export default function RankingScreen() {
       const e = range.end!;
       return `${s.toLocaleDateString("pl-PL")} – ${e.toLocaleDateString("pl-PL")}`;
     }
-    if (mode === "month") {
-      return cursorDate.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
-    }
+    if (mode === "month") return cursorDate.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
     return "Cały czas";
   }, [cursorDate, mode, range]);
+
+  /* Fetch users */
+  useEffect(() => {
+    if (!authReady) return;
+
+    const q = query(collection(db, "users"), orderBy("totalExp", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const arr: any[] = [];
+        snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+        setUsers(arr);
+        setLoadingUsers(false);
+      },
+      (err) => {
+        console.error("Firestore users snapshot error:", err);
+        setUsers([]);
+        setLoadingUsers(false);
+      }
+    );
+    return unsub;
+  }, [authReady]);
+
+  /* Fetch missions */
+  useEffect(() => {
+    if (!authReady) return;
+
+    const q = query(collection(db, "missions"), orderBy("completedAt", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const arr: any[] = [];
+        snap.forEach((doc) => arr.push({ id: doc.id, ...doc.data() }));
+        setMissions(arr);
+        setLoadingMissions(false);
+      },
+      (err) => {
+        console.error("Firestore missions snapshot error:", err);
+        setMissions([]);
+        setLoadingMissions(false);
+      }
+    );
+    return unsub;
+  }, [authReady]);
 
   /* Sorting EXP */
   const ranking = useMemo(() => {
@@ -172,6 +201,7 @@ export default function RankingScreen() {
         if (!d) return;
 
         const exp = Number(m.expValue ?? 0);
+
         if (range.start && range.end && d >= range.start && d <= range.end) {
           map[uid] = (map[uid] || 0) + exp;
         }
@@ -183,7 +213,7 @@ export default function RankingScreen() {
       .sort((a, b) => b.periodExp - a.periodExp);
   }, [users, missions, mode, range]);
 
-  const busy = loadingUsers || loadingMissions;
+  const busy = !authReady || loadingUsers || loadingMissions;
 
   const top3 = useMemo(() => ranking.slice(0, 3), [ranking]);
   const myIndex = useMemo(() => ranking.findIndex((u) => u.id === myUid), [ranking, myUid]);
@@ -205,7 +235,7 @@ export default function RankingScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: any; index: number }) => (
-      <TouchableOpacity onPress={() => router.push(`/Profile?uid=${item.id}`)} activeOpacity={0.88}>
+      <TouchableOpacity onPress={() => router.push(`/Profile?uid=${item.id}`)} activeOpacity={0.85}>
         <RankRow user={item} place={index + 1} isMe={item.id === myUid} colors={colors} exp={item.periodExp} />
       </TouchableOpacity>
     ),
@@ -215,104 +245,113 @@ export default function RankingScreen() {
   const bottomPad = Math.max(insets.bottom, 12);
 
   return (
-    <View style={[styles.safe, { backgroundColor: colors.bg }]}>
-      <View style={[styles.page, { backgroundColor: colors.bg }]}>
-        {busy ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color={colors.accent} />
-          </View>
-        ) : (
-          <>
-            <FlatList
-              style={styles.list}
-              data={ranking}
-              keyExtractor={(item) => item.id}
-              renderItem={renderItem}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad + 12 }]}
-              // iOS: twardo wyłączamy auto-insety (żeby nie robiło “dziury”)
-              contentInsetAdjustmentBehavior="never"
-              automaticallyAdjustContentInsets={false as any}
-              contentInset={{ top: 0, left: 0, right: 0, bottom: 0 }}
-              scrollIndicatorInsets={{ top: 0, left: 0, right: 0, bottom: 0 }}
-              removeClippedSubviews={Platform.OS === "android"}
-              initialNumToRender={14}
-              windowSize={9}
-              maxToRenderPerBatch={18}
-              ListHeaderComponent={
-                <View style={styles.headerWrap}>
-                  <TopBarCard
-                    colors={colors}
-                    router={router}
-                    mode={mode}
-                    setMode={setMode}
-                    periodLabel={periodLabel}
-                    showDateNav={mode !== "all"}
-                    onPrev={movePrev}
-                    onNext={moveNext}
-                    onNow={resetNow}
-                  />
-                  <Top3Card colors={colors} top3={top3} myUid={myUid} />
-                </View>
-              }
-              // rezerwa pod floating "Ty"
-              ListFooterComponent={<View style={{ height: myUser ? 88 : 16 }} />}
-              ListEmptyComponent={
-                <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                  <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>Brak danych</Text>
-                  <Text style={{ color: colors.text, opacity: 0.7, marginTop: 4 }}>
-                    Ukończ misję albo poczekaj aż dane się zsynchronizują.
-                  </Text>
-                </View>
-              }
-            />
+    <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      {/* 🔥 TŁO: orby/gradienty jak w web */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View
+          style={[
+            styles.orb,
+            { width: 320, height: 320, top: -150, left: -120, backgroundColor: colors.accent + "28" },
+          ]}
+        />
+        <View style={[styles.orb, { width: 260, height: 260, top: -90, right: -120, backgroundColor: "#22c55e22" }]} />
+        <View style={[styles.orb, { width: 220, height: 220, top: 210, left: -90, backgroundColor: "#a855f720" }]} />
+        <View style={[styles.orb, { width: 300, height: 300, top: 420, right: -150, backgroundColor: "#0ea5e920" }]} />
+        <View style={[styles.orb, { width: 180, height: 180, top: 720, left: 40, backgroundColor: "#f9731620" }]} />
+      </View>
 
-            {/* Floating "You" card */}
-            {!!myUser && (
-              <Pressable
-                onPress={() => router.push(`/Profile?uid=${myUser.id}`)}
-                style={({ pressed }) => [
-                  styles.floatWrap,
+      {busy ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      ) : (
+        <>
+          <FlatList
+            style={styles.list}
+            data={ranking}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad + (myUser ? 96 : 18) }]}
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false as any}
+            contentInset={{ top: 0, left: 0, right: 0, bottom: 0 }}
+            scrollIndicatorInsets={{ top: 0, left: 0, right: 0, bottom: 0 }}
+            removeClippedSubviews={Platform.OS === "android"}
+            initialNumToRender={14}
+            windowSize={9}
+            maxToRenderPerBatch={18}
+            ListHeaderComponent={
+              <View style={styles.headerWrap}>
+                <TopBarCard
+                  colors={colors}
+                  router={router}
+                  mode={mode}
+                  setMode={setMode}
+                  periodLabel={periodLabel}
+                  showDateNav={mode !== "all"}
+                  onPrev={movePrev}
+                  onNext={moveNext}
+                  onNow={resetNow}
+                />
+                <Top3Card colors={colors} top3={top3} myUid={myUid} />
+              </View>
+            }
+            ListEmptyComponent={
+              <View style={[styles.empty, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>Brak danych</Text>
+                <Text style={{ color: colors.text, opacity: 0.7, marginTop: 4 }}>
+                  Ukończ misję albo poczekaj aż dane się zsynchronizują.
+                </Text>
+              </View>
+            }
+          />
+
+          {/* Floating "Ty" card */}
+          {!!myUser && (
+            <Pressable
+              onPress={() => router.push(`/Profile?uid=${myUser.id}`)}
+              style={({ pressed }) => [
+                styles.floatWrap,
+                {
+                  bottom: bottomPad,
+                  opacity: pressed ? 0.92 : 1,
+                  transform: [{ scale: pressed ? 0.99 : 1 }],
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.floatCard,
                   {
-                    bottom: bottomPad,
-                    opacity: pressed ? 0.92 : 1,
-                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    shadowColor: "#000",
                   },
                 ]}
               >
-                <View
-                  style={[
-                    styles.floatCard,
-                    {
-                      borderColor: colors.border,
-                      backgroundColor: colors.card,
-                      shadowColor: "#000",
-                    },
-                  ]}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-                    <View style={[styles.floatBadge, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
-                      <Ionicons name="person" size={12} color={colors.accent} />
-                      <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 12, marginLeft: 6 }}>Ty</Text>
-                    </View>
-
-                    <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
-                      {myIndex + 1}. {myUser.displayName || myUser.username || myUser.email || "Użytkownik"}
-                    </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  <View style={[styles.floatBadge, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
+                    <Ionicons name="person" size={12} color={colors.accent} />
+                    <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 12, marginLeft: 6 }}>Ty</Text>
                   </View>
 
-                  <View style={[styles.floatExp, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
-                    <Ionicons name="sparkles" size={12} color={"#022c22"} />
-                    <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 6 }}>
-                      {fmtCompact(myUser.periodExp)} EXP
-                    </Text>
-                  </View>
+                  <Text style={{ color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+                    {myIndex + 1}. {myUser.displayName || myUser.username || myUser.email || "Użytkownik"}
+                  </Text>
                 </View>
-              </Pressable>
-            )}
-          </>
-        )}
-      </View>
+
+                <View style={[styles.floatExp, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
+                  <Ionicons name="sparkles" size={12} color={"#022c22"} />
+                  <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 6 }}>
+                    {fmtCompact(myUser.periodExp)} EXP
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          )}
+        </>
+      )}
     </View>
   );
 }
@@ -333,29 +372,75 @@ function TopBarCard({
   onNow,
 }: any) {
   return (
-    <View style={[styles.topBarCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.topBarCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          overflow: "hidden",
+        },
+      ]}
+    >
+      {/* dekoracyjne kółka (jak w web) */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: -80,
+          right: -70,
+          width: 180,
+          height: 180,
+          borderRadius: 999,
+          backgroundColor: colors.accent,
+          opacity: 0.1,
+        }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          bottom: -90,
+          left: -70,
+          width: 200,
+          height: 200,
+          borderRadius: 999,
+          backgroundColor: colors.accent,
+          opacity: 0.07,
+        }}
+      />
+
       <View style={styles.heroTop}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]} activeOpacity={0.9}>
           <Ionicons name="arrow-back" size={20} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={[styles.heroTitle, { color: colors.text }]}>Ranking</Text>
+        <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+          <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>
+            Ranking
+          </Text>
           <Text style={{ color: colors.text, opacity: 0.65, marginTop: 2, fontWeight: "800" }} numberOfLines={1}>
             {periodLabel}
           </Text>
         </View>
 
-        <TouchableOpacity onPress={onNow} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]}>
+        <TouchableOpacity onPress={onNow} hitSlop={12} style={[styles.iconBtn, { borderColor: colors.border }]} activeOpacity={0.9}>
           <Ionicons name="time-outline" size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      <SegmentedMega colors={colors} mode={mode} setMode={setMode} />
+      {/* MODE BUTTONS (jak web) */}
+      <View style={styles.modeRow}>
+        <ModeBtn label="Dzień" mode="day" current={mode} setMode={setMode} colors={colors} />
+        <ModeBtn label="Tydzień" mode="week" current={mode} setMode={setMode} colors={colors} />
+        <ModeBtn label="Miesiąc" mode="month" current={mode} setMode={setMode} colors={colors} />
+        <ModeBtn label="Całość" mode="all" current={mode} setMode={setMode} colors={colors} />
+      </View>
 
+      {/* DATE NAV */}
       {showDateNav && (
         <View style={styles.dateNav}>
-          <TouchableOpacity onPress={onPrev} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
+          <TouchableOpacity onPress={onPrev} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]} activeOpacity={0.9}>
             <Ionicons name="chevron-back" size={18} color={colors.text} />
           </TouchableOpacity>
 
@@ -366,7 +451,7 @@ function TopBarCard({
             </Text>
           </View>
 
-          <TouchableOpacity onPress={onNext} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]}>
+          <TouchableOpacity onPress={onNext} hitSlop={10} style={[styles.chevBtn, { borderColor: colors.border }]} activeOpacity={0.9}>
             <Ionicons name="chevron-forward" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -374,6 +459,33 @@ function TopBarCard({
     </View>
   );
 }
+
+/* ===========================================
+   ModeBtn
+=========================================== */
+
+function ModeBtn({ label, mode, current, setMode, colors }: any) {
+  const active = mode === current;
+  return (
+    <TouchableOpacity
+      onPress={() => setMode(mode)}
+      activeOpacity={0.9}
+      style={[
+        styles.modeBtn,
+        {
+          backgroundColor: active ? colors.accent : "transparent",
+          borderColor: colors.border,
+        },
+      ]}
+    >
+      <Text style={{ color: active ? "#022c22" : colors.text, fontWeight: "900", fontSize: 12 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/* ===========================================
+   TOP 3
+=========================================== */
 
 function Top3Card({ colors, top3, myUid }: any) {
   return (
@@ -393,88 +505,22 @@ function Top3Card({ colors, top3, myUid }: any) {
 }
 
 /* ===========================================
-   Segmented
-=========================================== */
-
-function SegmentedMega({ colors, mode, setMode }: any) {
-  const items = useMemo(
-    () => [
-      { key: "day", label: "Dzień", icon: "sunny-outline" },
-      { key: "week", label: "Tydzień", icon: "calendar-outline" },
-      { key: "month", label: "Miesiąc", icon: "calendar-number-outline" },
-      { key: "all", label: "Całość", icon: "infinite-outline" },
-    ],
-    []
-  );
-
-  const [w, setW] = useState(0);
-  const anim = useRef(new Animated.Value(0)).current;
-
-  const idx = useMemo(() => items.findIndex((x) => x.key === mode), [items, mode]);
-
-  useEffect(() => {
-    Animated.spring(anim, {
-      toValue: idx,
-      useNativeDriver: true,
-      speed: 18,
-      bounciness: 8,
-    }).start();
-  }, [idx, anim]);
-
-  const segW = w ? (w - 8) / 4 : 0;
-
-  const translateX = anim.interpolate({
-    inputRange: [0, 1, 2, 3],
-    outputRange: [0, segW, segW * 2, segW * 3],
-  });
-
-  return (
-    <View
-      style={[styles.segmentShell, { borderColor: colors.border, backgroundColor: colors.bg }]}
-      onLayout={(e) => setW(e.nativeEvent.layout.width)}
-    >
-      {!!segW && (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.segmentHighlight,
-            {
-              width: segW,
-              backgroundColor: colors.accent,
-              transform: [{ translateX }],
-            },
-          ]}
-        />
-      )}
-
-      {items.map((it) => {
-        const active = it.key === mode;
-        return (
-          <Pressable
-            key={it.key}
-            onPress={() => setMode(it.key)}
-            style={({ pressed }) => [styles.segmentBtn, { opacity: pressed ? 0.9 : 1 }]}
-          >
-            <Ionicons name={it.icon as any} size={14} color={active ? "#022c22" : colors.text} style={{ opacity: active ? 1 : 0.75 }} />
-            <Text style={{ color: active ? "#022c22" : colors.text, fontWeight: "900", fontSize: 12, marginLeft: 6 }}>
-              {it.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-/* ===========================================
    PodiumCard
 =========================================== */
 
 function PodiumCard({ colors, user, place, myUid, big }: any) {
+  const router = useRouter();
+
   const name = user ? user.displayName || user.username || user.email || "Użytkownik" : "—";
   const exp = user ? Number(user.periodExp || 0) : 0;
   const avatar = user?.photoURL || null;
   const isMe = user?.id && myUid && user.id === myUid;
+
+  const canGoProfile = Boolean(user?.id);
+  const goProfile = () => {
+    if (!user?.id) return;
+    router.push(`/Profile?uid=${user.id}`);
+  };
 
   const medal = place === 1 ? "trophy" : place === 2 ? "medal" : "ribbon";
   const medalColor = place === 1 ? "#facc15" : place === 2 ? "#e5e7eb" : "#d97706";
@@ -490,7 +536,7 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
         },
       ]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <View style={[styles.podiumPlace, { backgroundColor: medalColor + "22", borderColor: medalColor + "55" }]}>
           <Ionicons name={medal as any} size={13} color={medalColor} />
           <Text style={{ color: medalColor, fontWeight: "900", marginLeft: 6, fontSize: 12 }}>{place}</Text>
@@ -504,15 +550,17 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
       </View>
 
       <View style={{ alignItems: "center", marginTop: big ? 4 : 2 }}>
-        {avatar ? (
-          <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
-        ) : (
-          <View style={[styles.podiumAvatarGen, { borderColor: colors.border, backgroundColor: colors.card }, big && styles.podiumAvatarBig]}>
-            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 16 : 14 }}>
-              {(name?.[0] || "U").toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <TouchableOpacity onPress={goProfile} disabled={!canGoProfile} activeOpacity={0.85} style={{ borderRadius: big ? 14 : 12 }}>
+          {avatar ? (
+            <Image source={{ uri: avatar }} style={[styles.podiumAvatar, big && styles.podiumAvatarBig]} />
+          ) : (
+            <View style={[styles.podiumAvatarGen, { borderColor: colors.border, backgroundColor: colors.card }, big && styles.podiumAvatarBig]}>
+              <Text style={{ color: colors.accent, fontWeight: "900", fontSize: big ? 16 : 14 }}>
+                {(name?.[0] || "U").toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         <Text style={{ color: colors.text, fontWeight: "900", marginTop: 4, fontSize: 11 }} numberOfLines={1}>
           {name}
@@ -520,7 +568,7 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
 
         <View style={[styles.podiumExp, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
           <Ionicons name="sparkles-outline" size={11} color={colors.accent} />
-          <Text style={{ color: colors.accent, fontWeight: "900", marginLeft: 6, fontSize: 10 }}>
+          <Text style={{ color: colors.accent, fontWeight: "900", marginLeft: 6, fontSize: 10 }} numberOfLines={1}>
             {fmtCompact(exp)} EXP
           </Text>
         </View>
@@ -563,7 +611,7 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
         )}
       </View>
 
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.nameRow}>
           <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }} numberOfLines={1}>
             {name}
@@ -577,13 +625,8 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
           )}
         </View>
 
-        <View style={{ flexDirection: "row", marginTop: 8 }}>
-          <View style={[styles.expChip, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
-            <Ionicons name="sparkles-outline" size={12} color={colors.accent} />
-            <Text style={{ marginLeft: 6, color: colors.accent, fontSize: 12, fontWeight: "900" }}>
-              {fmtCompact(exp)} EXP
-            </Text>
-          </View>
+        <View style={{ flexDirection: "row", marginTop: 8, flexWrap: "wrap" }}>
+          <SmallBadge icon="sparkles-outline" label={`${fmtCompact(exp)} EXP`} colors={colors} />
         </View>
       </View>
 
@@ -598,17 +641,42 @@ function RankRow({ user, place, isMe, colors, exp }: any) {
 }
 
 /* ===========================================
+   SmallBadge
+=========================================== */
+
+function SmallBadge({ icon, label, colors }: any) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: colors.accent + "22",
+        borderWidth: 1,
+        borderColor: colors.accent + "55",
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+      }}
+    >
+      <Ionicons name={icon} size={12} color={colors.accent} />
+      <Text style={{ marginLeft: 6, color: colors.accent, fontSize: 12, fontWeight: "900" }} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/* ===========================================
    Styles
 =========================================== */
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
   page: { flex: 1 },
   list: { flex: 1 },
 
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  // ✅ klucz: normalny, “statystyki-like” start treści pod górnym app-barem
+  // ✅ “web-like” start treści
   listContent: {
     paddingHorizontal: 14,
     paddingTop: 12,
@@ -618,11 +686,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
 
+  orb: {
+    position: "absolute",
+    borderRadius: 999,
+  },
+
   topBarCard: {
     borderWidth: 1,
     borderRadius: 20,
     padding: 10,
-    overflow: "hidden",
+    marginBottom: 8,
   },
 
   heroTop: {
@@ -647,37 +720,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  segmentShell: {
-    marginTop: 8,
+  modeRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  modeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 4,
-    flexDirection: "row",
-    position: "relative",
-    overflow: "hidden",
-  },
-
-  segmentHighlight: {
-    position: "absolute",
-    left: 4,
-    top: 4,
-    bottom: 4,
-    borderRadius: 12,
-    opacity: 0.95,
-  },
-
-  segmentBtn: {
-    flex: 1,
-    minHeight: 34,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    zIndex: 2,
   },
 
   dateNav: {
-    marginTop: 8,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -694,6 +752,7 @@ const styles = StyleSheet.create({
 
   datePill: {
     flex: 1,
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: 14,
     height: 36,
@@ -707,7 +766,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 10,
     marginTop: 6,
-    marginBottom: 6,
+    marginBottom: 10,
   },
 
   top3HeaderRow: {
@@ -726,6 +785,7 @@ const styles = StyleSheet.create({
 
   podiumCard: {
     flex: 1,
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: 14,
     padding: 6,
@@ -826,15 +886,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  expChip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
   },

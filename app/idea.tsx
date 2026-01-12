@@ -1,5 +1,5 @@
 // app/idea.tsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,54 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
+function isHex6(color: string) {
+  return /^#?[0-9a-fA-F]{6}$/.test(color);
+}
+
+function normalizeHex6(color: string) {
+  return color.startsWith("#") ? color : `#${color}`;
+}
+
+function hexToRgb(hex: string) {
+  const h = normalizeHex6(hex).slice(1);
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const to2 = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
+}
+
+function clamp255(n: number) {
+  return Math.max(0, Math.min(255, n));
+}
+
+function shadeHex(hex: string, amount: number) {
+  if (!isHex6(hex)) return hex;
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex(
+    clamp255(r + amount),
+    clamp255(g + amount),
+    clamp255(b + amount)
+  );
+}
+
+function luminance(hex: string) {
+  if (!isHex6(hex)) return 0.5;
+  const { r, g, b } = hexToRgb(hex);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function pickFirstStringColor(...vals: any[]) {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim().length > 0) return v;
+  }
+  return null;
+}
+
 export default function IdeaScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -29,6 +77,50 @@ export default function IdeaScreen() {
   const [sending, setSending] = useState(false);
 
   const user = auth.currentUser;
+
+  // kompatybilność nazewnictwa (u Ciebie w kodzie przewijają się różne klucze)
+  const screenBg =
+    pickFirstStringColor((colors as any).bg, (colors as any).background) ??
+    "#0b1220";
+
+  const cardBg =
+    pickFirstStringColor((colors as any).card) ??
+    // awaryjnie: jasna karta na jasnym tle / ciemna na ciemnym
+    (isHex6(screenBg) && luminance(screenBg) < 0.45
+      ? "rgba(255,255,255,0.06)"
+      : "rgba(255,255,255,0.55)");
+
+  const borderColor =
+    pickFirstStringColor((colors as any).border) ?? "rgba(148,163,184,0.35)";
+
+  const textColor = pickFirstStringColor((colors as any).text) ?? "#0f172a";
+
+  const textMuted =
+    pickFirstStringColor((colors as any).textMuted, (colors as any).textSecondary) ??
+    "rgba(15,23,42,0.7)";
+
+  const accent = pickFirstStringColor((colors as any).accent) ?? "#34d399";
+  const disabledBg = pickFirstStringColor((colors as any).disabled) ?? "#1e293b";
+
+  const inputBg = useMemo(() => {
+    // Baza do inputów: najpierw karta (najbardziej logiczne), potem tło ekranu.
+    const base =
+      pickFirstStringColor((colors as any).card, (colors as any).bg, (colors as any).background) ??
+      "#e2e8f0";
+
+    // Jeśli to nie jest hex, to nie próbujemy shade’ować — ale nadal zwracamy bazę.
+    if (!isHex6(base)) return base;
+
+    const lum = luminance(base);
+    // Ciemny motyw: lekko jaśniej
+    // Jasny motyw: lekko ciemniej
+    return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
+  }, [colors]);
+
+  const onAccent = useMemo(() => {
+    if (!isHex6(accent)) return "#022c22";
+    return luminance(accent) > 0.6 ? "#022c22" : "#ffffff";
+  }, [accent]);
 
   const canSend =
     title.trim().length > 0 && description.trim().length > 0 && !sending;
@@ -70,7 +162,7 @@ export default function IdeaScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: screenBg }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
@@ -110,7 +202,7 @@ export default function IdeaScreen() {
               <Ionicons
                 name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
                 size={24}
-                color={colors.text}
+                color={textColor}
               />
             </TouchableOpacity>
 
@@ -119,7 +211,7 @@ export default function IdeaScreen() {
                 flex: 1,
                 textAlign: "center",
                 marginRight: 36,
-                color: colors.text,
+                color: textColor,
                 fontSize: 20,
                 fontWeight: "600",
               }}
@@ -131,8 +223,8 @@ export default function IdeaScreen() {
           {/* FORM CARD */}
           <View
             style={{
-              backgroundColor: colors.card,
-              borderColor: colors.border,
+              backgroundColor: cardBg,
+              borderColor: borderColor,
               borderWidth: 1,
               borderRadius: 18,
               padding: 16,
@@ -140,7 +232,7 @@ export default function IdeaScreen() {
           >
             <Text
               style={{
-                color: colors.text,
+                color: textColor,
                 fontWeight: "700",
                 fontSize: 16,
                 marginBottom: 8,
@@ -151,22 +243,21 @@ export default function IdeaScreen() {
 
             <Text
               style={{
-                color: colors.textSecondary,
+                color: textMuted,
                 fontSize: 13,
                 lineHeight: 18,
                 marginBottom: 20,
               }}
             >
-              Podziel się swoimi pomysłami na nowe funkcje, poprawki lub
-              usprawnienia. Im bardziej konkretny opis, tym łatwiej nam będzie je
-              wdrożyć.
+              Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia.
+              Im bardziej konkretny opis, tym łatwiej nam będzie je wdrożyć.
             </Text>
 
             {/* CO JEST MILE WIDZIANE */}
             <View style={{ marginBottom: 18 }}>
               <Text
                 style={{
-                  color: colors.text,
+                  color: textColor,
                   fontSize: 13,
                   fontWeight: "700",
                   marginBottom: 6,
@@ -177,7 +268,7 @@ export default function IdeaScreen() {
 
               <Text
                 style={{
-                  color: colors.textSecondary,
+                  color: textMuted,
                   fontSize: 12,
                   lineHeight: 18,
                 }}
@@ -189,33 +280,29 @@ export default function IdeaScreen() {
             </View>
 
             {/* TITLE INPUT */}
-            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-              Tytuł pomysłu
-            </Text>
+            <Text style={{ color: textMuted, fontSize: 12 }}>Tytuł pomysłu</Text>
 
             <TextInput
               value={title}
               onChangeText={setTitle}
               placeholder="Np. Widok tygodnia w kalendarzu"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={textMuted}
               style={{
                 marginTop: 6,
                 marginBottom: 16,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: borderColor,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
-                backgroundColor: colors.inputBackground ?? "#020617",
-                color: colors.text,
+                backgroundColor: inputBg,
+                color: textColor,
                 fontSize: 14,
               }}
             />
 
             {/* DESCRIPTION INPUT */}
-            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-              Opisz swój pomysł
-            </Text>
+            <Text style={{ color: textMuted, fontSize: 12 }}>Opisz swój pomysł</Text>
 
             <TextInput
               value={description}
@@ -223,7 +310,7 @@ export default function IdeaScreen() {
               placeholder={
                 "Co dokładnie chcesz dodać lub zmienić?\nJak miałoby działać?\nDla kogo byłaby ta funkcja?"
               }
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={textMuted}
               multiline
               textAlignVertical="top"
               style={{
@@ -231,17 +318,17 @@ export default function IdeaScreen() {
                 marginBottom: 16,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: borderColor,
                 padding: 12,
-                backgroundColor: colors.inputBackground ?? "#020617",
-                color: colors.text,
+                backgroundColor: inputBg,
+                color: textColor,
                 fontSize: 14,
                 minHeight: 140,
               }}
             />
 
             {/* BENEFIT INPUT */}
-            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+            <Text style={{ color: textMuted, fontSize: 12 }}>
               Dlaczego to będzie pomocne? (opcjonalnie)
             </Text>
 
@@ -249,7 +336,7 @@ export default function IdeaScreen() {
               value={benefit}
               onChangeText={setBenefit}
               placeholder="Np. ułatwi planowanie tygodnia całej rodzinie..."
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={textMuted}
               multiline
               textAlignVertical="top"
               style={{
@@ -257,10 +344,10 @@ export default function IdeaScreen() {
                 marginBottom: 20,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: borderColor,
                 padding: 12,
-                backgroundColor: colors.inputBackground ?? "#020617",
-                color: colors.text,
+                backgroundColor: inputBg,
+                color: textColor,
                 fontSize: 14,
                 minHeight: 80,
               }}
@@ -285,12 +372,12 @@ export default function IdeaScreen() {
                   paddingVertical: 10,
                   borderRadius: 999,
                   borderWidth: 1,
-                  borderColor: colors.border,
+                  borderColor: borderColor,
                 }}
               >
                 <Text
                   style={{
-                    color: colors.textSecondary,
+                    color: textMuted,
                     fontSize: 14,
                   }}
                 >
@@ -306,7 +393,7 @@ export default function IdeaScreen() {
                   paddingHorizontal: 18,
                   paddingVertical: 10,
                   borderRadius: 999,
-                  backgroundColor: canSend ? colors.accent : colors.disabled,
+                  backgroundColor: canSend ? accent : disabledBg,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 8,
@@ -314,14 +401,14 @@ export default function IdeaScreen() {
                 }}
               >
                 {sending ? (
-                  <ActivityIndicator size="small" color="#022c22" />
+                  <ActivityIndicator size="small" color={onAccent} />
                 ) : (
-                  <Ionicons name="send" size={16} color="#022c22" />
+                  <Ionicons name="send" size={16} color={onAccent} />
                 )}
 
                 <Text
                   style={{
-                    color: "#022c22",
+                    color: canSend ? onAccent : textMuted,
                     fontSize: 14,
                     fontWeight: "700",
                   }}

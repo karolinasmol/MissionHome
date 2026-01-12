@@ -1,5 +1,5 @@
 // app/idea.tsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,8 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
-  Alert,
+  Modal,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -55,9 +56,10 @@ function shadeHex(hex: string, amount: number) {
 function luminance(hex: string) {
   if (!isHex6(hex)) return 0.5;
   const { r, g, b } = hexToRgb(hex);
-  // prosta luminancja (wystarczy do rozróżnienia jasne/ciemne)
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
+
+type ModalKind = "success" | "error";
 
 export default function IdeaScreen() {
   const router = useRouter();
@@ -68,6 +70,11 @@ export default function IdeaScreen() {
   const [benefit, setBenefit] = useState("");
   const [sending, setSending] = useState(false);
 
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalKind, setModalKind] = useState<ModalKind>("success");
+  const [modalTitle, setModalTitle] = useState("Dziękujemy!");
+  const [modalMsg, setModalMsg] = useState("Twój pomysł został wysłany 💡");
+
   const user = auth.currentUser;
 
   const cardStyle = {
@@ -75,20 +82,55 @@ export default function IdeaScreen() {
     borderColor: colors.border,
   };
 
-  const inputBg = (() => {
+  const inputBg = useMemo(() => {
     const base = typeof colors.card === "string" ? colors.card : "#111827";
     if (!isHex6(base)) return base;
     const lum = luminance(base);
-    // Ciemny motyw: lekko jaśniej (żeby nie było "dziury").
-    // Jasny motyw: lekko ciemniej (żeby pole było czytelne).
     return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
-  })();
+  }, [colors.card]);
+
+  const modalCardBg = useMemo(() => {
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
+    if (!isHex6(base)) return base;
+    // lekko podbijamy modal, żeby wyglądał “premium”
+    const lum = luminance(base);
+    return lum < 0.45 ? shadeHex(base, 10) : shadeHex(base, -6);
+  }, [colors.card]);
 
   const canSend =
     title.trim().length > 0 && description.trim().length > 0 && !sending;
 
+  const openModal = (kind: ModalKind, t: string, m: string) => {
+    setModalKind(kind);
+    setModalTitle(t);
+    setModalMsg(m);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => setModalOpen(false);
+
+  const handleModalPrimary = () => {
+    // po sukcesie czyścimy i wracamy
+    if (modalKind === "success") {
+      setTitle("");
+      setDescription("");
+      setBenefit("");
+      closeModal();
+      router.back();
+      return;
+    }
+    // po błędzie tylko zamykamy
+    closeModal();
+  };
+
   const handleSend = async () => {
     if (!canSend) return;
+
+    // (opcjonalnie) lepszy UX, jeśli jednak ktoś wejdzie tu niezalogowany
+    if (!user?.uid) {
+      openModal("error", "Zaloguj się", "Musisz być zalogowany, aby wysłać pomysł.");
+      return;
+    }
 
     try {
       setSending(true);
@@ -98,39 +140,134 @@ export default function IdeaScreen() {
         description: description.trim(),
         benefit: benefit.trim() || null,
         platform: Platform.OS,
-        appVersion: "1.0.0", // TODO: podmienić jeśli będziesz trzymać wersję w kodzie
-        userId: user?.uid || null,
-        userEmail: user?.email || null,
+        appVersion: "1.0.0",
+        userId: user.uid,
+        userEmail: user.email || null,
         createdAt: serverTimestamp(),
         status: "new",
       });
 
-      if (Platform.OS === "web") {
-        window.alert("Dziękujemy! Pomysł został wysłany 💡");
-      } else {
-        Alert.alert("Dziękujemy!", "Twój pomysł został wysłany 💡");
-      }
-
-      setTitle("");
-      setDescription("");
-      setBenefit("");
-      router.back();
+      openModal("success", "Dziękujemy!", "Twój pomysł został wysłany 💡");
     } catch (err: any) {
       console.error("IDEA REPORT ERROR", err);
       const msg =
         err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
-      if (Platform.OS === "web") {
-        window.alert(msg);
-      } else {
-        Alert.alert("Błąd", msg);
-      }
+      openModal("error", "Błąd", msg);
     } finally {
       setSending(false);
     }
   };
 
+  const modalIcon = modalKind === "success" ? "checkmark-circle" : "alert-circle";
+  const modalAccent = modalKind === "success" ? colors.accent : "#ef4444";
+  const modalPrimaryText = modalKind === "success" ? "OK, wracam" : "OK";
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/* MODAL (web + native) */}
+      <Modal
+        visible={modalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
+        <Pressable
+          onPress={closeModal}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+          }}
+        >
+          {/* klik w kartę nie zamyka */}
+          <Pressable
+            onPress={() => {}}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              borderRadius: 18,
+              backgroundColor: modalCardBg,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 16,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Ionicons name={modalIcon as any} size={22} color={modalAccent} />
+              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                {modalTitle}
+              </Text>
+
+              <View style={{ flex: 1 }} />
+
+              <TouchableOpacity
+                onPress={closeModal}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                }}
+              >
+                <Ionicons name="close" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 13,
+                lineHeight: 18,
+                marginTop: 10,
+              }}
+            >
+              {modalMsg}
+            </Text>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 10,
+                marginTop: 14,
+              }}
+            >
+              {modalKind === "error" ? (
+                <TouchableOpacity
+                  onPress={closeModal}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                    Zamknij
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={handleModalPrimary}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  backgroundColor: modalAccent,
+                }}
+              >
+                <Text style={{ color: "#022c22", fontSize: 14, fontWeight: "800" }}>
+                  {modalPrimaryText}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ScrollView
         contentContainerStyle={{
           padding: 16,
@@ -222,9 +359,7 @@ export default function IdeaScreen() {
           </View>
 
           {/* TYTUŁ POMYSŁU */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Tytuł pomysłu
           </Text>
           <TextInput
@@ -245,9 +380,7 @@ export default function IdeaScreen() {
           />
 
           {/* OPIS POMYSŁU */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Opisz swój pomysł
           </Text>
           <TextInput
@@ -273,9 +406,7 @@ export default function IdeaScreen() {
           />
 
           {/* KORZYŚCI */}
-          <Text
-            style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}
-          >
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Dlaczego to będzie pomocne? (opcjonalnie)
           </Text>
           <TextInput
@@ -316,12 +447,7 @@ export default function IdeaScreen() {
                 borderColor: colors.border,
               }}
             >
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 14,
-                }}
-              >
+              <Text style={{ color: colors.textMuted, fontSize: 14 }}>
                 Anuluj
               </Text>
             </TouchableOpacity>
@@ -357,9 +483,8 @@ export default function IdeaScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-// app/idea.tsx

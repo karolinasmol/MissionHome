@@ -15,15 +15,29 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
-import { subscribeTourStep5, setTourStep5Open as setTourStep5OpenBus } from "../utils/tourStep5Bus";
-import { subscribeTourStep6, setTourStep6Open as setTourStep6OpenBus } from "../utils/tourStep6Bus";
-import { subscribeTourStep7, setTourStep7Open as setTourStep7OpenBus } from "../utils/tourStep7Bus";
-import { subscribeTourStep8, setTourStep8Open as setTourStep8OpenBus } from "../utils/tourStep8Bus";
-import { subscribeTourStep10, setTourStep10Open as setTourStep10OpenBus } from "../utils/tourStep10Bus";
-import { subscribeTourStep11, setTourStep11Open as setTourStep11OpenBus } from "../utils/tourStep11Bus";
-import { subscribeTourStep12, setTourStep12Open as setTourStep12OpenBus } from "../utils/tourStep12Bus";
-import { subscribeTourStep13, setTourStep13Open as setTourStep13OpenBus } from "../utils/tourStep13Bus";
-import { subscribeTourStep14, setTourStep14Open as setTourStep14OpenBus } from "../utils/tourStep14Bus";
+// ✅ ZAMIANA: jeden plik zamiast wielu busów (tutorial 5–15)
+import {
+  subscribeTourStep5,
+  setTourStep5Open as setTourStep5OpenBus,
+  subscribeTourStep6,
+  setTourStep6Open as setTourStep6OpenBus,
+  subscribeTourStep7,
+  setTourStep7Open as setTourStep7OpenBus,
+  subscribeTourStep8,
+  setTourStep8Open as setTourStep8OpenBus,
+  subscribeTourStep10,
+  setTourStep10Open as setTourStep10OpenBus,
+  subscribeTourStep11,
+  setTourStep11Open as setTourStep11OpenBus,
+  subscribeTourStep12,
+  setTourStep12Open as setTourStep12OpenBus,
+  subscribeTourStep13,
+  setTourStep13Open as setTourStep13OpenBus,
+  subscribeTourStep14,
+  setTourStep14Open as setTourStep14OpenBus,
+  subscribeTourStep15,
+  setTourStep15Open as setTourStep15OpenBus,
+} from "../tour/steps/homeTourSteps";
 
 import { useTheme, useThemeColors, THEMES, THEME_LABELS, Theme } from "../context/ThemeContext";
 import { auth, db } from "../firebase/firebase";
@@ -602,7 +616,7 @@ export default function CustomHeader() {
     measureAnyRef(navRankRef, setNavRankRect);
   };
 
-  // ✅ TOUR STATES (5,6,7,8,10,11,12,13,14)
+  // ✅ TOUR STATES (5,6,7,8,10,11,12,13,14,15)
   const [step5Open, setStep5Open] = useState(false);
   const [step6Open, setStep6Open] = useState(false);
   const [step7Open, setStep7Open] = useState(false);
@@ -612,6 +626,7 @@ export default function CustomHeader() {
   const [step12Open, setStep12Open] = useState(false);
   const [step13Open, setStep13Open] = useState(false);
   const [step14Open, setStep14Open] = useState(false);
+  const [step15Open, setStep15Open] = useState(false);
 
   useEffect(() => subscribeTourStep5(setStep5Open), []);
   useEffect(() => subscribeTourStep6(setStep6Open), []);
@@ -622,11 +637,13 @@ export default function CustomHeader() {
   useEffect(() => subscribeTourStep12(setStep12Open), []);
   useEffect(() => subscribeTourStep13(setStep13Open), []);
   useEffect(() => subscribeTourStep14(setStep14Open), []);
+  useEffect(() => subscribeTourStep15(setStep15Open), []);
 
   const tourFade = useRef(new Animated.Value(0)).current;
   const tourPulse = useRef(new Animated.Value(0)).current;
 
   const activeTourStep = useMemo(() => {
+    if (step15Open) return 15;
     if (step14Open) return 14;
     if (step13Open) return 13;
     if (step12Open) return 12;
@@ -637,7 +654,7 @@ export default function CustomHeader() {
     if (step6Open) return 6;
     if (step5Open) return 5;
     return null;
-  }, [step5Open, step6Open, step7Open, step8Open, step10Open, step11Open, step12Open, step13Open, step14Open]);
+  }, [step5Open, step6Open, step7Open, step8Open, step10Open, step11Open, step12Open, step13Open, step14Open, step15Open]);
 
   const setTourOpen = (step: number, open: boolean) => {
     try {
@@ -669,12 +686,15 @@ export default function CustomHeader() {
         case 14:
           setTourStep14OpenBus(open);
           break;
+        case 15:
+          setTourStep15OpenBus(open);
+          break;
       }
     } catch {}
   };
 
   const closeAllTourSteps = () => {
-    [5, 6, 7, 8, 10, 11, 12, 13, 14].forEach((s) => setTourOpen(s, false));
+    [5, 6, 7, 8, 10, 11, 12, 13, 14, 15].forEach((s) => setTourOpen(s, false));
   };
 
   const markTourSeen = async () => {
@@ -704,6 +724,7 @@ export default function CustomHeader() {
       11: 12,
       12: 13,
       13: 14,
+      14: 15,
     };
 
     const next = nextMap[from];
@@ -714,6 +735,27 @@ export default function CustomHeader() {
 
     setTourOpen(from, false);
     setTourOpen(next, true);
+  };
+
+  // ✅ NOWE: powrót (Wstecz) dla 6–15
+  const goPrev = (from: number) => {
+    const prevMap: Record<number, number> = {
+      6: 5,
+      7: 6,
+      8: 7,
+      10: 8,
+      11: 10,
+      12: 11,
+      13: 12,
+      14: 13,
+      15: 14,
+    };
+
+    const prev = prevMap[from];
+    if (!prev) return;
+
+    setTourOpen(from, false);
+    setTourOpen(prev, true);
   };
 
   const closeTourBubbleOnly = () => {
@@ -892,7 +934,7 @@ export default function CustomHeader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  const tourTotal = 14;
+  const tourTotal = 15;
 
   const tourConfig = useMemo(() => {
     const cfg: Record<
@@ -901,85 +943,123 @@ export default function CustomHeader() {
         title: string;
         body: string;
         anchorRect: AnchorRect | null;
+
         primaryLabel: string;
         onPrimary: () => void;
+
+        secondaryLabel?: string;
+        onSecondary?: () => void;
+
         onSkip: () => void;
         pad?: number;
       }
     > = {
       5: {
-        title: "Ustawienia: profil, motyw i bezpieczeństwo",
+        title: "GÓRNY PANEL: USTAWIENIA",
         body:
-          "Kliknij w prawym górnym rogu (avatar), żeby otworzyć opcje.\n\nWejdź w Ustawienia i dodaj swoje zdjęcie profilowe — rodzina od razu Cię rozpozna.\n\nTam też ogarniesz motyw i ważne opcje bezpieczeństwa konta.",
+          "Kliknij avatar, aby przejść do ustawień. W tym miejscu ustawisz motyw aplikacji, zmienisz avatar lub nick, a także zmienisz lub usuniesz swoje dane.\n\nSpróbuj od razu i przechodzimy dalej.",
         anchorRect: profileRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(5),
         onSkip: () => finishTour(),
       },
       6: {
-        title: "Profil i zgłaszanie błędów",
+        title: "PROFIL & ZGŁASZANIE BŁĘDÓW",
         body:
-          "W menu pod avatarem znajdziesz Profil — tam ustawisz m.in. dane i prywatność.\n\nJest tu też opcja „Zgłoś błąd”, gdy coś nie działa albo chcesz coś zasugerować.",
+          "W menu pod avatarem znajdziesz Profil - tam ustawisz prywatność swoich statystyk.\n\nJest tu też opcja „Zgłoś błąd”, gdy coś nie działa albo chcesz coś zasugerować.",
         anchorRect: profileRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(6),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(6),
         onSkip: () => finishTour(),
       },
       7: {
-        title: "Premium",
-        body: "Premium odblokowuje dodatkowe funkcje i wspiera rozwój aplikacji. Jeśli korzystasz na co dzień — warto zerknąć. 🙂",
+        title: "PREMIUM",
+        body:
+          "Premium odblokowuje dodatkowe funkcje i wspiera rozwój aplikacji. Jeśli podoba Ci się MissionHome, sprawdź koniecznie jak Premium może usprawnić Twoje planowanie 🙂",
         anchorRect: premiumRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(7),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(7),
         onSkip: () => finishTour(),
       },
       8: {
-        title: "Wiadomości",
-        body: "Tu macie czat w rodzinie: dogadacie sprawy dnia, zadania i szybkie ustalenia bez wychodzenia z apki.",
+        title: "WIADOMOŚCI",
+        body: "Jedna z funkcji Premium. Wysyłaj wiadomości do członków rodziny, szybko ustalając zadania i bieżące sprawy bez wychodzenia z aplikacji.",
         anchorRect: messagesRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(8),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(8),
         onSkip: () => finishTour(),
       },
       10: {
-        title: "Kalendarz",
-        body: "Kalendarz to centrum planu: zadania, terminy i ogarnianie tygodnia w jednym miejscu.",
+        title: "KALENDARZ",
+        body: "Kalendarz to podgląd Twojego planu. Zobaczysz tu zadania na wybrany dzień (Twoje i członków rodziny) oraz historię usuniętych zadań. ",
         anchorRect: isCollapsedWeb ? navToggleRect : navCalRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(10),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(10),
         onSkip: () => finishTour(),
       },
       11: {
-        title: "Rodzina",
-        body: "W Rodzinie dodajesz domowników i zarządzasz wspólną przestrzenią oraz uprawnieniami.",
+        title: "RODZINA",
+        body:
+          "Możesz dodać znajomych, aby mieć podgląd do ich statystyk.\n\nW ramach Premium możesz utworzyć ze znajomymi Rodzinę - dodajesz domowników i pracujecie na wspólnej przestrzeni. Możecie przypisywać sobie zadania, realizować je razem i podglądać wspólne statystyki. ",
         anchorRect: isCollapsedWeb ? navToggleRect : navFamilyRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(11),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(11),
         onSkip: () => finishTour(),
       },
       12: {
-        title: "Statystyki",
-        body: "Statystyki pokazują jak idzie ogarnianie: postępy, aktywność i trendy w czasie.",
+        title: "STATYSTYKI",
+        body:
+          "Tutaj analizujesz realizację zadań: podsumowania, częstotliwość, trudność i trendy w czasie. Możesz wyszukiwać zadania z historii, eksportować dane oraz dopasować układ kafelków do siebie.",
         anchorRect: isCollapsedWeb ? navToggleRect : navStatsRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(12),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(12),
         onSkip: () => finishTour(),
       },
       13: {
-        title: "Osiągnięcia",
-        body: "Osiągnięcia dodają trochę zabawy: odznaki za regularność i konkretne cele.",
+        title: "OSIĄGNIĘCIA",
+        body: "To system odznak, który nagradza regularność i realizację konkretnych celów. Pomaga śledzić postęp i utrzymać rytm.",
         anchorRect: isCollapsedWeb ? navToggleRect : navAchRect,
         primaryLabel: "Dalej",
         onPrimary: () => goNext(13),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(13),
         onSkip: () => finishTour(),
       },
       14: {
-        title: "Ranking",
+        title: "RANKING",
         body:
-          "Ranking porównuje wyniki w formie zabawy i motywacji.\n\nJeśli wolisz prywatność, możesz wyłączyć udostępnianie szczegółowych statystyk w Profilu.",
+          "Ranking porównuje wyniki wszystkich użytkowników w formie zabawy i motywacji.\n\nJeśli wolisz prywatność, możesz wyłączyć udostępnianie szczegółowych statystyk w Profilu.",
         anchorRect: isCollapsedWeb ? navToggleRect : navRankRect,
         primaryLabel: "Koniec",
+        onPrimary: () => goNext(14),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(14),
+        onSkip: () => finishTour(),
+      },
+
+      // ✅ KROK 15 — FINISH MODAL (bez highlightu)
+      15: {
+        title: "Teraz znasz już lepiej MissionHome! 🎉",
+        body:
+          "Masz ogarnięte podstawy: ustawienia, premium, wiadomości i nawigację.\n\n" +
+          "Teraz dodaj pierwszą misję i zacznij wbijać poziom w codzienności ✨",
+        anchorRect: null,
+        primaryLabel: "Zaczynamy!",
         onPrimary: () => finishTour(),
+        secondaryLabel: "Wstecz",
+        onSecondary: () => goPrev(15),
         onSkip: () => finishTour(),
       },
     };
@@ -996,10 +1076,11 @@ export default function CustomHeader() {
     navAchRect,
     navRankRect,
     isCollapsedWeb,
+    // funkcje z closure
   ]);
 
   const activeCfg = activeTourStep ? tourConfig[activeTourStep] : null;
-  const showTour = !!activeTourStep && !!activeCfg && !!activeCfg.anchorRect;
+  const showTour = !!activeTourStep && !!activeCfg && (activeTourStep === 15 || !!activeCfg.anchorRect);
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
@@ -1080,11 +1161,7 @@ export default function CustomHeader() {
                     ]}
                   >
                     <View style={{ position: "relative" }}>
-                      <Ionicons
-                        name={notifsOpen ? "notifications" : "notifications-outline"}
-                        size={20}
-                        color={palette.navIcon}
-                      />
+                      <Ionicons name={notifsOpen ? "notifications" : "notifications-outline"} size={20} color={palette.navIcon} />
                       <Badge count={unreadCount} />
                     </View>
 
@@ -1147,11 +1224,7 @@ export default function CustomHeader() {
 
                 <Pressable onPress={toggleNotifs} style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}>
                   <View style={{ position: "relative" }}>
-                    <Ionicons
-                      name={notifsOpen ? "notifications" : "notifications-outline"}
-                      size={20}
-                      color={palette.navIcon}
-                    />
+                    <Ionicons name={notifsOpen ? "notifications" : "notifications-outline"} size={20} color={palette.navIcon} />
                     <Badge count={unreadCount} />
                   </View>
                 </Pressable>
@@ -1267,11 +1340,7 @@ export default function CustomHeader() {
                       closeNav();
                       router.push(item.route as any);
                     }}
-                    style={({ pressed }) => [
-                      styles.mobileNavItem,
-                      active && styles.mobileNavItemActive,
-                      pressed && styles.mobileNavItemPressed,
-                    ]}
+                    style={({ pressed }) => [styles.mobileNavItem, active && styles.mobileNavItemActive, pressed && styles.mobileNavItemPressed]}
                   >
                     <View style={{ position: "relative" }}>
                       <Ionicons name={item.icon} size={18} color={active ? palette.navIconActive : palette.navIcon} />
@@ -1431,11 +1500,7 @@ export default function CustomHeader() {
             )}
 
             <View style={styles.notifFooter}>
-              <TouchableOpacity
-                onPress={clearVisible}
-                activeOpacity={0.9}
-                style={[styles.footerBtn, { backgroundColor: "#6B7280" }]}
-              >
+              <TouchableOpacity onPress={clearVisible} activeOpacity={0.9} style={[styles.footerBtn, { backgroundColor: "#6B7280" }]}>
                 <Ionicons name="trash-outline" size={14} color="#fff" />
                 <Text style={styles.footerBtnText}>Wyczyść</Text>
               </TouchableOpacity>
@@ -1444,8 +1509,8 @@ export default function CustomHeader() {
         </>
       )}
 
-      {/* ✅ TOUR (5,6,7,8,10,11,12,13,14) */}
-      {showTour && user && activeCfg && activeCfg.anchorRect && (
+      {/* ✅ TOUR (5–15) */}
+      {showTour && user && activeCfg && (
         <View
           pointerEvents="box-none"
           style={{
@@ -1457,170 +1522,320 @@ export default function CustomHeader() {
             zIndex: 999999,
           }}
         >
-          {(() => {
-            const pad = 10;
-            const a = activeCfg.anchorRect!;
-            const hlX = Math.max(6, a.x - pad);
-            const hlY = Math.max(6, a.y - pad);
-            const hlW = a.w + pad * 2;
-            const hlH = a.h + pad * 2;
+          {/* ✅ KROK 15 — MODAL FINISH (bez highlightu) */}
+          {activeTourStep === 15 ? (
+            <>
+              <Pressable
+                pointerEvents="auto"
+                onPress={activeCfg.onSkip}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: "rgba(2,6,23,0.72)",
+                }}
+              />
 
-            return (
-              <>
-                <Animated.View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: hlX,
-                    top: hlY,
-                    width: hlW,
-                    height: hlH,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: palette.accent,
-                    backgroundColor: palette.accent + "10",
-                    opacity: tourFade,
-                  }}
-                />
+              {(() => {
+                const pad = 12;
+                const modalW = Math.min(520, Math.max(300, width - pad * 2));
+                const left = Math.max(pad, Math.floor((width - modalW) / 2));
+                const top = isMobileWeb ? 110 : 140;
 
-                <Animated.View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: hlX - 10,
-                    top: hlY - 10,
-                    width: hlW + 20,
-                    height: hlH + 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: palette.accent,
-                    backgroundColor: "transparent",
-                    opacity: Animated.multiply(tourFade, tourPulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0] })),
-                    transform: [{ scale: tourPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
-                  }}
-                />
-              </>
-            );
-          })()}
+                const canGoBack = !!activeCfg.onSecondary && !!activeCfg.secondaryLabel;
 
-          {(() => {
-            const W = width;
-            const pad = 12;
-            const bubbleW = Math.min(420, Math.max(260, W - pad * 2));
+                return (
+                  <Animated.View
+                    pointerEvents="auto"
+                    style={{
+                      position: "absolute",
+                      left,
+                      top,
+                      width: modalW,
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: palette.border,
+                      backgroundColor: palette.card,
+                      padding: 14,
+                      opacity: tourFade,
+                      ...(Platform.OS === "web"
+                        ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.35)" } as any)
+                        : {
+                            shadowColor: "#000",
+                            shadowOpacity: 0.22,
+                            shadowRadius: 20,
+                            shadowOffset: { width: 0, height: 10 },
+                            elevation: 10,
+                          }),
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 14 }}>{activeCfg.title}</Text>
 
-            const a = activeCfg.anchorRect!;
-            const bubbleX = Math.max(pad, Math.min(a.x + a.w - bubbleW, W - pad - bubbleW));
+                      <TouchableOpacity
+                        onPress={activeCfg.onSkip}
+                        style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: palette.border,
+                          backgroundColor: palette.bg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                        }}
+                      >
+                        <Ionicons name="close" size={16} color={palette.muted} />
+                      </TouchableOpacity>
+                    </View>
 
-            const bubbleYBase = a.y + a.h + 14;
+                    <Text style={{ color: palette.muted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                      {activeCfg.body}
+                    </Text>
 
-            // tylko dla kroków profilu (5/6) — obniżamy, gdy menu jest otwarte, żeby nie zasłaniać listy
-            const shouldAvoidMenu = (activeTourStep === 5 || activeTourStep === 6) && menuOpen;
-            const headerTopGuess = Math.max(0, a.y - 12);
-            const menuTopWin = headerTopGuess + 56;
-            const menuEstimatedH = 170;
-            const safeBelowMenu = menuTopWin + menuEstimatedH + 14;
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+                      {canGoBack && (
+                        <TouchableOpacity
+                          onPress={activeCfg.onSecondary}
+                          style={{
+                            paddingVertical: 11,
+                            paddingHorizontal: 14,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: palette.border,
+                            backgroundColor: palette.bg,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                          }}
+                        >
+                          <Text style={{ color: palette.text, fontWeight: "900", fontSize: 13 }}>{activeCfg.secondaryLabel}</Text>
+                        </TouchableOpacity>
+                      )}
 
-            const bubbleY = shouldAvoidMenu ? Math.max(bubbleYBase, safeBelowMenu) : bubbleYBase;
+                      <TouchableOpacity
+                        onPress={activeCfg.onPrimary}
+                        style={{
+                          flex: 1,
+                          minWidth: 160,
+                          paddingVertical: 11,
+                          borderRadius: 999,
+                          backgroundColor: palette.accent,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                        }}
+                      >
+                        <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>{activeCfg.primaryLabel}</Text>
+                      </TouchableOpacity>
+                    </View>
 
-            const arrowX = a.x + a.w / 2 - 13;
-            const arrowY = bubbleY - 28;
+                    <Text style={{ color: palette.muted, marginTop: 10, fontSize: 11, fontWeight: "700" }}>
+                      Krok {activeTourStep} / {tourTotal}
+                    </Text>
+                  </Animated.View>
+                );
+              })()}
+            </>
+          ) : (
+            <>
+              {/* ✅ KROKI 5–14 — highlight + bubble */}
+              {activeCfg.anchorRect && (
+                <>
+                  {(() => {
+                    const pad = 10;
+                    const a = activeCfg.anchorRect!;
+                    const hlX = Math.max(6, a.x - pad);
+                    const hlY = Math.max(6, a.y - pad);
+                    const hlW = a.w + pad * 2;
+                    const hlH = a.h + pad * 2;
 
-            return (
-              <>
-                <Animated.View pointerEvents="none" style={{ position: "absolute", left: arrowX, top: arrowY, opacity: tourFade }}>
-                  <Ionicons name="arrow-up" size={26} color={palette.accent} />
-                </Animated.View>
+                    return (
+                      <>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            left: hlX,
+                            top: hlY,
+                            width: hlW,
+                            height: hlH,
+                            borderRadius: 999,
+                            borderWidth: 2,
+                            borderColor: palette.accent,
+                            backgroundColor: palette.accent + "10",
+                            opacity: tourFade,
+                          }}
+                        />
 
-                <Animated.View
-                  pointerEvents="auto"
-                  style={{
-                    position: "absolute",
-                    left: bubbleX,
-                    top: bubbleY,
-                    width: bubbleW,
-                    borderRadius: 18,
-                    borderWidth: 1,
-                    borderColor: palette.border,
-                    backgroundColor: palette.card,
-                    padding: 14,
-                    opacity: tourFade,
-                    ...(Platform.OS === "web"
-                      ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.35)" } as any)
-                      : {
-                          shadowColor: "#000",
-                          shadowOpacity: 0.22,
-                          shadowRadius: 20,
-                          shadowOffset: { width: 0, height: 10 },
-                          elevation: 10,
-                        }),
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                    <Text style={{ color: palette.text, fontWeight: "900", fontSize: 14 }}>{activeCfg.title}</Text>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            left: hlX - 10,
+                            top: hlY - 10,
+                            width: hlW + 20,
+                            height: hlH + 20,
+                            borderRadius: 999,
+                            borderWidth: 2,
+                            borderColor: palette.accent,
+                            backgroundColor: "transparent",
+                            opacity: Animated.multiply(tourFade, tourPulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0] })),
+                            transform: [{ scale: tourPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }],
+                          }}
+                        />
+                      </>
+                    );
+                  })()}
 
-                    <TouchableOpacity
-                      onPress={closeTourBubbleOnly}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                        backgroundColor: palette.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
-                      }}
-                    >
-                      <Ionicons name="close" size={16} color={palette.muted} />
-                    </TouchableOpacity>
-                  </View>
+                  {(() => {
+                    const W = width;
+                    const pad = 12;
+                    const bubbleW = Math.min(420, Math.max(260, W - pad * 2));
 
-                  <Text style={{ color: palette.muted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
-                    {activeCfg.body}
-                  </Text>
+                    const a = activeCfg.anchorRect!;
+                    const bubbleX = Math.max(pad, Math.min(a.x + a.w - bubbleW, W - pad - bubbleW));
 
-                  <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-                    <TouchableOpacity
-                      onPress={activeCfg.onPrimary}
-                      style={{
-                        flex: 1,
-                        paddingVertical: 11,
-                        borderRadius: 999,
-                        backgroundColor: palette.accent,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
-                      }}
-                    >
-                      <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>{activeCfg.primaryLabel}</Text>
-                    </TouchableOpacity>
+                    const bubbleYBase = a.y + a.h + 14;
 
-                    <TouchableOpacity
-                      onPress={activeCfg.onSkip}
-                      style={{
-                        paddingVertical: 11,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: palette.border,
-                        backgroundColor: palette.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
-                      }}
-                    >
-                      <Text style={{ color: palette.text, fontWeight: "900", fontSize: 13 }}>Pomiń</Text>
-                    </TouchableOpacity>
-                  </View>
+                    // tylko dla kroków profilu (5/6) — obniżamy, gdy menu jest otwarte, żeby nie zasłaniać listy
+                    const shouldAvoidMenu = (activeTourStep === 5 || activeTourStep === 6) && menuOpen;
+                    const headerTopGuess = Math.max(0, a.y - 12);
+                    const menuTopWin = headerTopGuess + 56;
+                    const menuEstimatedH = 170;
+                    const safeBelowMenu = menuTopWin + menuEstimatedH + 14;
 
-                  <Text style={{ color: palette.muted, marginTop: 10, fontSize: 11, fontWeight: "700" }}>
-                    Krok {activeTourStep} / {tourTotal}
-                  </Text>
-                </Animated.View>
-              </>
-            );
-          })()}
+                    const bubbleY = shouldAvoidMenu ? Math.max(bubbleYBase, safeBelowMenu) : bubbleYBase;
+
+                    const arrowX = a.x + a.w / 2 - 13;
+                    const arrowY = bubbleY - 28;
+
+                    const canGoBack = !!activeCfg.onSecondary && !!activeCfg.secondaryLabel;
+
+                    return (
+                      <>
+                        <Animated.View pointerEvents="none" style={{ position: "absolute", left: arrowX, top: arrowY, opacity: tourFade }}>
+                          <Ionicons name="arrow-up" size={26} color={palette.accent} />
+                        </Animated.View>
+
+                        <Animated.View
+                          pointerEvents="auto"
+                          style={{
+                            position: "absolute",
+                            left: bubbleX,
+                            top: bubbleY,
+                            width: bubbleW,
+                            borderRadius: 18,
+                            borderWidth: 1,
+                            borderColor: palette.border,
+                            backgroundColor: palette.card,
+                            padding: 14,
+                            opacity: tourFade,
+                            ...(Platform.OS === "web"
+                              ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.35)" } as any)
+                              : {
+                                  shadowColor: "#000",
+                                  shadowOpacity: 0.22,
+                                  shadowRadius: 20,
+                                  shadowOffset: { width: 0, height: 10 },
+                                  elevation: 10,
+                                }),
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                            <Text style={{ color: palette.text, fontWeight: "900", fontSize: 14 }}>{activeCfg.title}</Text>
+
+                            <TouchableOpacity
+                              onPress={closeTourBubbleOnly}
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: palette.border,
+                                backgroundColor: palette.bg,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                              }}
+                            >
+                              <Ionicons name="close" size={16} color={palette.muted} />
+                            </TouchableOpacity>
+                          </View>
+
+                          <Text style={{ color: palette.muted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                            {activeCfg.body}
+                          </Text>
+
+                          {/* ✅ BUTTONS: Wstecz / Dalej / Pomiń */}
+                          <View style={{ flexDirection: "row", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+                            {canGoBack && (
+                              <TouchableOpacity
+                                onPress={activeCfg.onSecondary}
+                                style={{
+                                  paddingVertical: 11,
+                                  paddingHorizontal: 14,
+                                  borderRadius: 999,
+                                  borderWidth: 1,
+                                  borderColor: palette.border,
+                                  backgroundColor: palette.bg,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                                }}
+                              >
+                                <Text style={{ color: palette.text, fontWeight: "900", fontSize: 13 }}>{activeCfg.secondaryLabel}</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity
+                              onPress={activeCfg.onPrimary}
+                              style={{
+                                flex: 1,
+                                minWidth: 140,
+                                paddingVertical: 11,
+                                borderRadius: 999,
+                                backgroundColor: palette.accent,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                              }}
+                            >
+                              <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>{activeCfg.primaryLabel}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={activeCfg.onSkip}
+                              style={{
+                                paddingVertical: 11,
+                                paddingHorizontal: 14,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: palette.border,
+                                backgroundColor: palette.bg,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : {}),
+                              }}
+                            >
+                              <Text style={{ color: palette.text, fontWeight: "900", fontSize: 13 }}>Pomiń</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          <Text style={{ color: palette.muted, marginTop: 10, fontSize: 11, fontWeight: "700" }}>
+                            Krok {activeTourStep} / {tourTotal}
+                          </Text>
+                        </Animated.View>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </>
+          )}
         </View>
       )}
     </View>
@@ -2380,4 +2595,5 @@ function makeStyles(palette: ReturnType<typeof makePalette>, isWeb: boolean, isM
     },
   });
 }
+
 // src/components/CustomHeader.web.tsx

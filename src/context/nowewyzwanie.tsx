@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Modal, ScrollView, Text, View, Pressable } from "react-native";
+import { Modal, ScrollView, Text, View, Pressable, Platform } from "react-native";
 import {
   collection,
   doc,
@@ -387,6 +387,11 @@ export const NoweWyzwanieModalRN = () => {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [confirmDecline, setConfirmDecline] = useState(false);
 
+  // Web-only: usuwa białą ramkę/focus outline
+  const webNoOutline = Platform.OS === "web"
+    ? ({ outlineStyle: "none", outlineWidth: 0 } as any)
+    : {};
+
   useEffect(() => {
     const next: Record<string, boolean> = {};
     challenges.forEach((c) => (next[c.id] = true));
@@ -417,7 +422,13 @@ export const NoweWyzwanieModalRN = () => {
     }).format(d);
 
   return (
-    <Modal visible={isOpen} transparent animationType="fade">
+    <Modal
+      visible={isOpen}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      presentationStyle="overFullScreen"
+    >
       <View
         style={{
           flex: 1,
@@ -425,6 +436,7 @@ export const NoweWyzwanieModalRN = () => {
           alignItems: "center",
           justifyContent: "center",
           padding: 16,
+          ...webNoOutline,
         }}
       >
         <View
@@ -437,6 +449,7 @@ export const NoweWyzwanieModalRN = () => {
             borderWidth: 1,
             borderColor: "rgba(148,163,184,0.5)",
             overflow: "hidden",
+            ...webNoOutline,
           }}
         >
           {/* HEADER */}
@@ -456,7 +469,10 @@ export const NoweWyzwanieModalRN = () => {
           </View>
 
           {/* LISTA */}
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
+          <ScrollView
+            style={{ flex: 1, ...webNoOutline }}
+            contentContainerStyle={{ padding: 18, gap: 10 }}
+          >
             {challenges.map((ch) => {
               const sel = selected[ch.id];
               return (
@@ -472,6 +488,7 @@ export const NoweWyzwanieModalRN = () => {
                     backgroundColor: sel
                       ? "rgba(34,211,238,0.15)"
                       : "#1e293b",
+                    ...webNoOutline,
                   }}
                 >
                   <View
@@ -534,6 +551,7 @@ export const NoweWyzwanieModalRN = () => {
               borderTopColor: "rgba(148,163,184,0.3)",
               flexDirection: "row",
               gap: 12,
+              ...webNoOutline,
             }}
           >
             <Pressable
@@ -546,6 +564,7 @@ export const NoweWyzwanieModalRN = () => {
                 borderColor: "#64748b",
                 backgroundColor: "#0f172a",
                 alignItems: "center",
+                ...webNoOutline,
               }}
             >
               <Text style={{ color: "#e2e8f0", fontWeight: "700" }}>
@@ -563,6 +582,7 @@ export const NoweWyzwanieModalRN = () => {
                 borderWidth: 1,
                 borderColor: "#0e7490",
                 alignItems: "center",
+                ...webNoOutline,
               }}
             >
               <Text style={{ color: "#022c22", fontWeight: "900" }}>
@@ -574,7 +594,13 @@ export const NoweWyzwanieModalRN = () => {
       </View>
 
       {/* MODAL POTWIERDZENIA */}
-      <Modal visible={confirmDecline} transparent animationType="fade">
+      <Modal
+        visible={confirmDecline}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
         <View
           style={{
             flex: 1,
@@ -582,6 +608,7 @@ export const NoweWyzwanieModalRN = () => {
             justifyContent: "center",
             alignItems: "center",
             padding: 20,
+            ...webNoOutline,
           }}
         >
           <View
@@ -593,6 +620,7 @@ export const NoweWyzwanieModalRN = () => {
               borderRadius: 16,
               borderWidth: 1,
               borderColor: "rgba(148,163,184,0.5)",
+              ...webNoOutline,
             }}
           >
             <Text
@@ -611,6 +639,7 @@ export const NoweWyzwanieModalRN = () => {
                 flexDirection: "row",
                 gap: 12,
                 marginTop: 22,
+                ...webNoOutline,
               }}
             >
               <Pressable
@@ -622,6 +651,7 @@ export const NoweWyzwanieModalRN = () => {
                   borderWidth: 1,
                   borderColor: "#64748b",
                   alignItems: "center",
+                  ...webNoOutline,
                 }}
               >
                 <Text style={{ color: "#e2e8f0", fontWeight: "700" }}>
@@ -642,6 +672,7 @@ export const NoweWyzwanieModalRN = () => {
                   borderWidth: 1,
                   borderColor: "#b91c1c",
                   alignItems: "center",
+                  ...webNoOutline,
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "900" }}>
@@ -658,4 +689,4 @@ export const NoweWyzwanieModalRN = () => {
 
 export const NoweWyzwanieModal = NoweWyzwanieModalRN;
 
-// src/context/nowewyzwanie.tsx
+//src/context/nowewyzwanie.tsx

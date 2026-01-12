@@ -1,4 +1,4 @@
-// app/calendar.tsx
+// app/calendar.web.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
@@ -15,9 +15,10 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { useMissions } from "../src/hooks/useMissions";
 
 import { db } from "../src/firebase/firebase.web";
-import { collection, getDocs, limit, query } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 
 import { auth } from "../src/firebase/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { useFamily } from "../src/hooks/useFamily";
 
 /* ----------------------- Helpers ----------------------- */
@@ -136,7 +137,17 @@ function isMissionDoneOnDate(m: any, date: Date) {
 export default function CalendarScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
-  const { members } = useFamily();
+
+  // ⬇️ nie destrukturyzuję na sztywno, bo hook może mieć różne shape
+  const family = useFamily() as any;
+  const members = family?.members ?? [];
+  const familyIdFromHook =
+    family?.familyId ??
+    family?.family?.id ??
+    family?.family?.familyId ??
+    family?.familyDocId ??
+    family?.id ??
+    null;
 
   const { width } = useWindowDimensions();
   const isPhone = width < 480;
@@ -155,37 +166,139 @@ export default function CalendarScreen() {
 
   const [deletedMissions, setDeletedMissions] = useState<any[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
+  const [deletedError, setDeletedError] = useState<string | null>(null);
 
   // ✅ blur na web jak w index.tsx
   const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
-  // wczytanie ostatnich usuniętych zadań
+  // ✅ wczytanie usuniętych – PORZĄDNIE na web (familyId -> uid) + tolerowanie permission na części bucketów
   useEffect(() => {
     let cancelled = false;
 
-    const loadDeleted = async () => {
+    const resolveFamilyId = async (uid: string): Promise<string | null> => {
+      if (familyIdFromHook) return String(familyIdFromHook);
+
+      // fallback: /users/{uid}.familyId
       try {
+        const userSnap = await getDoc(doc(db, "users", uid));
+        if (!userSnap.exists()) return null;
+        const fid = (userSnap.data() as any)?.familyId ?? null;
+        return fid ? String(fid) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const fetchBucket = async (bucketId: string) => {
+      const snap = await getDocs(
+        query(
+          collection(db, "deleted_missions", bucketId, "deleted_missions"),
+          orderBy("deletedAt", "desc"),
+          limit(200)
+        )
+      );
+
+      return snap.docs.map((d) => ({
+        id: d.id,
+        __path: d.ref.path,
+        ...(d.data() as any),
+      }));
+    };
+
+    const loadDeleted = async (uid: string) => {
+      try {
+        setDeletedError(null);
         setDeletedLoading(true);
-        const snap = await getDocs(query(collection(db, "deleted_missions"), limit(100)));
+
+        const fid = await resolveFamilyId(uid);
+
+        // kolejność ważna: najpierw family, potem uid (bo najczęściej deletedy są rodzinne)
+        const bucketIds = [fid, uid]
+          .filter(Boolean)
+          .map((x) => String(x))
+          .filter((x, idx, arr) => arr.indexOf(x) === idx);
+
+        if (!bucketIds.length) {
+          setDeletedMissions([]);
+          return;
+        }
+
+        const results = await Promise.allSettled(bucketIds.map((b) => fetchBucket(b)));
+
         if (cancelled) return;
 
-        const arr = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        }));
-        setDeletedMissions(arr);
-      } catch {
-        if (!cancelled) setDeletedMissions([]);
+        const ok = results
+          .filter((r) => r.status === "fulfilled")
+          .flatMap((r: any) => r.value as any[]);
+
+        const denied = results
+          .filter((r) => r.status === "rejected")
+          .map((r: any) => r.reason)
+          .filter(Boolean);
+
+        // jeżeli coś się udało – pokazujemy co mamy, bez errora
+        if (ok.length > 0) {
+          // uniq po __path
+          const map = new Map<string, any>();
+          ok.forEach((m) => map.set(String(m.__path || m.id), m));
+
+          const arr = Array.from(map.values()).sort((a, b) => {
+            const ta = a?.deletedAt?.toMillis?.()
+              ? a.deletedAt.toMillis()
+              : new Date(a?.deletedAt ?? 0).getTime();
+            const tb = b?.deletedAt?.toMillis?.()
+              ? b.deletedAt.toMillis()
+              : new Date(b?.deletedAt ?? 0).getTime();
+            return tb - ta;
+          });
+
+          setDeletedMissions(arr);
+          setDeletedError(null);
+          return;
+        }
+
+        // nic nie przyszło – wtedy dopiero diagnozujemy błąd
+        const firstErr = denied[0];
+        const code = String(firstErr?.code || "");
+
+        if (code.includes("permission-denied") || code.includes("unauthenticated")) {
+          setDeletedError("Brak uprawnień do odczytu usuniętych zadań (Firestore rules).");
+        } else if (code.includes("failed-precondition")) {
+          setDeletedError("Brak wymaganego indeksu dla zapytania (orderBy).");
+        } else if (denied.length) {
+          setDeletedError("Nie udało się wczytać usuniętych zadań.");
+        } else {
+          // brak błędów i brak danych = po prostu pusto
+          setDeletedError(null);
+        }
+
+        setDeletedMissions([]);
+        if (firstErr) console.error("Calendar loadDeleted error:", firstErr);
       } finally {
         if (!cancelled) setDeletedLoading(false);
       }
     };
 
-    loadDeleted();
+    // odpalenie na start + na zmianę auth
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setDeletedMissions([]);
+        setDeletedError(null);
+        setDeletedLoading(false);
+        return;
+      }
+      loadDeleted(user.uid);
+    });
+
+    if (auth.currentUser?.uid) {
+      loadDeleted(auth.currentUser.uid);
+    }
+
     return () => {
       cancelled = true;
+      unsub?.();
     };
-  }, []);
+  }, [familyIdFromHook]);
 
   /* ---------- Predykaty: moje / delegowane ---------- */
 
@@ -221,9 +334,7 @@ export default function CalendarScreen() {
   };
 
   const allMissions: any[] = useMemo(() => (Array.isArray(missions) ? missions : []), [missions]);
-
   const myTasks = useMemo(() => allMissions.filter(isMyTask), [allMissions, myId]);
-
   const delegatedTasks = useMemo(() => allMissions.filter(isDelegatedTask), [allMissions, myId]);
 
   /* ---------- KTO DODAŁ – getCreatorMember ---------- */
@@ -377,14 +488,21 @@ export default function CalendarScreen() {
   }, [deletedMissions, selectedDate, myId]);
 
   const hasMissionsOnDay = (day: Date) => {
-    return myTasks.some((m: any) => missionOccursOnDay(m, day)) || delegatedTasks.some((m: any) => missionOccursOnDay(m, day));
+    return (
+      myTasks.some((m: any) => missionOccursOnDay(m, day)) ||
+      delegatedTasks.some((m: any) => missionOccursOnDay(m, day))
+    );
   };
 
   const hasCompletedOnDay = (day: Date) => {
-    const anyMyDone = myTasks.some((m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day));
+    const anyMyDone = myTasks.some(
+      (m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day)
+    );
     if (anyMyDone) return true;
 
-    const anyDelDone = delegatedTasks.some((m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day));
+    const anyDelDone = delegatedTasks.some(
+      (m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day)
+    );
     return anyDelDone;
   };
 
@@ -433,8 +551,8 @@ export default function CalendarScreen() {
     <View style={{ flex: 1, backgroundColor: colors.bg, position: "relative" }}>
       {/* 🔥 TŁO: “orby” / gradienty jak w index.tsx */}
       <View
-        pointerEvents="none"
         style={{
+          pointerEvents: "none" as any,
           position: "absolute",
           top: 0,
           left: 0,
@@ -548,8 +666,8 @@ export default function CalendarScreen() {
           >
             {/* dekoracyjne orby w karcie (subtelnie) */}
             <View
-              pointerEvents="none"
               style={{
+                pointerEvents: "none" as any,
                 position: "absolute",
                 top: -110,
                 right: -120,
@@ -561,8 +679,8 @@ export default function CalendarScreen() {
               }}
             />
             <View
-              pointerEvents="none"
               style={{
+                pointerEvents: "none" as any,
                 position: "absolute",
                 bottom: -130,
                 left: -120,
@@ -640,9 +758,7 @@ export default function CalendarScreen() {
             {/* Siatka dni */}
             <View style={styles.daysGrid}>
               {daysGrid.map((day, idx) => {
-                if (!day) {
-                  return <View key={`empty-${idx}`} style={styles.dayCell} />;
-                }
+                if (!day) return <View key={`empty-${idx}`} style={styles.dayCell} />;
 
                 const isToday = isSameDay(day, today);
                 const isSelected = isSameDay(day, selectedDate);
@@ -709,7 +825,7 @@ export default function CalendarScreen() {
             </View>
           </View>
 
-          {/* ✅ KAFELKI: AUTO-WRAP (jak brak miejsca -> spadają pod siebie) */}
+          {/* ✅ KAFELKI: AUTO-WRAP */}
           <View style={styles.cardsWrap}>
             {/* Moje zadania na dzień */}
             <View
@@ -1246,6 +1362,8 @@ export default function CalendarScreen() {
 
             {deletedLoading ? (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>Ładowanie…</Text>
+            ) : deletedError ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>{deletedError}</Text>
             ) : deletedForSelectedDay.length === 0 ? (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>
                 Brak usuniętych zadań tego dnia.
@@ -1253,7 +1371,7 @@ export default function CalendarScreen() {
             ) : (
               deletedForSelectedDay.map((m: any) => (
                 <View
-                  key={m.id}
+                  key={m.__path || m.id}
                   style={[
                     styles.missionRow,
                     {
@@ -1357,7 +1475,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ✅ fix na mobile web (Safari/Android): flexBasis + maxWidth zamiast width: "14.28%"
   dayCell: {
     flexBasis: "14.2857%",
     maxWidth: "14.2857%",
@@ -1365,7 +1482,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
 
-  // ✅ auto-wrap kafelków
   cardsWrap: {
     width: "100%",
     flexDirection: "row",
@@ -1375,7 +1491,6 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
 
-  // ✅ każdy kafelek ma "preferowaną" szerokość; jak brak miejsca -> spada pod spód
   responsiveCard: {
     flexGrow: 1,
     flexShrink: 1,
@@ -1395,5 +1510,3 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 });
-
-// app/calendar.tsx

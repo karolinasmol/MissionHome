@@ -1,5 +1,5 @@
 // app/register.tsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -17,12 +17,8 @@ import { useRouter } from "expo-router";
 
 import {
   auth,
-  collection,
   doc,
-  query,
-  where,
-  limit,
-  getDocs,
+  getDoc,
   setDoc,
   serverTimestamp,
 } from "../src/firebase/firebase.web";
@@ -45,6 +41,12 @@ const ERROR_COLOR = "#dc2626";
 
 const TERMS_PDF_URL = "https://mojelicytacje.pl/regulamin.pdf";
 
+// TODO: podmień na docelowy link jak będzie gotowy
+const PRIVACY_PDF_URL = "https://mojelicytacje.pl/polityka-prywatnosci.pdf";
+
+/**
+ * UWAGA: regulamin zostawiam dokładnie tak jak u Ciebie (bez zmian).
+ */
 const TERMS_PL = `Regulamin
 Pełny regulamin korzystania z aplikacji MissionHome.
 
@@ -188,7 +190,7 @@ i autoryzację Firebase.
 
 1. Wszelkie prawa własności intelektualnej do Aplikacji, w tym: kodu źródłowego, interfejsu, grafiki, nazwy aplikacji, opisów, mechanik działania oraz materiałów audiowizualnych przysługują Usługodawcy.
 2. Zabrania się kopiowania, modyfikowania, dekompilacji, dystrybucji lub odsprzedaży Aplikacji bez pisemnej zgody Usługodawcy.
-3. Użytkownik może korzystać z Aplikacji wyłącznie na własne potrzeby, zgodnie z Regulaminem i obowiązującymi przepisami prawa.
+3. Użytkownik może korzystać z Aplikacji wyłącznie na własne potrzeby, zgodnie z Regulaminem i obowiązującym prawem.
 
 §15. Zmiany Regulaminu
 
@@ -203,9 +205,131 @@ i autoryzację Firebase.
 1. W sprawach nieuregulowanych w Regulaminie zastosowanie mają przepisy prawa polskiego.
 2. Wszelkie spory pomiędzy Użytkownikiem a Usługodawcą będą rozstrzygane przez sąd właściwy zgodnie z przepisami prawa.
 3. Regulamin obowiązuje od dnia publikacji w Aplikacji.
-4. Regulamin jest dostępny w Aplikacji oraz na stronie internetowej MissionHome.
+4. Regulamin jest dostęppy w Aplikacji oraz na stronie internetowej MissionHome.
 
 Ostatnia aktualizacja: 2025-12-12
+`;
+
+/**
+ * Podgląd polityki prywatności do modala.
+ * Docelowo i tak wkleisz pełną treść tutaj.
+ */
+const PRIVACY_PL = `Polityka prywatności
+Jak MissionHome dba o Twoje dane i bezpieczeństwo korzystania.
+
+1. Informacje ogólne
+
+Niniejsza Polityka Prywatności i Cookies („Polityka”) określa zasady przetwarzania danych osobowych użytkowników systemu MissionHome („System”), dostępnego w formie aplikacji internetowej (webowej) oraz aplikacji mobilnej na urządzenia z systemem iOS i Android („Aplikacja”).
+
+Administratorem danych osobowych jest przedsiębiorca prowadzący jednoosobową działalność gospodarczą pod nazwą MissionHome, z siedzibą w Gdańsku (adres do uzupełnienia), NIP xxx, adres e-mail do kontaktu w sprawach ochrony danych osobowych: xxx („Administrator”).
+
+Administrator przetwarza dane osobowe zgodnie z Rozporządzeniem Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO), przepisami dotyczącymi ochrony prywatności w łączności elektronicznej (cookies) oraz wytycznymi Apple App Store i Google Play.
+
+Korzystanie z Aplikacji jest równoznaczne z akceptacją zasad opisanych w niniejszym dokumencie.
+
+2. Zakres przetwarzanych danych osobowych
+
+Administrator może przetwarzać następujące kategorie danych osobowych:
+
+- Dane konta użytkownika: adres e-mail, zaszyfrowane hasło, identyfikator konta, data utworzenia konta, data ostatniego logowania.
+- Dane profilowe: nazwa profilu, avatar, konfiguracja rodziny lub domowników, role i uprawnienia.
+- Treści użytkownika: zadania, cele, opisy, ustawienia, kategorie, punkty EXP, poziomy, statystyki aktywności, historia wykonanych czynności.
+- Dane techniczne: typ urządzenia, system operacyjny, wersja aplikacji lub przeglądarki, identyfikator instalacji, identyfikatory aplikacyjne, strefa czasowa, język urządzenia, dane diagnostyczne oraz informacje o błędach.
+- Dane logowania i bezpieczeństwa: adres IP (w logach bezpieczeństwa), informacje o próbach logowania, tokeny autoryzacyjne.
+- Dane dotyczące Subskrypcji Premium: identyfikator transakcji, status subskrypcji, historia odnowień, daty obowiązywania, typ planu.
+- Dane komunikacyjne: treść zgłoszeń do obsługi użytkownika oraz prowadzona korespondencja.
+
+3. Cele przetwarzania danych osobowych
+
+Dane osobowe przetwarzane są w następujących celach:
+
+- założenie i prowadzenie konta użytkownika,
+- świadczenie usług drogą elektroniczną i zapewnienie pełnej funkcjonalności Systemu,
+- synchronizacja danych pomiędzy urządzeniami,
+- realizacja, obsługa i weryfikacja Subskrypcji Premium,
+- zapewnienie bezpieczeństwa Systemu oraz zapobieganie nadużyciom,
+- analiza błędów i poprawa wydajności oraz stabilności Systemu,
+- realizacja obowiązków prawnych, w szczególności księgowych i podatkowych,
+- kontakt z użytkownikiem i obsługa zgłoszeń,
+- przesyłanie informacji o nowych funkcjach lub materiałach edukacyjnych – wyłącznie po uzyskaniu odrębnej zgody.
+
+4. Podstawy prawne przetwarzania
+
+Dane osobowe przetwarzane są na podstawie:
+
+- art. 6 ust. 1 lit. b RODO – wykonanie umowy o świadczenie usług drogą elektroniczną,
+- art. 6 ust. 1 lit. f RODO – prawnie uzasadniony interes Administratora (bezpieczeństwo, rozwój Systemu, obsługa błędów),
+- art. 6 ust. 1 lit. c RODO – wypełnienie obowiązków prawnych,
+- art. 6 ust. 1 lit. a RODO – zgoda użytkownika.
+
+5. Subskrypcje Premium i płatności
+
+- Płatności są realizowane wyłącznie przez Apple App Store i Google Play Store – zgodnie z ich regulaminami.
+- MissionHome otrzymuje wyłącznie informacje niezbędne do potwierdzenia zakupu: identyfikator transakcji, status subskrypcji, daty obowiązywania.
+- Operatorzy płatności przetwarzają dane płatnicze jako niezależni administratorzy danych.
+- W przypadku problemów z płatnością obowiązują procedury Apple i Google.
+- Dane dotyczące Premium mogą być przechowywane dla celów rozliczeniowych przez okres wymagany prawem.
+
+6. Cookies i podobne technologie
+
+System MissionHome wykorzystuje pliki cookies oraz podobne technologie, w szczególności localStorage i sessionStorage, głównie w wersji webowej.
+
+Stosowane są następujące kategorie cookies:
+- cookies niezbędne – zapewniające prawidłowe funkcjonowanie Systemu,
+- cookies funkcjonalne – zapamiętujące preferencje i ustawienia użytkownika,
+- cookies analityczne – umożliwiające analizę korzystania z Systemu (np. Firebase Analytics).
+
+Cookies analityczne są wykorzystywane wyłącznie po uzyskaniu zgody użytkownika. Zgoda może zostać cofnięta w dowolnym momencie.
+
+7. Odbiorcy danych osobowych
+
+Dane osobowe mogą być przekazywane:
+- dostawcom usług chmurowych i infrastrukturalnych (Firebase / Google Cloud),
+- operatorom płatności (Apple, Google, Stripe),
+- organom publicznym – wyłącznie w zakresie wymaganym przepisami prawa.
+
+8. Transfer danych poza Europejski Obszar Gospodarczy
+
+Dane osobowe mogą być przetwarzane poza Europejskim Obszarem Gospodarczym. Administrator stosuje odpowiednie zabezpieczenia, w szczególności standardowe klauzule umowne zatwierdzone przez Komisję Europejską.
+
+9. Okres przechowywania danych
+
+- Dane konta użytkownika – przez okres korzystania z Systemu.
+- Dane po usunięciu konta – usuwane lub anonimizowane; kopie zapasowe mogą być przechowywane do 30 dni.
+- Dane rozliczeniowe – przez okres wymagany przepisami prawa.
+- Dane techniczne i bezpieczeństwa – przez okres niezbędny do zapewnienia bezpieczeństwa Systemu.
+
+10. Prawa użytkownika
+
+Użytkownik ma prawo do:
+- dostępu do danych osobowych,
+- ich sprostowania,
+- usunięcia danych,
+- ograniczenia przetwarzania,
+- przenoszenia danych,
+- wniesienia sprzeciwu,
+- cofnięcia zgody w dowolnym momencie.
+
+Użytkownik ma prawo wniesienia skargi do Prezesa Urzędu Ochrony Danych Osobowych.
+
+11. Bezpieczeństwo danych osobowych
+
+Administrator stosuje m.in.:
+- szyfrowanie transmisji danych,
+- mechanizmy uwierzytelniania Firebase Authentication,
+- ograniczenie dostępu do danych wyłącznie do upoważnionych osób,
+- monitorowanie logowań i prób naruszeń bezpieczeństwa,
+- regularne tworzenie kopii zapasowych.
+
+12. Korzystanie z Systemu przez dzieci
+
+System MissionHome nie jest przeznaczony dla dzieci poniżej 13 roku życia.
+
+13. Zmiany Polityki Prywatności i Cookies
+
+Administrator może aktualizować niniejszą Politykę. O istotnych zmianach użytkownicy zostaną poinformowani w Systemie.
+
+Ostatnia aktualizacja: 2025-12-13
 `;
 
 /* ===== PROFANITY FILTER ===== */
@@ -276,6 +400,22 @@ function isProbablyEmail(val: string) {
   return v.length >= 5;
 }
 
+// Dopasowane do rules: ^[a-z0-9._]+$ oraz 3..20
+function normalizeUsernameId(raw: string) {
+  return (raw || "").trim().toLowerCase();
+}
+
+function isValidUsernameId(id: string) {
+  return (
+    typeof id === "string" &&
+    id.length >= 3 &&
+    id.length <= 20 &&
+    /^[a-z0-9._]+$/.test(id)
+  );
+}
+
+type LegalTab = "terms" | "privacy";
+
 export default function RegisterScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -286,9 +426,12 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Modale / stany logiki
-  const [showTermsModal, setShowTermsModal] = useState(false);
+  // Modal prawny: jeden modal + taby
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [activeLegalTab, setActiveLegalTab] = useState<LegalTab>("terms");
+
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [captchaChecked, setCaptchaChecked] = useState(false);
 
   const [showCongrats, setShowCongrats] = useState(false);
@@ -318,6 +461,7 @@ export default function RegisterScreen() {
     const nick = username.trim();
     const emailTrim = email.trim();
 
+    // username
     if (!nick) {
       setUsernameError("Nazwa użytkownika jest wymagana.");
       ok = false;
@@ -325,8 +469,17 @@ export default function RegisterScreen() {
       setUsernameError("Nazwa zawiera niedozwolone słowa.");
       setShowProfanityModal(true);
       ok = false;
+    } else {
+      const usernameId = normalizeUsernameId(nick);
+      if (!isValidUsernameId(usernameId)) {
+        setUsernameError(
+          "Nazwa użytkownika: 3–20 znaków, tylko a-z, 0-9, kropka i podkreślenie."
+        );
+        ok = false;
+      }
     }
 
+    // email
     if (!emailTrim) {
       setEmailError("Adres e-mail jest wymagany.");
       ok = false;
@@ -335,6 +488,7 @@ export default function RegisterScreen() {
       ok = false;
     }
 
+    // password
     if (!password) {
       setPasswordError("Hasło jest wymagane.");
       ok = false;
@@ -343,6 +497,7 @@ export default function RegisterScreen() {
       ok = false;
     }
 
+    // confirm
     if (!confirmPassword) {
       setConfirmPasswordError("Powtórz hasło.");
       ok = false;
@@ -355,14 +510,28 @@ export default function RegisterScreen() {
     return ok;
   };
 
+  const openLegalModal = (tab: LegalTab) => {
+    setActiveLegalTab(tab);
+    setShowLegalModal(true);
+  };
+
   const onPressRegister = () => {
     if (!validateBasic()) return;
-    setShowTermsModal(true);
+    openLegalModal("terms");
   };
+
+  const canSubmit = useMemo(
+    () => termsAccepted && privacyAccepted && captchaChecked,
+    [termsAccepted, privacyAccepted, captchaChecked]
+  );
 
   const handleRegister = async () => {
     if (!termsAccepted) {
       Alert.alert("Uwaga", "Musisz zaakceptować regulamin.");
+      return;
+    }
+    if (!privacyAccepted) {
+      Alert.alert("Uwaga", "Musisz zaakceptować politykę prywatności.");
       return;
     }
     if (!captchaChecked) {
@@ -371,20 +540,22 @@ export default function RegisterScreen() {
     }
 
     if (!validateBasic()) {
-      setShowTermsModal(false);
+      setShowLegalModal(false);
       return;
     }
 
     const nick = username.trim();
     const emailTrim = email.trim();
     const emailLower = emailTrim.toLowerCase();
-    const nickLower = nick.toLowerCase();
+
+    // usernameId zgodny z rules (/usernames/{username})
+    const usernameId = normalizeUsernameId(nick);
 
     try {
       // 0) Czy email ma już konto w Auth?
       const methods = await fetchSignInMethodsForEmail(auth, emailLower);
       if (methods && methods.length > 0) {
-        setShowTermsModal(false);
+        setShowLegalModal(false);
         setEmailError(
           "Konto z tym adresem e-mail już istnieje. Zaloguj się lub użyj innego adresu."
         );
@@ -392,79 +563,95 @@ export default function RegisterScreen() {
         return;
       }
 
-      // 1) Unikalność nazwy użytkownika
-      const usersRef = collection("users");
-      const usernameQuery = query(
-        usersRef,
-        where("usernameLower", "==", nickLower),
-        limit(1)
-      );
-      const usernameSnap = await getDocs(usernameQuery);
+      // 1) Sprawdź zajętość username przez /usernames/{username} (dozwolone przez rules: get true)
+      if (!isValidUsernameId(usernameId)) {
+        setShowLegalModal(false);
+        setUsernameError(
+          "Nazwa użytkownika: 3–20 znaków, tylko a-z, 0-9, kropka i podkreślenie."
+        );
+        return;
+      }
 
-      if (!usernameSnap.empty) {
-        setShowTermsModal(false);
+      const usernameRef = doc("usernames", usernameId);
+      const usernameSnap = await getDoc(usernameRef);
+
+      if (usernameSnap.exists()) {
+        setShowLegalModal(false);
         setUsernameError("Ta nazwa użytkownika jest już zajęta.");
         return;
       }
 
-      // 2) Email w kolekcji users (fallback)
-      const emailQuery = query(
-        usersRef,
-        where("email", "==", emailLower),
-        limit(1)
-      );
-      const emailSnap = await getDocs(emailQuery);
-
-      if (!emailSnap.empty) {
-        setShowTermsModal(false);
-        setEmailError("Ten adres e-mail jest już używany.");
-        setShowEmailExistsModal(true);
-        return;
-      }
-
-      // 3) Tworzenie konta w Auth
+      // 2) Utwórz konto w Auth (teraz jesteś signedIn)
       const { user } = await createUserWithEmailAndPassword(
         auth,
         emailLower,
         password
       );
 
-      await updateProfile(user, { displayName: nick });
-
-      await setDoc(doc("users", user.uid), {
-        email: user.email,
-        displayName: nick,
-        username: nick,
-        usernameLower: nickLower,
-        createdAt: serverTimestamp(),
-      });
-
-      // 4) Wysyłka maila weryfikacyjnego
-      await sendEmailVerification(user);
-
-      // 5) Wyloguj użytkownika, żeby nie korzystał bez weryfikacji
       try {
-        await signOut(auth);
-      } catch {
-        // ignorujemy błąd wylogowania – ważniejsze jest wysłanie maila
+        // 3) Zarezerwuj username (create + !exists wg rules)
+        await setDoc(doc("usernames", usernameId), {
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+        });
+
+        // 4) Ustaw profil
+        await updateProfile(user, { displayName: nick });
+
+        // 5) Utwórz /users/{uid} (create jeśli userId == uid())
+        await setDoc(doc("users", user.uid), {
+          email: user.email,
+          displayName: nick,
+          username: nick,
+          usernameLower: usernameId,
+          createdAt: serverTimestamp(),
+        });
+      } catch (e: any) {
+        // jeśli coś poszło nie tak po utworzeniu konta Auth, spróbuj usunąć konto Auth
+        try {
+          await user.delete();
+        } catch {}
+        throw e;
       }
 
-      // 6) Zamknij regulamin i pokaż okienko z instrukcją
-      setShowTermsModal(false);
+      // 6) mail weryfikacyjny
+      await sendEmailVerification(user);
+
+      // 7) wyloguj (blokada wejścia bez weryfikacji)
+      try {
+        await signOut(auth);
+      } catch {}
+
+      setShowLegalModal(false);
       setShowCongrats(true);
     } catch (error: any) {
       if (error?.code === "auth/email-already-in-use") {
-        setShowTermsModal(false);
+        setShowLegalModal(false);
         setEmailError("Ten adres e-mail jest już używany.");
         setShowEmailExistsModal(true);
         return;
       }
+
+      if (String(error?.code || "").includes("permission-denied")) {
+        Alert.alert(
+          "Błąd uprawnień",
+          "Firestore odrzucił zapis (permission-denied). Sprawdź rules oraz format nazwy użytkownika."
+        );
+        return;
+      }
+
       Alert.alert("Błąd rejestracji", error?.message || "Spróbuj ponownie.");
     }
   };
 
-  const handleOpenPDF = () => {
+  const handleOpenTermsPDF = () => {
     Linking.openURL(TERMS_PDF_URL).catch(() => {
+      Alert.alert("Błąd", "Nie można otworzyć pliku PDF.");
+    });
+  };
+
+  const handleOpenPrivacyPDF = () => {
+    Linking.openURL(PRIVACY_PDF_URL).catch(() => {
       Alert.alert("Błąd", "Nie można otworzyć pliku PDF.");
     });
   };
@@ -502,7 +689,7 @@ export default function RegisterScreen() {
             style={styles.icon}
           />
           <TextInput
-            placeholder="np. DomowyNinja"
+            placeholder="np. domowy.ninja"
             placeholderTextColor={colors.textMuted}
             value={username}
             onChangeText={(val) => {
@@ -510,6 +697,7 @@ export default function RegisterScreen() {
               if (usernameError) setUsernameError("");
             }}
             style={[styles.input, { color: colors.text }]}
+            autoCapitalize="none"
           />
         </View>
         {!!usernameError && (
@@ -613,6 +801,36 @@ export default function RegisterScreen() {
           <Text style={styles.buttonText}>Utwórz konto</Text>
         </TouchableOpacity>
 
+        {/* Linki do otwierania modala od razu na danym tabie */}
+        <View style={styles.legalRow}>
+          <Text style={[styles.legalText, { color: colors.textMuted }]}>
+            Podgląd:{" "}
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => openLegalModal("terms")}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.legalLink, { color: colors.accent }]}>
+              Regulamin
+            </Text>
+          </TouchableOpacity>
+
+          <Text style={[styles.legalText, { color: colors.textMuted }]}>
+            {" "}
+            ·{" "}
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => openLegalModal("privacy")}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.legalLink, { color: colors.accent }]}>
+              Polityka prywatności
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity onPress={() => router.push("/login")}>
           <Text style={[styles.backText, { color: colors.textMuted }]}>
             ← Masz już konto? Zaloguj się
@@ -620,8 +838,8 @@ export default function RegisterScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Modal z regulaminem – zmniejszony */}
-      <Modal visible={showTermsModal} animationType="fade" transparent>
+      {/* JEDEN MODAL: TABY U GÓRY + SWITCHE NA DOLE */}
+      <Modal visible={showLegalModal} animationType="fade" transparent>
         <View style={styles.overlay}>
           <View
             style={[
@@ -629,8 +847,71 @@ export default function RegisterScreen() {
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
+            {/* TABY U GÓRY */}
+            <View style={styles.topTabsRow}>
+              <TouchableOpacity
+                onPress={() => setActiveLegalTab("terms")}
+                activeOpacity={0.9}
+                style={[
+                  styles.topTabBtn,
+                  {
+                    borderColor: colors.border,
+                    backgroundColor:
+                      activeLegalTab === "terms"
+                        ? colors.accent + "22"
+                        : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.topTabText,
+                    {
+                      color:
+                        activeLegalTab === "terms"
+                          ? colors.text
+                          : colors.textMuted,
+                    },
+                  ]}
+                >
+                  Regulamin
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setActiveLegalTab("privacy")}
+                activeOpacity={0.9}
+                style={[
+                  styles.topTabBtn,
+                  {
+                    borderColor: colors.border,
+                    backgroundColor:
+                      activeLegalTab === "privacy"
+                        ? colors.accent + "22"
+                        : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.topTabText,
+                    {
+                      color:
+                        activeLegalTab === "privacy"
+                          ? colors.text
+                          : colors.textMuted,
+                    },
+                  ]}
+                >
+                  Polityka prywatności
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.termsTitle, { color: colors.text }]}>
-              Regulamin serwisu
+              {activeLegalTab === "terms"
+                ? "Regulamin serwisu"
+                : "Polityka prywatności"}
             </Text>
 
             <ScrollView
@@ -638,23 +919,46 @@ export default function RegisterScreen() {
               contentContainerStyle={{ paddingBottom: 8 }}
             >
               <Text style={[styles.termsBody, { color: colors.text }]}>
-                {TERMS_PL}
+                {activeLegalTab === "terms" ? TERMS_PL : PRIVACY_PL}
               </Text>
             </ScrollView>
 
-            <TouchableOpacity
-              onPress={handleOpenPDF}
-              style={{ marginBottom: 10 }}
-            >
-              <Text style={[styles.pdfLinkText, { color: colors.accent }]}>
-                Pobierz regulamin w PDF
-              </Text>
-            </TouchableOpacity>
+            {/* LINKI POD TREŚCIĄ (zależnie od taba) */}
+            {activeLegalTab === "terms" ? (
+              <TouchableOpacity
+                onPress={handleOpenTermsPDF}
+                style={{ marginBottom: 10 }}
+              >
+                <Text style={[styles.pdfLinkText, { color: colors.accent }]}>
+                  Pobierz regulamin w PDF
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={handleOpenPrivacyPDF}
+                style={{ marginBottom: 10 }}
+              >
+                <Text style={[styles.pdfLinkText, { color: colors.accent }]}>
+                  Pobierz politykę prywatności w PDF
+                </Text>
+              </TouchableOpacity>
+            )}
 
+            {/* SWITCHE NA DOLE – regulamin + polityka + captcha */}
             <View style={styles.switchRow}>
               <Switch value={termsAccepted} onValueChange={setTermsAccepted} />
               <Text style={[styles.switchText, { color: colors.text }]}>
-                Potwierdzam, że zapoznałem się z regulaminem
+                Akceptuję regulamin
+              </Text>
+            </View>
+
+            <View style={styles.switchRow}>
+              <Switch
+                value={privacyAccepted}
+                onValueChange={setPrivacyAccepted}
+              />
+              <Text style={[styles.switchText, { color: colors.text }]}>
+                Akceptuję politykę prywatności
               </Text>
             </View>
 
@@ -665,15 +969,13 @@ export default function RegisterScreen() {
               </Text>
             </View>
 
+            {/* TE SAME GUZIKI NA DOLE */}
             <TouchableOpacity
-              disabled={!(termsAccepted && captchaChecked)}
-              onPress={handleRegister}
+              onPress={() => void handleRegister()}
+              activeOpacity={0.9}
               style={[
                 styles.termsSubmitButton,
-                {
-                  backgroundColor:
-                    termsAccepted && captchaChecked ? colors.accent : "#999999",
-                },
+                { backgroundColor: canSubmit ? colors.accent : "#999999" },
               ]}
             >
               <Text style={styles.termsSubmitText}>
@@ -681,7 +983,7 @@ export default function RegisterScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setShowTermsModal(false)}>
+            <TouchableOpacity onPress={() => setShowLegalModal(false)}>
               <Text style={[styles.termsCancelText, { color: colors.accent }]}>
                 Anuluj
               </Text>
@@ -724,7 +1026,7 @@ export default function RegisterScreen() {
               ]}
             >
               <Text style={styles.congratsButtonText}>
-                Przejdź do logowania
+                Przejdź do strony logowania
               </Text>
             </TouchableOpacity>
           </View>
@@ -749,9 +1051,9 @@ export default function RegisterScreen() {
               🚫 Niedozwolona nazwa użytkownika
             </Text>
             <Text style={[styles.congratsText, { color: colors.textMuted }]}>
-              Wulgaryzmy i obraźliwe określenia są zabronione – zarówno w
-              nazwach użytkowników, jak i w tytułach, opisach oraz innych
-              treściach w aplikacji.
+              Wulgaryzmy i obraźliwe określenia są zabronione – zarówno w nazwach
+              użytkowników, jak i w tytułach, opisach oraz innych treściach w
+              aplikacji.
             </Text>
             <Text
               style={[
@@ -900,7 +1202,33 @@ const getStyles = (colors: any) =>
       fontWeight: "600",
     },
 
-    /* --- ZMNIEJSZONY MODAL REGULAMINU --- */
+    legalRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: 10,
+      paddingHorizontal: 6,
+    },
+    legalText: {
+      fontSize: 12,
+      fontWeight: "600",
+      textAlign: "center",
+    },
+    legalLink: {
+      fontSize: 12,
+      fontWeight: "800",
+      textDecorationLine: "underline",
+    },
+
+    overlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.4)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+
     termsCard: {
       width: "100%",
       maxWidth: 520,
@@ -910,15 +1238,34 @@ const getStyles = (colors: any) =>
       paddingVertical: 12,
       paddingHorizontal: 14,
     },
-    termsScroll: {
-      flex: 1,
-      marginBottom: 8,
+
+    topTabsRow: {
+      flexDirection: "row",
+      gap: 10,
+      marginBottom: 10,
     },
+    topTabBtn: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: 999,
+      paddingVertical: 8,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    topTabText: {
+      fontSize: 12,
+      fontWeight: "800",
+    },
+
     termsTitle: {
       fontSize: 16,
       fontWeight: "700",
       marginBottom: 8,
       textAlign: "center",
+    },
+    termsScroll: {
+      flex: 1,
+      marginBottom: 8,
     },
     termsBody: {
       fontSize: 13,
@@ -940,6 +1287,7 @@ const getStyles = (colors: any) =>
       fontSize: 13,
       flex: 1,
     },
+
     termsSubmitButton: {
       paddingVertical: 9,
       borderRadius: 12,
@@ -960,14 +1308,6 @@ const getStyles = (colors: any) =>
       marginBottom: 4,
     },
 
-    // Overlays / popup
-    overlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.4)",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-    },
     congratsCard: {
       width: "100%",
       maxWidth: 420,

@@ -1,4 +1,3 @@
-// app/index.web.tsx
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
@@ -18,6 +17,9 @@ import { useRouter } from "expo-router";
 import WelcomeTutorialModal from "../src/components/WelcomeTutorialModal";
 import { useThemeColors } from "../src/context/ThemeContext";
 
+import GuidedTourOverlay from "../src/components/GuidedTourOverlay";
+import type { TourStep as GuidedTourStep } from "../src/components/GuidedTourOverlay";
+
 import {
   doc,
   setDoc,
@@ -33,7 +35,9 @@ import { useFamily } from "../src/hooks/useFamily";
 import { db, auth, onAuthStateChanged } from "../src/firebase/firebase.web";
 
 // ✅ otwieramy krok 5 w globalnym CustomHeader (żeby nie dublować headera na ekranie)
-import { setTourStep5Open as setTourStep5OpenBus } from "../src/utils/tourStep5Bus";
+import { setTourStep5Open as setTourStep5OpenBus } from "../src/tour/steps/homeTourSteps";
+
+import { HOME_TOUR_STEPS } from "../src/tour/steps/homeTourSteps";
 
 /* --------------------------------------------------------- */
 /* ------------------------ HELPERS ------------------------- */
@@ -74,7 +78,15 @@ function addMonths(date: Date, months: number) {
   const firstOfTarget = new Date(targetY, targetM, 1, 0, 0, 0, 0);
   const lastDay = new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth() + 1, 0).getDate();
 
-  return new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth(), Math.min(day, lastDay), 0, 0, 0, 0);
+  return new Date(
+    firstOfTarget.getFullYear(),
+    firstOfTarget.getMonth(),
+    Math.min(day, lastDay),
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function isSameDay(a: Date, b: Date) {
@@ -370,20 +382,10 @@ function useFireworkManager() {
 }
 
 /* --------------------------------------------------------- */
-/* ------------------- GUIDED TOUR OVERLAY ------------------ */
+/* ------------------- MEASURE (web + native) ---------------- */
 /* --------------------------------------------------------- */
 
 type Rect = { x: number; y: number; width: number; height: number };
-
-type TourStep = {
-  id: "hud" | "week" | "add" | "checkbox";
-  title: string;
-  body: string;
-};
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
 
 function isHTMLElement(node: any): node is HTMLElement {
   return !!node && typeof node.getBoundingClientRect === "function";
@@ -422,410 +424,6 @@ async function measureRect(node: any): Promise<Rect | null> {
       resolve(null);
     }
   });
-}
-
-function GuidedTourOverlay({
-  visible,
-  colors,
-  steps,
-  getNodeForStep,
-  getScreenNode,
-  onClose,
-  onFinish,
-  refreshToken, // ✅ gdy zmienia się lista zadań / anchor, wymuś re-measure
-}: {
-  visible: boolean;
-  colors: any;
-  steps: TourStep[];
-  getNodeForStep: (id: TourStep["id"]) => any;
-  getScreenNode: () => any;
-  onClose: () => void;
-  onFinish: () => void;
-  refreshToken?: any;
-}) {
-  const { width: W, height: H } = useWindowDimensions();
-  const [idx, setIdx] = useState(0);
-
-  const [target, setTarget] = useState<Rect | null>(null);
-  const [bubbleH, setBubbleH] = useState(0);
-
-  const fade = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
-
-  const step = steps[idx];
-
-  const refresh = useCallback(async () => {
-    if (!visible || !step) return;
-
-    // mały debounce – RNW + DOM potrafią zwrócić 0x0 tuż po re-renderze
-    await new Promise((r) => setTimeout(r, 60));
-
-    const screenNode = getScreenNode?.();
-    const screenRect = await measureRect(screenNode);
-    const offX = screenRect?.x ?? 0;
-    const offY = screenRect?.y ?? 0;
-
-    const node = getNodeForStep(step.id);
-    const rect = await measureRect(node);
-
-    if (!rect) {
-      setTarget({
-        x: W / 2 - 120,
-        y: H / 2 - 40,
-        width: 240,
-        height: 80,
-      });
-      return;
-    }
-
-    setTarget({
-      x: rect.x - offX,
-      y: rect.y - offY,
-      width: rect.width,
-      height: rect.height,
-    });
-  }, [visible, step, getNodeForStep, getScreenNode, W, H]);
-
-  // ✅ lekkie throttlowanie odświeżeń (scroll/resize)
-  const pendingRef = useRef(false);
-  const scheduleRefresh = useCallback(() => {
-    if (!visible) return;
-    if (pendingRef.current) return;
-    pendingRef.current = true;
-
-    const run = () => {
-      pendingRef.current = false;
-      refresh();
-    };
-
-    // @ts-ignore
-    if (typeof requestAnimationFrame === "function") {
-      // @ts-ignore
-      requestAnimationFrame(run);
-    } else {
-      setTimeout(run, 16);
-    }
-  }, [visible, refresh]);
-
-  useEffect(() => {
-    if (!visible) return;
-
-    setIdx(0);
-    setTarget(null);
-    setBubbleH(0);
-
-    fade.setValue(0);
-    pulse.setValue(0);
-
-    Animated.timing(fade, {
-      toValue: 1,
-      duration: 180,
-      useNativeDriver: USE_NATIVE_DRIVER,
-    }).start();
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 720, useNativeDriver: USE_NATIVE_DRIVER }),
-        Animated.timing(pulse, { toValue: 0, duration: 720, useNativeDriver: USE_NATIVE_DRIVER }),
-      ])
-    );
-
-    loop.start();
-    refresh();
-
-    return () => {
-      loop.stop();
-      pulse.stopAnimation();
-      pulse.setValue(0);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    refresh();
-  }, [idx, visible, refresh]);
-
-  // ✅ gdy zmieni się anchor (np. przyszły zadania z Firestore), odśwież highlight
-  useEffect(() => {
-    if (!visible) return;
-    refresh();
-  }, [refreshToken, visible, refresh]);
-
-  // ✅ WEB: przewijanie/resize w trakcie toura – highlight ma nadążać
-  useEffect(() => {
-    if (!visible) return;
-    if (Platform.OS !== "web") return;
-    if (typeof window === "undefined") return;
-
-    const on = () => scheduleRefresh();
-    window.addEventListener("resize", on);
-    window.addEventListener("scroll", on, true);
-
-    return () => {
-      window.removeEventListener("resize", on);
-      window.removeEventListener("scroll", on, true);
-    };
-  }, [visible, scheduleRefresh]);
-
-  if (!visible || !step) return null;
-
-  const safeTarget: Rect =
-    target ??
-    ({
-      x: W / 2 - 120,
-      y: H / 2 - 40,
-      width: 240,
-      height: 80,
-    } as Rect);
-
-  const pad = 14;
-  const hlPad = 8;
-
-  const hlX = clamp(safeTarget.x - hlPad, pad, W - pad);
-  const hlY = clamp(safeTarget.y - hlPad, pad, H - pad);
-  const hlW = clamp(safeTarget.width + hlPad * 2, 64, W - pad * 2);
-  const hlH = clamp(safeTarget.height + hlPad * 2, 48, H - pad * 2);
-
-  const bubbleW = clamp(Math.min(420, W - pad * 2), 260, 520);
-
-  const preferBelow = hlY + hlH + 12 + bubbleH < H - pad;
-  const bubbleTop = preferBelow ? hlY + hlH + 12 : Math.max(pad, hlY - 12 - bubbleH);
-  const bubbleLeft = clamp(hlX + hlW / 2 - bubbleW / 2, pad, W - pad - bubbleW);
-
-  const arrowSize = 10;
-  const arrowTop = preferBelow ? bubbleTop - arrowSize / 2 : bubbleTop + bubbleH - arrowSize / 2;
-  const arrowLeft = clamp(hlX + hlW / 2 - arrowSize / 2, pad, W - pad - arrowSize);
-
-  const isLast = idx === steps.length - 1;
-
-  return (
-    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 12000 }}>
-      <Animated.View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "rgba(2,6,23,0.72)",
-          opacity: fade,
-        }}
-      />
-
-      <Animated.View
-        // ✅ RNW: pointerEvents prop deprecated → style.pointerEvents (cast for TS)
-        style={{
-          ...({ pointerEvents: "none" } as any),
-          position: "absolute",
-          left: hlX,
-          top: hlY,
-          width: hlW,
-          height: hlH,
-          borderRadius: 18,
-          borderWidth: 2,
-          borderColor: colors.accent,
-          backgroundColor: "rgba(255,255,255,0.03)",
-          opacity: Animated.multiply(
-            fade,
-            pulse.interpolate({
-              inputRange: [0, 0.5, 1],
-              outputRange: [1, 0.9, 1],
-            })
-          ),
-        }}
-      />
-
-      <Animated.View
-        style={{
-          ...({ pointerEvents: "none" } as any),
-          position: "absolute",
-          left: hlX - 10,
-          top: hlY - 10,
-          width: hlW + 20,
-          height: hlH + 20,
-          borderRadius: 22,
-          borderWidth: 2,
-          borderColor: colors.accent,
-          backgroundColor: colors.accent + "10",
-          opacity: Animated.multiply(
-            fade,
-            pulse.interpolate({
-              inputRange: [0, 0.4, 1],
-              outputRange: [0.55, 0.25, 0],
-            })
-          ),
-          transform: [
-            {
-              scale: pulse.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 1.16],
-              }),
-            },
-          ],
-        }}
-      />
-
-      <Animated.View
-        style={{
-          ...({ pointerEvents: "none" } as any),
-          position: "absolute",
-          left: hlX - 18,
-          top: hlY - 18,
-          width: hlW + 36,
-          height: hlH + 36,
-          borderRadius: 26,
-          borderWidth: 2,
-          borderColor: colors.accent + "CC",
-          backgroundColor: "transparent",
-          opacity: Animated.multiply(
-            fade,
-            pulse.interpolate({
-              inputRange: [0, 0.2, 1],
-              outputRange: [0.22, 0.18, 0],
-            })
-          ),
-          transform: [
-            {
-              scale: pulse.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1.06, 1.32],
-              }),
-            },
-          ],
-        }}
-      />
-
-      <Animated.View
-        style={{
-          position: "absolute",
-          left: bubbleLeft,
-          top: bubbleTop,
-          width: bubbleW,
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          padding: 14,
-          opacity: fade,
-          ...(Platform.OS === "web"
-            ? ({ boxShadow: "0px 18px 50px rgba(0,0,0,0.45)" } as any)
-            : {
-                shadowColor: "#000",
-                shadowOpacity: 0.28,
-                shadowRadius: 22,
-                shadowOffset: { width: 0, height: 12 },
-                elevation: 10,
-              }),
-        }}
-        onLayout={(e) => setBubbleH(e.nativeEvent.layout.height)}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.accent + "22",
-              borderWidth: 1,
-              borderColor: colors.accent + "55",
-              marginRight: 10,
-            }}
-          >
-            <Ionicons name="navigate-outline" size={16} color={colors.accent} />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}>{step.title}</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2, fontWeight: "800" }}>
-              Krok {idx + 1}/{steps.length}
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={onClose}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.bg,
-              alignItems: "center",
-              justifyContent: "center",
-              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-            }}
-          >
-            <Ionicons name="close" size={16} color={colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
-          {step.body}
-        </Text>
-
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-          <TouchableOpacity
-            disabled={idx === 0}
-            onPress={() => setIdx((p) => Math.max(0, p - 1))}
-            style={{
-              flex: 1,
-              opacity: idx === 0 ? 0.5 : 1,
-              paddingVertical: 11,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.bg,
-              alignItems: "center",
-              justifyContent: "center",
-              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-            }}
-          >
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Wstecz</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              if (idx === steps.length - 1) onFinish();
-              else setIdx((p) => Math.min(steps.length - 1, p + 1));
-            }}
-            style={{
-              flex: 1,
-              paddingVertical: 11,
-              borderRadius: 999,
-              backgroundColor: colors.accent,
-              alignItems: "center",
-              justifyContent: "center",
-              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-            }}
-          >
-            <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>
-              {idx === steps.length - 1 ? "Zakończ" : "Dalej"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-
-      <Animated.View
-        style={{
-          ...({ pointerEvents: "none" } as any),
-          position: "absolute",
-          left: arrowLeft,
-          top: arrowTop,
-          width: arrowSize,
-          height: arrowSize,
-          backgroundColor: colors.card,
-          borderLeftWidth: 1,
-          borderTopWidth: 1,
-          borderColor: colors.border,
-          transform: [{ rotate: preferBelow ? "45deg" : "225deg" }],
-          opacity: fade,
-        }}
-      />
-    </View>
-  );
 }
 
 /* --------------------------------------------------------- */
@@ -1168,6 +766,10 @@ export default function HomeScreen() {
   const addTaskAnchorRef = useRef<any>(null);
 
   const [tourOpen, setTourOpen] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [tourSession, setTourSession] = useState(0);
+
+
 
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [repeatDeleteDialog, setRepeatDeleteDialog] = useState<{ mission: any; dateKey: string } | null>(null);
@@ -1198,7 +800,7 @@ export default function HomeScreen() {
   const [currentUser, setCurrentUser] = useState(() => auth.currentUser);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setCurrentUser(u));
+    const unsub = onAuthStateChanged(auth, (u: any) => setCurrentUser(u));
     return unsub;
   }, []);
 
@@ -1382,7 +984,23 @@ export default function HomeScreen() {
   }, [myUid]);
 
   const markWelcomeSeen = async (action: "start" | "skip") => {
-    if (!myUid) return;
+    // ✅ 1) UI ma zareagować OD RAZU (bez czekania na Firebase/auth)
+    setWelcomeModalOpen(false);
+
+    if (action === "start") {
+      setTourStepIndex(0);       // ✅ start od 1. kroku
+      setTourOpen(true);         // ✅ pokaż overlay
+      setTourSession((s) => s + 1); // ✅ wymusza świeże pomiary
+    } else {
+      router.replace("/");
+    }
+
+
+    // ✅ 2) Zapis do Firestore – tylko jeśli znamy UID
+    if (!myUid) {
+      console.log("🟨 markWelcomeSeen: myUid is null – started UI locally, skip saving for now.");
+      return;
+    }
 
     try {
       await setDoc(
@@ -1397,19 +1015,13 @@ export default function HomeScreen() {
         },
         { merge: true }
       );
-
-      setWelcomeModalOpen(false);
-
-      if (action === "start") {
-        setTourOpen(true);
-      } else {
-        router.replace("/");
-      }
     } catch (err: any) {
       console.error("🟥 WELCOME MODAL save error:", err?.code, err?.message, err);
-      alert("Nie udało się zapisać statusu wprowadzenia. Spróbuj ponownie.");
+      // ❗ nie blokujemy tutorialu alertem – UI już działa
     }
   };
+
+
 
   /* --------------------------------------------------------- */
   /* -------------- MAP ASSIGNED / CREATOR MEMBER ------------ */
@@ -1758,14 +1370,46 @@ export default function HomeScreen() {
       }
 
       const missionRef = doc(db, "missions", mission.id);
-      const deletedRef = doc(db, "deleted_missions", mission.id);
+
+      // ✅ WAŻNE: na web w twoich rules masz bucket /deleted_missions/{bucketId}/deleted_missions/{missionId}
+      // więc zapisujemy do: deleted_missions/{bucketId}/deleted_missions/{missionId}
+      // bucketId = uid (dla prywatnych) albo familyId (dla rodzinnych)
+      const bucketId = mission?.familyId ? String(mission.familyId) : String(myUid || "");
+
+      if (!bucketId) {
+        console.error("🟥 DELETE ABORT – missing bucketId (no myUid)", { mission, myUid });
+        alert("Brak UID – zaloguj się ponownie.");
+        return;
+      }
+
+      const deletedRef = doc(db, "deleted_missions", bucketId, "deleted_missions", mission.id);
+
+      // ✅ kto może widzieć w koszu
+      const vis = Array.from(
+        new Set(
+          [
+            myUid,
+            mission?.assignedToUserId,
+            mission?.assignedByUserId,
+            mission?.createdByUserId,
+            mission?.assignedTo,
+            mission?.assignedBy,
+            mission?.createdBy,
+          ]
+            .filter(Boolean)
+            .map((x) => String(x))
+        )
+      );
 
       await setDoc(
         deletedRef,
         {
           ...mission,
+          id: mission.id, // ✅ żeby zawsze było w dokumencie
+          bucketId, // ✅ debug/łatwiejsze zapytania
           originalCollection: "missions",
           deletedAt: new Date().toISOString(),
+          visibleTo: vis,
         },
         { merge: true }
       );
@@ -1896,6 +1540,30 @@ export default function HomeScreen() {
   const orbBlur = Platform.OS === "web" ? ({ filter: "blur(56px)" } as any) : null;
 
   const isNarrow = screenW < 640;
+  const [hintNavRow, setHintNavRow] = useState(true);
+  const [hintWeekRow, setHintWeekRow] = useState(true);
+  const isPhone = screenW < 420;
+  const uiScale = Math.max(0.82, Math.min(1, screenW / 430));
+  // ✅ mobile-web: kiedy da się zmieścić 7 dni bez scrolla
+  const canFitWeekRow = screenW >= 360;
+
+  // ✅ stabilne odstępy bez `gap` (Safari/iOS/RNW)
+  const HSP = isPhone ? 6 : 8; // horizontal spacing
+
+  // ✅ na telefonie pokazujemy hint przez kilka sekund i dopiero gaśnie
+  useEffect(() => {
+    if (!isNarrow) return;
+    setHintNavRow(true);
+    const t = setTimeout(() => setHintNavRow(false), 4500);
+    return () => clearTimeout(t);
+  }, [isNarrow, selectedDate]);
+
+  useEffect(() => {
+    if (!isNarrow) return;
+    setHintWeekRow(true);
+    const t = setTimeout(() => setHintWeekRow(false), 4500);
+    return () => clearTimeout(t);
+  }, [isNarrow, selectedDate]);
 
   const TinyChip = ({
     label,
@@ -1914,13 +1582,20 @@ export default function HomeScreen() {
     const border = tone === "accent" ? colors.accent + "00" : colors.border;
     const text = tone === "accent" ? "#022c22" : colors.text;
 
+    // ✅ RESPONSYWNE ROZMIARY
+    const h = Math.round(44 * uiScale);
+    const px = Math.round(12 * uiScale);
+    const gap = Math.round(8 * uiScale);
+    const iconSize = Math.round(16 * uiScale);
+    const fontSize = Math.round(12 * uiScale);
+
     return (
       <TouchableOpacity
         onPress={onPress}
         activeOpacity={0.9}
         style={{
-          height: 44,
-          paddingHorizontal: 12,
+          height: h,
+          paddingHorizontal: px,
           borderRadius: 999,
           borderWidth: 1,
           borderColor: border,
@@ -1928,15 +1603,64 @@ export default function HomeScreen() {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 8,
+          gap,
           ...(width ? ({ width } as any) : null),
           ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
         }}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        {iconLeft ? <Ionicons name={iconLeft} size={16} color={tone === "accent" ? "#022c22" : colors.textMuted} /> : null}
-        <Text style={{ color: text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 }}>{label}</Text>
+        {iconLeft ? (
+          <Ionicons name={iconLeft} size={iconSize} color={tone === "accent" ? "#022c22" : colors.textMuted} />
+        ) : null}
+
+        <Text style={{ color: text, fontSize: fontSize, fontWeight: "900", letterSpacing: 0.2 }}>{label}</Text>
       </TouchableOpacity>
+    );
+  };
+
+  const ScrollHintOverlay = ({ side }: { side: "left" | "right" }) => {
+    if (Platform.OS !== "web") return null;
+    if (!isNarrow) return null; // ✅ tylko mobile-web
+
+    const isLeft = side === "left";
+    return (
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          width: 34,
+          ...(isLeft ? { left: 0 } : { right: 0 }),
+          justifyContent: "center",
+          alignItems: isLeft ? "flex-start" : "flex-end",
+          paddingHorizontal: 6,
+          zIndex: 5,
+          ...(Platform.OS === "web"
+            ? ({
+                background: isLeft
+                  ? `linear-gradient(90deg, ${colors.card} 0%, ${colors.card}00 100%)`
+                  : `linear-gradient(270deg, ${colors.card} 0%, ${colors.card}00 100%)`,
+              } as any)
+            : null),
+        }}
+        pointerEvents="none"
+      >
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 999,
+            backgroundColor: colors.bg,
+            borderWidth: 1,
+            borderColor: colors.border,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: 0.85,
+          }}
+        >
+          <Ionicons name={isLeft ? "chevron-back" : "chevron-forward"} size={14} color={colors.textMuted} />
+        </View>
+      </View>
     );
   };
 
@@ -1949,10 +1673,19 @@ export default function HomeScreen() {
     onPrev: () => void;
     onNext: () => void;
   }) => {
+    // ✅ RESPONSYWNE ROZMIARY
+    const h = Math.round(44 * uiScale);
+    const btn = Math.round(44 * uiScale);
+    const minW = isPhone ? 128 : isNarrow ? 150 : 180;
+    const iconSize = Math.round(18 * uiScale);
+    const fontSize = Math.round(12 * uiScale);
+    const padX = isPhone ? 8 : isNarrow ? 10 : 12;
+
     return (
       <View
         style={{
-          height: 44,
+          height: h,
+          minWidth: minW,
           borderRadius: 999,
           borderWidth: 1,
           borderColor: colors.border,
@@ -1965,8 +1698,8 @@ export default function HomeScreen() {
         <TouchableOpacity
           onPress={onPrev}
           style={{
-            width: 44,
-            height: 44,
+            width: btn,
+            height: h,
             alignItems: "center",
             justifyContent: "center",
             ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
@@ -1974,18 +1707,18 @@ export default function HomeScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityLabel={`${label} - poprzedni`}
         >
-          <Ionicons name="chevron-back" size={18} color={colors.text} />
+          <Ionicons name="chevron-back" size={iconSize} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={{ paddingHorizontal: 12, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: colors.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 }}>{label}</Text>
+        <View style={{ paddingHorizontal: padX, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: colors.text, fontSize: fontSize, fontWeight: "900", letterSpacing: 0.2 }}>{label}</Text>
         </View>
 
         <TouchableOpacity
           onPress={onNext}
           style={{
-            width: 44,
-            height: 44,
+            width: btn,
+            height: h,
             alignItems: "center",
             justifyContent: "center",
             ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
@@ -1993,7 +1726,7 @@ export default function HomeScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityLabel={`${label} - następny`}
         >
-          <Ionicons name="chevron-forward" size={18} color={colors.text} />
+          <Ionicons name="chevron-forward" size={iconSize} color={colors.text} />
         </TouchableOpacity>
       </View>
     );
@@ -2003,40 +1736,13 @@ export default function HomeScreen() {
   /* -------------------- TOUR: steps + node ------------------ */
   /* --------------------------------------------------------- */
 
-  const TOUR_STEPS: TourStep[] = useMemo(
-    () => [
-      {
-        id: "hud",
-        title: "Tu widzisz swój progres",
-        body: "Poziom, EXP i streak. To jest Twój „panel gracza” — wszystko tu rośnie, gdy odhacasz zadania.",
-      },
-      {
-        id: "week",
-        title: "Wybierz dzień",
-        body: "Klikasz dzień tygodnia i widzisz zadania na konkretną datę. Prosto i bez gimnastyki.",
-      },
-      {
-        id: "add",
-        title: "Dodaj zadanie",
-        body: "Ten przycisk to Twoja fabryka misji. Dodaj coś małego na start i od razu zgarnij pierwsze EXP.",
-      },
-      {
-        id: "checkbox",
-        title: "Odhacz i zgarnij EXP",
-        body:
-          "Kliknij kółko po lewej przy zadaniu. Wykonane = EXP + streak + satysfakcja 💥\n\nPoniżej widzisz przykładowe zadanie, żebyś od razu wiedział o co chodzi.",
-      },
-    ],
-    []
-  );
-
   const getNodeForStep = useCallback(
-    (id: TourStep["id"]) => {
-      if (id === "hud") return hudAnchorRef.current;
-      if (id === "week") return weekDaysAnchorRef.current;
-      if (id === "add") return addTaskAnchorRef.current;
+    (key: GuidedTourStep["key"]) => {
+      if (key === "hud") return hudAnchorRef.current;
+      if (key === "week") return weekDaysAnchorRef.current;
+      if (key === "add") return addTaskAnchorRef.current;
 
-      if (id === "checkbox") {
+      if (key === "checkbox") {
         const first = missionsForDaySorted?.[0];
         if (first?.id && checkboxRefs.current[first.id]) return checkboxRefs.current[first.id];
         if (demoCheckboxAnchorRef.current) return demoCheckboxAnchorRef.current;
@@ -2047,6 +1753,7 @@ export default function HomeScreen() {
     },
     [missionsForDaySorted]
   );
+
 
   const markTourSeen = async () => {
     if (!myUid) return;
@@ -2246,15 +1953,15 @@ export default function HomeScreen() {
           contentContainerStyle={{
             flexGrow: 1,
             width: "100%",
-            paddingVertical: 18,
+            paddingVertical: isNarrow ? 12 : 18,
             alignItems: "center",
           }}
         >
           <View
             style={{
               width: "100%",
-              maxWidth: 1344,
-              paddingHorizontal: 18,
+              maxWidth: 980, // ✅ na mobile web 1344 robi “desktop vibe”
+              paddingHorizontal: isNarrow ? 12 : 18,
               flexGrow: 1,
               alignSelf: "center",
               ...(Platform.OS === "web" ? ({ marginHorizontal: "auto" } as any) : null),
@@ -2265,9 +1972,9 @@ export default function HomeScreen() {
               ref={hudAnchorRef}
               style={{
                 backgroundColor: colors.card,
-                borderRadius: 24,
-                padding: 16,
-                marginBottom: 16,
+                borderRadius: isNarrow ? 18 : 24,
+                padding: isNarrow ? 12 : 16,
+                marginBottom: isNarrow ? 12 : 16,
                 borderWidth: 1,
                 borderColor: colors.border,
                 ...cardShadow,
@@ -2301,7 +2008,9 @@ export default function HomeScreen() {
                       borderColor: colors.border,
                     }}
                   >
-                    <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 16 }}>{hudMember.label?.[0] ?? "?"}</Text>
+                    <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 16 }}>
+                      {hudMember.label?.[0] ?? "?"}
+                    </Text>
                   </View>
                 )}
 
@@ -2351,7 +2060,8 @@ export default function HomeScreen() {
                         Dziś zgarnięte: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayEarned}</Text> / {dayPossible} EXP
                       </Text>
                       <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                        Próg LVL {hudLevel + 1}: <Text style={{ color: colors.text, fontWeight: "900" }}>{requiredExpForLevel(hudLevel + 1)}</Text>
+                        Próg LVL {hudLevel + 1}:{" "}
+                        <Text style={{ color: colors.text, fontWeight: "900" }}>{requiredExpForLevel(hudLevel + 1)}</Text>
                       </Text>
                     </View>
 
@@ -2387,20 +2097,40 @@ export default function HomeScreen() {
 
                       {/* 1) Data, 2) Dziś, 3) Tydzień, 4) Miesiąc */}
                       {isNarrow ? (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
-                          <TinyChip label={formatDatePill(selectedDate)} iconLeft="calendar-outline" onPress={() => setDatePickerOpen(true)} />
-                          <TinyChip label="Dziś" iconLeft="today-outline" tone="accent" onPress={goToToday} />
-                          <Stepper
-                            label="Tydzień"
-                            onPrev={() => setSelectedDate(startOfDay(addDays(selectedDate, -7)))}
-                            onNext={() => setSelectedDate(startOfDay(addDays(selectedDate, 7)))}
-                          />
-                          <Stepper
-                            label="Miesiąc"
-                            onPrev={() => setSelectedDate(startOfDay(addMonths(selectedDate, -1)))}
-                            onNext={() => setSelectedDate(startOfDay(addMonths(selectedDate, 1)))}
-                          />
-                        </ScrollView>
+                        <View style={{ position: "relative" }}>
+                          {hintNavRow && <ScrollHintOverlay side="right" />}
+
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ paddingVertical: 2, paddingRight: 28 }}
+                            onScrollBeginDrag={() => setHintNavRow(false)}
+                          >
+                            <View style={{ marginRight: HSP }}>
+                              <TinyChip label={formatDatePill(selectedDate)} iconLeft="calendar-outline" onPress={() => setDatePickerOpen(true)} />
+                            </View>
+
+                            <View style={{ marginRight: HSP }}>
+                              <TinyChip label="Dziś" iconLeft="today-outline" tone="accent" onPress={goToToday} />
+                            </View>
+
+                            <View style={{ marginRight: HSP }}>
+                              <Stepper
+                                label="Tydzień"
+                                onPrev={() => setSelectedDate(startOfDay(addDays(selectedDate, -7)))}
+                                onNext={() => setSelectedDate(startOfDay(addDays(selectedDate, 7)))}
+                              />
+                            </View>
+
+                            <View style={{ marginRight: 0 }}>
+                              <Stepper
+                                label="Miesiąc"
+                                onPrev={() => setSelectedDate(startOfDay(addMonths(selectedDate, -1)))}
+                                onNext={() => setSelectedDate(startOfDay(addMonths(selectedDate, 1)))}
+                              />
+                            </View>
+                          </ScrollView>
+                        </View>
                       ) : (
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                           <TinyChip label={formatDatePill(selectedDate)} iconLeft="calendar-outline" onPress={() => setDatePickerOpen(true)} />
@@ -2424,62 +2154,7 @@ export default function HomeScreen() {
 
               {/* ✅ Tydzień jako paski dni */}
               <View ref={weekDaysAnchorRef} style={{ marginTop: 14 }}>
-                {isNarrow ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 2, paddingHorizontal: 2 }}>
-                    {weekDays.map((d, i) => {
-                      const active = isSameDay(d, selectedDate);
-                      const isTodayDay = isSameDay(d, today);
-                      const inPast = d < today && !isSameDay(d, today);
-                      const hasDone = inPast && hasCompletedMissionOnDate(d);
-
-                      const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.bg;
-                      const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
-                      const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
-                      const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
-
-                      return (
-                        <TouchableOpacity
-                          key={i}
-                          onPress={() => setSelectedDate(startOfDay(d))}
-                          style={{
-                            width: 72,
-                            marginRight: 10,
-                            paddingVertical: 12,
-                            alignItems: "center",
-                            borderRadius: 18,
-                            backgroundColor: bgColor,
-                            borderWidth: 1,
-                            borderColor: borderColor,
-                            ...(active ? softShadow : null),
-                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          {isTodayDay && !active && (
-                            <View
-                              style={{
-                                position: "absolute",
-                                top: 9,
-                                right: 10,
-                                width: 8,
-                                height: 8,
-                                borderRadius: 999,
-                                backgroundColor: colors.accent,
-                              }}
-                            />
-                          )}
-
-                          <Text style={{ color: subTextColor, fontSize: 12, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
-                          <Text style={{ color: textColor, fontWeight: "900", fontSize: 16, marginTop: 2 }}>{d.getDate()}</Text>
-
-                          {hasDone && !active && (
-                            <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                ) : (
+                {!isNarrow ? (
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     {weekDays.map((d, i) => {
                       const active = isSameDay(d, selectedDate);
@@ -2524,15 +2199,140 @@ export default function HomeScreen() {
                             />
                           )}
 
-                          <Text style={{ color: subTextColor, fontSize: 12, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
-                          <Text style={{ color: textColor, fontWeight: "900", fontSize: 16, marginTop: 2 }}>{d.getDate()}</Text>
+                          <Text style={{ color: subTextColor, fontSize: isPhone ? 11 : 12, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
+                          <Text style={{ color: textColor, fontWeight: "900", fontSize: isPhone ? 15 : 16, marginTop: 2 }}>{d.getDate()}</Text>
 
-                          {hasDone && !active && (
-                            <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />
-                          )}
+                          {hasDone && !active && <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />}
                         </TouchableOpacity>
                       );
                     })}
+                  </View>
+                ) : canFitWeekRow ? (
+                  <View
+                    style={{
+                      padding: 8,
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.bg,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row" }}>
+                      {weekDays.map((d, i) => {
+                        const active = isSameDay(d, selectedDate);
+                        const isTodayDay = isSameDay(d, today);
+                        const inPast = d < today && !isSameDay(d, today);
+                        const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                        const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.card;
+                        const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+                        const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+                        const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                        return (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => setSelectedDate(startOfDay(d))}
+                            activeOpacity={0.9}
+                            style={{
+                              flex: 1,
+                              marginHorizontal: 3,
+                              paddingVertical: isPhone ? 10 : 12,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              borderRadius: 16,
+                              backgroundColor: bgColor,
+                              borderWidth: 1,
+                              borderColor: borderColor,
+                              ...(active ? softShadow : null),
+                              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            {isTodayDay && !active && (
+                              <View
+                                style={{
+                                  position: "absolute",
+                                  top: 8,
+                                  right: 8,
+                                  width: 7,
+                                  height: 7,
+                                  borderRadius: 999,
+                                  backgroundColor: colors.accent,
+                                }}
+                              />
+                            )}
+
+                            <Text style={{ color: subTextColor, fontSize: 11, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
+                            <Text style={{ color: textColor, fontWeight: "900", fontSize: 15, marginTop: 2 }}>{d.getDate()}</Text>
+
+                            {hasDone && !active && <View style={{ marginTop: 6, width: 6, height: 6, borderRadius: 999, backgroundColor: "#22c55e" }} />}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ position: "relative" }}>
+                    {hintWeekRow && <ScrollHintOverlay side="right" />}
+
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingVertical: 2, paddingHorizontal: 2, paddingRight: 28 }}
+                      onScrollBeginDrag={() => setHintWeekRow(false)}
+                    >
+                      {weekDays.map((d, i) => {
+                        const active = isSameDay(d, selectedDate);
+                        const isTodayDay = isSameDay(d, today);
+                        const inPast = d < today && !isSameDay(d, today);
+                        const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                        const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.bg;
+                        const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+                        const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+                        const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                        return (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => setSelectedDate(startOfDay(d))}
+                            style={{
+                              width: isPhone ? 54 : 64,
+                              marginRight: 8,
+                              paddingVertical: isPhone ? 8 : 10,
+                              alignItems: "center",
+                              borderRadius: isPhone ? 14 : 16,
+                              backgroundColor: bgColor,
+                              borderWidth: 1,
+                              borderColor: borderColor,
+                              ...(active ? softShadow : null),
+                              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            {isTodayDay && !active && (
+                              <View
+                                style={{
+                                  position: "absolute",
+                                  top: 9,
+                                  right: 10,
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 999,
+                                  backgroundColor: colors.accent,
+                                }}
+                              />
+                            )}
+
+                            <Text style={{ color: subTextColor, fontSize: 12, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
+                            <Text style={{ color: textColor, fontWeight: "900", fontSize: 16, marginTop: 2 }}>{d.getDate()}</Text>
+
+                            {hasDone && !active && <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
                   </View>
                 )}
 
@@ -2542,50 +2342,48 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* HEADER */}
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 12 }}>
+            {/* LISTA ZADAŃ */}
+            {/* HEADER: Zadania + Dodaj */}
+            <View
+              style={{
+                marginTop: 14,
+                marginBottom: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>Zadania na:</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2, fontWeight: "800" }}>{formatDayLong(selectedDate)}</Text>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>Zadania na dziś</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", marginTop: 2 }}>{formatDayLong(selectedDate)}</Text>
               </View>
 
-              <View ref={addTaskAnchorRef}>
-                <TouchableOpacity
-                  onPress={goToAddTask}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: colors.accent,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderRadius: 999,
-                    ...softShadow,
-                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                  }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <View
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 999,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: "#022c2218",
-                      borderWidth: 1,
-                      borderColor: "#022c2233",
-                    }}
-                  >
-                    <Ionicons name="add" size={18} color="#022c22" />
-                  </View>
-                  <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 10, fontSize: 14, letterSpacing: 0.2 }}>
-                    Dodaj zadanie
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                ref={addTaskAnchorRef}
+                onPress={goToAddTask}
+                activeOpacity={0.9}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  borderWidth: 1,
+                  borderColor: colors.accent + "00",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Dodaj zadanie"
+              >
+                <Ionicons name="add" size={18} color="#022c22" />
+                <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 8, fontSize: 13, letterSpacing: 0.2 }}>
+                  Dodaj zadanie
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            {/* LISTA ZADAŃ */}
             {loading ? (
               <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
             ) : missionsForDaySorted.length === 0 ? (
@@ -2717,6 +2515,55 @@ export default function HomeScreen() {
                 }
                 const rowAnim = animationRefs.current[animKey];
 
+                const renderAvatar = (avatarUrl: string | null, label: string, size: number) => {
+                  if (avatarUrl) {
+                    return (
+                      <Image
+                        source={{ uri: avatarUrl }}
+                        style={{
+                          width: size,
+                          height: size,
+                          borderRadius: 999,
+                          marginRight: 8,
+                          opacity: isDone ? 0.8 : 1,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        }}
+                      />
+                    );
+                  }
+
+                  return (
+                    <View
+                      style={{
+                        width: size,
+                        height: size,
+                        borderRadius: 999,
+                        marginRight: 8,
+                        backgroundColor: colors.accent + "14",
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: isDone ? 0.8 : 1,
+                      }}
+                    >
+                      <Text style={{ color: colors.accent, fontWeight: "900", fontSize: Math.max(11, Math.round(size * 0.45)) }}>
+                        {(label?.[0] ?? "?").toUpperCase()}
+                      </Text>
+                    </View>
+                  );
+                };
+
+                const repeatLabel =
+                  m?.repeat?.type === "daily"
+                    ? "Codziennie"
+                    : m?.repeat?.type === "weekly"
+                    ? "Co tydzień"
+                    : m?.repeat?.type === "monthly"
+                    ? "Co miesiąc"
+                    : null;
+
                 return (
                   <Animated.View
                     key={m.id ?? `fallback-${idx2}`}
@@ -2731,23 +2578,27 @@ export default function HomeScreen() {
                   >
                     <View
                       style={{
-                        padding: 14,
-                        marginBottom: 12,
-                        borderRadius: 18,
+                        padding: isNarrow ? 12 : 14,
+                        marginBottom: isNarrow ? 10 : 12,
+                        borderRadius: isNarrow ? 18 : 22,
                         borderWidth: 1,
                         backgroundColor: colors.card,
-                        borderColor: isDone ? "#22c55e55" : colors.border,
-                        ...softShadow,
+                        borderColor: isDone ? "#22c55e66" : colors.border,
+                        ...cardShadow,
                       }}
                     >
+                      {/* Top row: checkbox + title + actions */}
                       <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        {/* Checkbox wrapper (anchor for fireworks + tour) */}
                         <View
-                          ref={(el) => {
-                            if (m.id) checkboxRefs.current[m.id] = el;
+                          ref={(node) => {
+                            try {
+                              if (m?.id) checkboxRefs.current[m.id] = node;
+                            } catch {}
                           }}
                           style={{
-                            width: 36,
-                            height: 36,
+                            width: 38,
+                            height: 38,
                             borderRadius: 12,
                             marginRight: 10,
                             justifyContent: "center",
@@ -2755,25 +2606,24 @@ export default function HomeScreen() {
                           }}
                         >
                           <TouchableOpacity
-                            disabled={isDone}
                             onPress={async () => {
-                              if (!m.id) return;
+                              try {
+                                const node = checkboxRefs.current[m.id];
+                                const r = await measureRect(node);
+                                const sr = await measureRect(screenRef.current);
+                                const offX = sr?.x ?? 0;
+                                const offY = sr?.y ?? 0;
 
-                              const node = checkboxRefs.current[m.id];
-                              const [rect, screenRect] = await Promise.all([measureRect(node), measureRect(screenRef.current)]);
-                              const offX = screenRect?.x ?? 0;
-                              const offY = screenRect?.y ?? 0;
+                                if (r) {
+                                  const cx = r.x - offX + r.width / 2;
+                                  const cy = r.y - offY + r.height / 2;
+                                  triggerFirework(String(m.id), cx, cy);
+                                }
+                              } catch {}
 
-                              if (rect) {
-                                const cx = rect.x - offX + rect.width / 2;
-                                const cy = rect.y - offY + rect.height / 2;
-                                triggerFirework(m.id, cx, cy);
-                                handleComplete({ ...m }, rowAnim);
-                              } else {
-                                triggerFirework(m.id, 200, 200);
-                                handleComplete({ ...m }, rowAnim);
-                              }
+                              handleComplete(m, rowAnim);
                             }}
+                            activeOpacity={0.9}
                             style={{
                               width: "100%",
                               height: "100%",
@@ -2781,18 +2631,14 @@ export default function HomeScreen() {
                               justifyContent: "center",
                               alignItems: "center",
                               borderWidth: 1,
-                              borderColor: isDone ? "#22c55e77" : colors.border,
-                              backgroundColor: isDone ? "#22c55e18" : colors.bg,
-                              opacity: isDone ? 0.8 : 1,
-                              ...(Platform.OS === "web" ? ({ cursor: isDone ? "default" : "pointer" } as any) : null),
+                              borderColor: isDone ? "#22c55e88" : colors.border,
+                              backgroundColor: isDone ? "#22c55e18" : "transparent",
+                              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
                             }}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityLabel={isDone ? "Zadanie wykonane" : "Oznacz jako wykonane"}
                           >
-                            <Ionicons
-                              name={isDone ? "checkmark" : "ellipse-outline"}
-                              size={18}
-                              color={isDone ? "#22c55e" : colors.textMuted}
-                            />
+                            <Ionicons name={isDone ? "checkmark" : "ellipse-outline"} size={18} color={isDone ? "#22c55e" : colors.textMuted} />
                           </TouchableOpacity>
                         </View>
 
@@ -2805,25 +2651,27 @@ export default function HomeScreen() {
                               letterSpacing: 0.2,
                               textDecorationLine: isDone ? "line-through" : "none",
                             }}
+                            numberOfLines={2}
                           >
-                            {m.title}
+                            {m.title || m.name || "Bez tytułu"}
                           </Text>
 
+                          {/* DONE badges (like native) */}
                           {isDone ? (
-                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, flexWrap: "wrap", gap: 8 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
                               <View
                                 style={{
                                   paddingHorizontal: 10,
                                   paddingVertical: 5,
                                   borderRadius: 999,
-                                  backgroundColor: "#22c55e18",
+                                  backgroundColor: "#22c55e22",
                                   borderWidth: 1,
-                                  borderColor: "#22c55e55",
+                                  borderColor: "#22c55e66",
+                                  marginRight: 8,
+                                  marginBottom: 6,
                                 }}
                               >
-                                <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
-                                  Wykonane ✅
-                                </Text>
+                                <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>Wykonane ✅</Text>
                               </View>
 
                               <View
@@ -2834,6 +2682,7 @@ export default function HomeScreen() {
                                   backgroundColor: colors.accent + "18",
                                   borderWidth: 1,
                                   borderColor: colors.accent + "55",
+                                  marginBottom: 6,
                                 }}
                               >
                                 <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
@@ -2844,75 +2693,43 @@ export default function HomeScreen() {
                           ) : null}
                         </View>
 
+                        {/* Edit */}
                         <TouchableOpacity
                           onPress={() => handleEdit({ ...m })}
-                          style={{
-                            marginRight: 6,
-                            padding: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            backgroundColor: colors.bg,
-                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                          }}
+                          style={{ marginRight: 6, padding: 6, ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null) }}
                           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          accessibilityLabel="Edytuj"
                         >
                           <Ionicons name="create-outline" size={18} color={colors.textMuted} />
                         </TouchableOpacity>
 
+                        {/* Delete */}
                         <TouchableOpacity
                           onPress={() => handleDelete({ ...m })}
-                          delayLongPress={350}
-                          style={{
-                            padding: 10,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            backgroundColor: colors.bg,
-                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                          }}
+                          style={{ padding: 6, ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null) }}
                           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          accessibilityLabel="Usuń"
                         >
                           <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
                       </View>
 
+                      {/* Assigned/Creator row + difficulty chip (like native) */}
                       {selfCompactRow ? (
-                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 4, gap: 10 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center" }}>
-                            {assigned.avatarUrl ? (
-                              <Image
-                                source={{ uri: assigned.avatarUrl }}
-                                style={{
-                                  width: 26,
-                                  height: 26,
-                                  borderRadius: 999,
-                                  marginRight: 8,
-                                  opacity: isDone ? 0.8 : 1,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                }}
-                              />
-                            ) : (
-                              <View
-                                style={{
-                                  width: 26,
-                                  height: 26,
-                                  borderRadius: 999,
-                                  backgroundColor: colors.accent + "14",
-                                  justifyContent: "center",
-                                  alignItems: "center",
-                                  marginRight: 8,
-                                  opacity: isDone ? 0.8 : 1,
-                                  borderWidth: 1,
-                                  borderColor: colors.border,
-                                }}
-                              >
-                                <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 12 }}>{assigned.label?.[0] ?? "?"}</Text>
-                              </View>
-                            )}
-
-                            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700" }}>Twoje zadanie</Text>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            marginTop: 10,
+                            marginBottom: 4,
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", flex: 1, paddingRight: 10 }}>
+                            {renderAvatar(assigned?.avatarUrl || null, assigned?.label || "Ty", 24)}
+                            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800" }} numberOfLines={1}>
+                              Twoje zadanie
+                            </Text>
                           </View>
 
                           <View
@@ -2920,9 +2737,9 @@ export default function HomeScreen() {
                               paddingHorizontal: 10,
                               paddingVertical: 5,
                               borderRadius: 999,
-                              backgroundColor: diff.color + "22",
+                              backgroundColor: diff.color + "33",
                               borderWidth: 1,
-                              borderColor: diff.color + "66",
+                              borderColor: diff.color + "88",
                               opacity: isDone ? 0.85 : 1,
                             }}
                           >
@@ -2930,49 +2747,21 @@ export default function HomeScreen() {
                           </View>
                         </View>
                       ) : (
-                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 4, gap: 10 }}>
-                          {assigned.avatarUrl ? (
-                            <Image
-                              source={{ uri: assigned.avatarUrl }}
-                              style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 999,
-                                opacity: isDone ? 0.7 : 1,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                              }}
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 999,
-                                backgroundColor: colors.accent + "14",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                opacity: isDone ? 0.7 : 1,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                              }}
-                            >
-                              <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 14 }}>{assigned.label?.[0] ?? "?"}</Text>
-                            </View>
-                          )}
+                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, marginBottom: 4 }}>
+                          {renderAvatar(assigned?.avatarUrl || null, assigned?.label || "?", 32)}
 
                           <View style={{ flex: 1 }}>
-                            {!hideAssignedInfo && (
-                              <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                                Przypisane do: <Text style={{ color: colors.text, fontWeight: "800" }}>{assigned.label}</Text>
+                            {!hideAssignedInfo ? (
+                              <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800" }}>
+                                Przypisane do: <Text style={{ color: colors.text, fontWeight: "900" }}>{assigned?.label}</Text>
                               </Text>
-                            )}
+                            ) : null}
 
-                            {!hideCreatorInfo && creator && (
-                              <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
-                                Dodane przez: <Text style={{ color: colors.text, fontWeight: "800" }}>{creator.label}</Text>
+                            {!hideCreatorInfo && creator ? (
+                              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", marginTop: 2 }}>
+                                Dodane przez: <Text style={{ color: colors.text, fontWeight: "900" }}>{creator?.label}</Text>
                               </Text>
-                            )}
+                            ) : null}
                           </View>
 
                           <View
@@ -2980,9 +2769,9 @@ export default function HomeScreen() {
                               paddingHorizontal: 10,
                               paddingVertical: 5,
                               borderRadius: 999,
-                              backgroundColor: diff.color + "22",
+                              backgroundColor: diff.color + "33",
                               borderWidth: 1,
-                              borderColor: diff.color + "66",
+                              borderColor: diff.color + "88",
                               opacity: isDone ? 0.85 : 1,
                             }}
                           >
@@ -2991,23 +2780,18 @@ export default function HomeScreen() {
                         </View>
                       )}
 
-                      {m.repeat?.type && m.repeat.type !== "none" && (
-                        <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8, marginTop: 2 }}>
-                          Cykliczność:{" "}
-                          {m.repeat.type === "daily"
-                            ? "Codziennie"
-                            : m.repeat.type === "weekly"
-                            ? "Co tydzień"
-                            : m.repeat.type === "monthly"
-                            ? "Co miesiąc"
-                            : "Brak"}
+                      {/* Repeat info */}
+                      {repeatLabel ? (
+                        <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 6, fontWeight: "800" }}>
+                          Cykliczność: {repeatLabel}
                         </Text>
-                      )}
+                      ) : null}
 
-                      <View style={{ marginTop: 6, opacity: isDone ? 0.88 : 1 }}>
+                      {/* EXP bar */}
+                      <View style={{ marginTop: 6, opacity: isDone ? 0.85 : 1 }}>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                          <Text style={{ color: colors.textMuted, fontSize: 11 }}>EXP za misję</Text>
-                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>{expValue} EXP</Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800" }}>EXP za misję</Text>
+                          <Text style={{ color: colors.text, fontSize: 11, fontWeight: "900" }}>{expValue} EXP</Text>
                         </View>
 
                         <View
@@ -3020,29 +2804,67 @@ export default function HomeScreen() {
                             borderColor: colors.border,
                           }}
                         >
-                          <View style={{ height: "100%", width: `${expProgress * 100}%`, borderRadius: 999, backgroundColor: colors.accent }} />
+                          <View
+                            style={{
+                              height: "100%",
+                              width: `${expProgress * 100}%`,
+                              borderRadius: 999,
+                              backgroundColor: colors.accent,
+                            }}
+                          />
                         </View>
                       </View>
 
-                      {!isDone && (
-                        <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 10, lineHeight: 16 }}>
+                      {/* Hint only when NOT done */}
+                      {!isDone ? (
+                        <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 10, fontWeight: "800", lineHeight: 16 }}>
                           Kliknij kółko po lewej, żeby odznaczyć jako wykonane i zgarnąć EXP 💥
                         </Text>
-                      )}
+                      ) : null}
                     </View>
                   </Animated.View>
                 );
               })
             )}
 
-            <View style={{ flex: 1 }} />
+            {/* FOOTER */}
             <AppFooter />
           </View>
         </ScrollView>
 
+        {/* ✅ FIREWORK OVERLAY */}
+        <View
+          style={{
+            ...({ pointerEvents: "none" } as any),
+            position: "absolute",
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 5000,
+          }}
+        >
+          {fireworkParticles.map((p) => (
+            <Animated.View
+              key={p.id}
+              style={{
+                position: "absolute",
+                left: p.originX,
+                top: p.originY,
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                backgroundColor: p.color,
+                opacity: p.opacity,
+                transform: [{ translateX: p.translateX }, { translateY: p.translateY }, { scale: p.scale }],
+              }}
+            />
+          ))}
+        </View>
+
         {/* ✅ Date picker modal */}
         <DatePickerModal
-          visible={datePickerOpen && !repeatDeleteDialog && !timeTravelDialogOpen && !tourOpen}
+          visible={datePickerOpen}
           colors={colors}
           selectedDate={selectedDate}
           today={today}
@@ -3051,227 +2873,254 @@ export default function HomeScreen() {
           onClose={() => setDatePickerOpen(false)}
         />
 
-        {/* ✅ WELCOME MODAL */}
-        <WelcomeTutorialModal
-          visible={welcomeModalReady && welcomeModalOpen && !repeatDeleteDialog && !timeTravelDialogOpen && !tourOpen && !datePickerOpen}
-          colors={colors}
-          onStart={() => markWelcomeSeen("start")}
-          onSkip={() => markWelcomeSeen("skip")}
-        />
-
-        {/* ✅ Guided Tour Overlay */}
-        <GuidedTourOverlay
-          visible={tourOpen && !repeatDeleteDialog && !timeTravelDialogOpen && !datePickerOpen}
-          colors={colors}
-          steps={TOUR_STEPS}
-          getNodeForStep={getNodeForStep}
-          getScreenNode={() => screenRef.current}
-          onClose={closeTour}
-          onFinish={finishTour}
-          refreshToken={tourRefreshToken}
-        />
-
-        {/* WEB modal do usuwania zadań cyklicznych */}
-        {repeatDeleteDialog && Platform.OS === "web" && (
+        {/* ✅ Repeat delete dialog */}
+        {repeatDeleteDialog ? (
           <View
             style={{
               position: "absolute",
-              top: 0,
               left: 0,
+              top: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(15,23,42,0.70)",
-              justifyContent: "center",
+              zIndex: 9000,
+              backgroundColor: "rgba(15,23,42,0.78)",
               alignItems: "center",
-              zIndex: 200,
+              justifyContent: "center",
               paddingHorizontal: 18,
+              paddingVertical: 18,
             }}
           >
             <View
               style={{
                 width: "100%",
-                maxWidth: 440,
+                maxWidth: 520,
                 backgroundColor: colors.card,
-                borderRadius: 18,
-                padding: 18,
+                borderRadius: 24,
                 borderWidth: 1,
                 borderColor: colors.border,
+                padding: 16,
                 ...cardShadow,
               }}
             >
-              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", marginBottom: 8, letterSpacing: 0.2 }}>
-                Usuń zadanie cykliczne
-              </Text>
-
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 16, lineHeight: 18 }}>
-                To zadanie powtarza się w czasie. Wybierz, co chcesz zrobić dla dnia {formatDayLong(selectedDate)}.
-              </Text>
-
-              <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Usuwanie powtarzanego zadania</Text>
                 <TouchableOpacity
+                  onPress={() => setRepeatDeleteDialog(null)}
                   style={{
-                    flex: 1,
-                    paddingVertical: 11,
+                    width: 40,
+                    height: 40,
                     borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
                     borderWidth: 1,
                     borderColor: colors.border,
                     backgroundColor: colors.bg,
                     ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
                   }}
-                  onPress={async () => {
-                    if (!repeatDeleteDialog) return;
-                    await deleteOnlyToday(repeatDeleteDialog.mission, repeatDeleteDialog.dateKey);
-                    setRepeatDeleteDialog(null);
-                  }}
                 >
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800", textAlign: "center", letterSpacing: 0.2 }}>
-                    Usuń tylko ten dzień
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{
-                    flex: 1,
-                    paddingVertical: 11,
-                    borderRadius: 999,
-                    backgroundColor: "#ef4444",
-                    ...(Platform.OS === "web"
-                      ? ({ boxShadow: "0px 10px 22px rgba(239,68,68,0.22)", cursor: "pointer" } as any)
-                      : {
-                          shadowColor: "#ef4444",
-                          shadowOpacity: 0.25,
-                          shadowRadius: 14,
-                          shadowOffset: { width: 0, height: 8 },
-                          elevation: 5,
-                        }),
-                  }}
-                  onPress={async () => {
-                    if (!repeatDeleteDialog) return;
-                    await deleteSeries(repeatDeleteDialog.mission);
-                    setRepeatDeleteDialog(null);
-                  }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "900", textAlign: "center", letterSpacing: 0.2 }}>
-                    Usuń całą serię
-                  </Text>
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={{ alignSelf: "center", marginTop: 4, paddingVertical: 8, paddingHorizontal: 18 }} onPress={() => setRepeatDeleteDialog(null)}>
-                <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "700" }}>Anuluj</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                To zadanie jest powtarzane. Chcesz usunąć całą serię, czy tylko ukryć je w wybranym dniu?
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const { mission } = repeatDeleteDialog;
+                    setRepeatDeleteDialog(null);
+                    await deleteSeries(mission);
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: "#ef4444",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "900", fontSize: 13 }}>Usuń serię</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    const { mission, dateKey } = repeatDeleteDialog;
+                    setRepeatDeleteDialog(null);
+                    await deleteOnlyToday(mission, dateKey);
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>Tylko ten dzień</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setRepeatDeleteDialog(null)}
+                style={{
+                  marginTop: 10,
+                  paddingVertical: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Anuluj</Text>
               </TouchableOpacity>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {/* TIME TRAVEL modal */}
-        {timeTravelDialogOpen && (
+        {/* ✅ Time-travel dialog */}
+        {timeTravelDialogOpen ? (
           <View
             style={{
               position: "absolute",
-              top: 0,
               left: 0,
+              top: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(15,23,42,0.75)",
-              justifyContent: "center",
+              zIndex: 9000,
+              backgroundColor: "rgba(15,23,42,0.78)",
               alignItems: "center",
-              zIndex: 250,
+              justifyContent: "center",
               paddingHorizontal: 18,
+              paddingVertical: 18,
             }}
           >
             <View
               style={{
                 width: "100%",
-                maxWidth: 440,
+                maxWidth: 520,
                 backgroundColor: colors.card,
-                borderRadius: 18,
-                padding: 18,
+                borderRadius: 24,
                 borderWidth: 1,
                 borderColor: colors.border,
+                padding: 16,
                 ...cardShadow,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-                <View
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Hej, to nie jest „dziś” 😉</Text>
+                <TouchableOpacity
+                  onPress={() => setTimeTravelDialogOpen(false)}
                   style={{
-                    width: 38,
-                    height: 38,
+                    width: 40,
+                    height: 40,
                     borderRadius: 999,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: "#a855f718",
                     borderWidth: 1,
-                    borderColor: "#a855f755",
-                    marginRight: 10,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
                   }}
                 >
-                  <Ionicons name="time-outline" size={18} color="#c084fc" />
-                </View>
-
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>Umiesz podróżować w czasie? 😏</Text>
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
               </View>
 
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 18 }}>
-                Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz. Cofanie się w czasie zostawmy filmom science-fiction. ✨
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                Odhaczanie działa tylko dla dzisiejszej daty, żeby EXP i streak były uczciwe. Przeskoczyć na „Dziś”?
               </Text>
 
-              <TouchableOpacity
-                activeOpacity={0.9}
-                style={{
-                  paddingVertical: 11,
-                  borderRadius: 999,
-                  backgroundColor: colors.accent,
-                  alignSelf: "center",
-                  paddingHorizontal: 22,
-                  minWidth: 160,
-                  ...softShadow,
-                  ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-                }}
-                onPress={() => setTimeTravelDialogOpen(false)}
-              >
-                <Text style={{ color: "#022c22", fontSize: 13, fontWeight: "900", textAlign: "center", letterSpacing: 0.2 }}>
-                  Okej, wracam do dziś
-                </Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setTimeTravelDialogOpen(false);
+                    goToToday();
+                  }}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>Idź na dziś</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setTimeTravelDialogOpen(false)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Zostaję</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {/* 🔥 fajerwerki */}
-        {!tourOpen && fireworkParticles.length > 0 && (
-          <View
-            style={{
-              ...({ pointerEvents: "none" } as any), // ✅ RNW: pointerEvents prop deprecated
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 9999,
-            }}
-          >
-            {fireworkParticles.map((p) => (
-              <Animated.View
-                key={p.id}
-                style={{
-                  position: "absolute",
-                  width: 8,
-                  height: 8,
-                  borderRadius: 999,
-                  backgroundColor: p.color,
-                  left: p.originX - 4,
-                  top: p.originY - 4,
-                  transform: [{ translateX: p.translateX }, { translateY: p.translateY }, { scale: p.scale }],
-                  opacity: p.opacity,
-                }}
-              />
-            ))}
-          </View>
-        )}
-      </View>
-    </SafeAreaView>
-  );
-}
+                {/* ✅ Welcome modal */}
+                {welcomeModalReady ? (
+                  <WelcomeTutorialModal
+                    visible={welcomeModalOpen}
+                    colors={colors}
+                    onStart={() => markWelcomeSeen("start")}
+                    onSkip={() => markWelcomeSeen("skip")}
+                  />
+                ) : null}
 
-// app/index.web.tsx
+                {/* ✅ Guided tour overlay (MUSI być w środku komponentu) */}
+                <GuidedTourOverlay
+                  visible={tourOpen}
+                  stepIndex={tourStepIndex}
+                  steps={HOME_TOUR_STEPS}
+                  totalSteps={15}
+                  stepIndexOffset={0}
+                  getNodeForStep={getNodeForStep}
+                  getScreenNode={() => screenRef.current}
+                  refreshToken={`${tourRefreshToken}|${tourSession}`}
+                  colors={colors}
+                  onPrev={() => setTourStepIndex((i) => Math.max(0, i - 1))}
+                  onNext={() => {
+                    const last = HOME_TOUR_STEPS.length - 1;
+                    if (tourStepIndex >= last) {
+                      finishTour();
+                    } else {
+                      setTourStepIndex((i) => i + 1);
+                    }
+                  }}
+                  onClose={() => {
+                    setTourOpen(false);
+                    setTourStepIndex(0);
+                    closeTour();
+                  }}
+                />
+              </View>
+            </SafeAreaView>
+          );
+        }
+
+
+//app/index.web.tsx

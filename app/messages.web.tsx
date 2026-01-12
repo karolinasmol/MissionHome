@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   FlatList,
   Pressable,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -31,6 +32,16 @@ import {
   Timestamp,
   updateDoc,
 } from "firebase/firestore";
+
+/**
+ * ✅ app/premium.* => route w expo-router to "/premium"
+ */
+const PREMIUM_ROUTE = "/premium" as any;
+
+/**
+ * ✅ Zakładka "Rodzina" (dopasuj jeśli masz inną ścieżkę)
+ */
+const FAMILY_ROUTE = "/family" as any;
 
 function conversationIdFor(a: string, b: string) {
   return [a, b].sort().join("_");
@@ -161,21 +172,36 @@ function isMessageAllowed(rawMessage: string) {
   );
 }
 
-/* ------------------ LAYOUT HOOK ------------------ */
+/* ------------------ LAYOUT ------------------ */
 function useChatLayout() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
 
-  const isDesktop = width >= 900;
-  const headerHeight = 56;
-  const isVerySmallWidth = width < 360;
+  const isNarrow = width < 420;
+  const isShort = height < 700;
 
-  const messageMaxWidth = isVerySmallWidth ? "80%" : "86%";
-  const keyboardOffset = headerHeight + 10;
+  const headerHeight = isNarrow ? 52 : 56;
+  const sidePadding = isNarrow ? 10 : 12;
 
-  return { messageMaxWidth, headerHeight, keyboardOffset, isDesktop };
+  const messageMaxWidth = isNarrow ? "86%" : "82%";
+
+  // Native only — web nie używa KAV (mobilny Safari potrafi “pchać” w bok)
+  const keyboardOffset = headerHeight + (Platform.OS === "ios" ? 14 : 10);
+
+  const chatTopPadding = isShort ? 6 : 8;
+  const chatBoxTopMargin = isShort ? 8 : 10;
+
+  return {
+    headerHeight,
+    sidePadding,
+    messageMaxWidth,
+    keyboardOffset,
+    chatTopPadding,
+    chatBoxTopMargin,
+    isNarrow,
+  };
 }
 
-/* ------------------ HELPERS ------------------ */
+/* ------------------ DATE HELPERS ------------------ */
 function safeToDate(ts: any): Date | null {
   try {
     if (!ts) return null;
@@ -215,20 +241,32 @@ type ChatItem =
   | { type: "sep"; id: string; label: string }
   | { type: "msg"; id: string; msg: ChatMsg };
 
-function buildChatItems(messagesDesc: ChatMsg[]): ChatItem[] {
+function buildChatItemsForInverted(messagesDesc: ChatMsg[]): ChatItem[] {
   const items: ChatItem[] = [];
-  let lastDay = "";
 
   for (let i = 0; i < messagesDesc.length; i++) {
     const m = messagesDesc[i];
-    const label = formatDayLabelPL(m.createdAt);
-    if (label && label !== lastDay) {
-      lastDay = label;
-      items.push({ type: "sep", id: `sep-${label}-${m.id}`, label });
-    }
     items.push({ type: "msg", id: m.id, msg: m });
+
+    const curLabel = formatDayLabelPL(m.createdAt);
+    const next = messagesDesc[i + 1];
+    const nextLabel = next ? formatDayLabelPL(next.createdAt) : "";
+
+    const dayEndsHere = !!curLabel && curLabel !== nextLabel;
+    if (dayEndsHere) {
+      items.push({
+        type: "sep",
+        id: `sep-${curLabel}-${m.id}`,
+        label: curLabel,
+      });
+    }
   }
+
   return items;
+}
+
+function pickMemberUid(m: any) {
+  return String(m?.uid ?? m?.userId ?? m?.id ?? "").trim();
 }
 
 export default function MessagesMobile() {
@@ -238,23 +276,103 @@ export default function MessagesMobile() {
   const user = auth.currentUser;
   const myUid = user?.uid ?? null;
 
-  const [isPremium, setIsPremium] = useState(false);
+  const isWeb = Platform.OS === "web";
+
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [checkingPremium, setCheckingPremium] = useState(true);
 
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [blockedModalOpen, setBlockedModalOpen] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  const { messageMaxWidth, headerHeight, keyboardOffset, isDesktop } =
-    useChatLayout();
+  const layout = useChatLayout();
 
   const listRef = useRef<FlatList<ChatItem> | null>(null);
   const inputRef = useRef<TextInput | null>(null);
 
-  /* ------------------ FAMILY PICKER (COMPACT MODAL) ------------------ */
+  // ✅ WEB: stabilna wysokość viewportu (ważne na mobile z klawiaturą)
+  const [webViewportH, setWebViewportH] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isWeb) return;
+
+    // @ts-ignore
+    const w = typeof window !== "undefined" ? window : null;
+    // @ts-ignore
+    const d = typeof document !== "undefined" ? document : null;
+    if (!w || !d) return;
+
+    const prevBodyOverflowX = d.body.style.overflowX;
+    const prevHtmlOverflowX = d.documentElement.style.overflowX;
+
+    const prevBodyWidth = d.body.style.width;
+    const prevHtmlWidth = d.documentElement.style.width;
+
+    d.body.style.overflowX = "hidden";
+    d.documentElement.style.overflowX = "hidden";
+    d.body.style.width = "100%";
+    d.documentElement.style.width = "100%";
+
+    const getH = () => {
+      // visualViewport daje realną wysokość po otwarciu klawiatury
+      // @ts-ignore
+      const vv = w.visualViewport;
+      const h = vv?.height ? Math.round(vv.height) : Math.round(w.innerHeight);
+      setWebViewportH(h);
+    };
+
+    getH();
+
+    // @ts-ignore
+    const vv = w.visualViewport;
+    vv?.addEventListener?.("resize", getH);
+    vv?.addEventListener?.("scroll", getH);
+    w.addEventListener("resize", getH);
+
+    return () => {
+      vv?.removeEventListener?.("resize", getH);
+      vv?.removeEventListener?.("scroll", getH);
+      w.removeEventListener("resize", getH);
+
+      d.body.style.overflowX = prevBodyOverflowX;
+      d.documentElement.style.overflowX = prevHtmlOverflowX;
+      d.body.style.width = prevBodyWidth;
+      d.documentElement.style.width = prevHtmlWidth;
+    };
+  }, [isWeb]);
+
+  const goPremium = () => {
+    try {
+      router.push(PREMIUM_ROUTE);
+    } catch {
+      Alert.alert("Premium", "Nie mogę otworzyć ekranu Premium. Sprawdź PREMIUM_ROUTE.");
+    }
+  };
+
+  const goFamily = () => {
+    try {
+      router.push(FAMILY_ROUTE);
+    } catch {
+      Alert.alert("Rodzina", "Nie mogę otworzyć zakładki Rodzina. Sprawdź FAMILY_ROUTE.");
+    }
+  };
+
+  const showPremiumGate = () => {
+    Alert.alert(
+      "Wiadomości są w Premium",
+      "Aby pisać z członkami rodziny w MissionHome, potrzebujesz Premium. Po zakupie od razu odblokujesz czat.",
+      [
+        { text: "Nie teraz", style: "cancel" },
+        { text: "Przejdź do Premium", onPress: goPremium },
+      ]
+    );
+  };
+
+  /* ------------------ FAMILY PICKER (MODAL) ------------------ */
   const [familyPickerOpen, setFamilyPickerOpen] = useState(false);
-  const pickerY = useRef(new Animated.Value(40)).current; // start slightly down
+  const pickerY = useRef(new Animated.Value(40)).current;
   const pickerOpacity = useRef(new Animated.Value(0)).current;
 
   const openPicker = () => {
@@ -290,109 +408,137 @@ export default function MessagesMobile() {
     ]).start(() => setFamilyPickerOpen(false));
   };
 
-  /* ------------------ PREMIUM CHECK ------------------ */
+  /* ------------------ PREMIUM CHECK (USER ONLY) ------------------ */
   useEffect(() => {
     if (!myUid) return;
 
-    const unsub = onSnapshot(doc(db, "users", myUid), async (snap) => {
+    const unsub = onSnapshot(doc(db, "users", myUid), (snap) => {
       if (!snap.exists()) {
-        setIsPremium(false);
+        setIsPremiumUser(false);
         setCheckingPremium(false);
         return;
       }
 
       const data = snap.data();
-      const personalPremium = data?.isPremium === true;
-      const familyId = data?.familyId;
+      const isPremiumFlag = data?.isPremium === true;
 
-      if (personalPremium) {
-        setIsPremium(true);
-        setCheckingPremium(false);
-        return;
-      }
+      const until = data?.premiumUntil;
+      const untilDate = safeToDate(until);
+      const activeByUntil = !untilDate ? true : untilDate.getTime() > new Date().getTime();
 
-      if (familyId) {
-        const famSnap = await getDoc(doc(db, "families", familyId));
-        if (famSnap.exists() && famSnap.data()?.isPremium === true) {
-          setIsPremium(true);
-          setCheckingPremium(false);
-          return;
-        }
-      }
+      const active = isPremiumFlag && activeByUntil;
 
-      setIsPremium(false);
+      setIsPremiumUser(active);
       setCheckingPremium(false);
     });
 
     return () => unsub();
   }, [myUid]);
 
+  const canChat = isPremiumUser;
+
   /* ------------------ FAMILY MEMBERS ------------------ */
   const familyMembers = useMemo(() => {
     if (!members || !myUid) return [];
-    return members
-      .filter((m) => String(m.uid || m.userId || m.id) !== String(myUid))
-      .slice(0, 6); // max 6
+    return (members as any[])
+      .map((m) => ({ ...m, __uid: pickMemberUid(m) }))
+      .filter((m) => m.__uid && String(m.__uid) !== String(myUid))
+      .slice(0, 6);
   }, [members, myUid]);
 
   const selectedMember = useMemo(() => {
     if (!selectedUid) return null;
-    return (
-      familyMembers.find((x) => String(x.uid || x.userId || x.id) === selectedUid) ??
-      null
-    );
+    return familyMembers.find((x: any) => String(x.__uid) === String(selectedUid)) ?? null;
   }, [familyMembers, selectedUid]);
+
+  const hasFamily = familyMembers.length > 0;
 
   /* ------------------ LOAD MESSAGES + MARK READ ------------------ */
   useEffect(() => {
+    if (!canChat) {
+      setMessages([]);
+      return;
+    }
     if (!myUid || !selectedUid) {
       setMessages([]);
       return;
     }
 
+    let cancelled = false;
+    let unsub: any = null;
+
     const convId = conversationIdFor(myUid, selectedUid);
     const convRef = doc(db, "messages", convId);
 
-    // Upewnij się, że dokument konwersacji istnieje (żeby updateDoc nie walił errorami)
-    setDoc(
-      convRef,
-      { users: [myUid, selectedUid], createdAt: serverTimestamp() },
-      { merge: true }
-    ).catch(() => {});
-
-    const qy = query(
-      collection(db, `messages/${convId}/messages`),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsub = onSnapshot(qy, (snap) => {
-      const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as ChatMsg[];
-      setMessages(arr);
-
-      // ✅ Mark as read, jeśli ostatnia wiadomość jest "przychodząca"
-      const latest = arr?.[0];
-      if (latest?.sender && latest.sender !== myUid) {
-        updateDoc(convRef, {
-          [`readAt.${myUid}`]: serverTimestamp(),
-        }).catch(() => {});
+    (async () => {
+      try {
+        const snap = await getDoc(convRef);
+        if (!snap.exists()) {
+          await setDoc(convRef, {
+            createdAt: serverTimestamp(),
+            users: [myUid, selectedUid],
+          });
+        }
+      } catch (e) {
+        console.log("CONV ENSURE ERROR:", e);
       }
 
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      });
-    });
+      if (cancelled) return;
 
-    return () => unsub();
-  }, [myUid, selectedUid]);
+      const qy = query(collection(db, `messages/${convId}/messages`), orderBy("createdAt", "desc"));
 
-  const chatItems = useMemo(() => buildChatItems(messages), [messages]);
+      unsub = onSnapshot(
+        qy,
+        (snap) => {
+          const arr = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          })) as ChatMsg[];
+          setMessages(arr);
+
+          const latest = arr?.[0];
+          if (latest?.sender && latest.sender !== myUid) {
+            updateDoc(convRef, {
+              [`readAt.${myUid}`]: serverTimestamp(),
+            }).catch(() => {});
+          }
+
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToOffset({ offset: 0, animated: true });
+          });
+        },
+        (err) => {
+          console.log("MESSAGE LIST ERROR:", err);
+        }
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+      if (typeof unsub === "function") unsub();
+    };
+  }, [myUid, selectedUid, canChat]);
+
+  const chatItems = useMemo(() => buildChatItemsForInverted(messages), [messages]);
 
   /* ------------------ SEND MESSAGE ------------------ */
   const sendMessage = async () => {
     if (!myUid || !selectedUid) return;
+    if (sending) return;
 
-    // ✅ blokada po stronie UI (Premium wymagane)
-    if (!isPremium) return;
+    if (!canChat) {
+      showPremiumGate();
+      return;
+    }
+
+    const isSelectedInFamily = familyMembers.some((m: any) => String(m.__uid) === String(selectedUid));
+    if (!isSelectedInFamily) {
+      Alert.alert(
+        "Tylko rodzina",
+        "Możesz wysyłać wiadomości wyłącznie do członków rodziny dodanych w MissionHome."
+      );
+      return;
+    }
 
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -404,6 +550,7 @@ export default function MessagesMobile() {
 
     const convId = conversationIdFor(myUid, selectedUid);
 
+    setSending(true);
     try {
       const convRef = doc(db, "messages", convId);
       const snap = await getDoc(convRef);
@@ -413,9 +560,6 @@ export default function MessagesMobile() {
           createdAt: serverTimestamp(),
           users: [myUid, selectedUid],
         });
-      } else {
-        // dbamy, żeby users zawsze były (na wypadek starych danych)
-        await setDoc(convRef, { users: [myUid, selectedUid] }, { merge: true });
       }
 
       await addDoc(collection(db, `messages/${convId}/messages`), {
@@ -424,7 +568,6 @@ export default function MessagesMobile() {
         createdAt: serverTimestamp(),
       });
 
-      // ✅ Metadane rozmowy do badge/ikonki w headerze
       await updateDoc(convRef, {
         lastMessageAt: serverTimestamp(),
         lastMessageSender: myUid,
@@ -437,12 +580,14 @@ export default function MessagesMobile() {
       requestAnimationFrame(() => {
         listRef.current?.scrollToOffset({ offset: 0, animated: true });
       });
-    } catch (err) {
+    } catch (err: any) {
       console.log("MESSAGE ERROR:", err);
+      Alert.alert("Błąd wysyłania", "Nie udało się wysłać wiadomości. Sprawdź logi.");
+    } finally {
+      setSending(false);
     }
   };
 
-  /* ------------------ LOADING SCREEN ------------------ */
   if (checkingPremium) {
     return (
       <SafeAreaView
@@ -451,6 +596,8 @@ export default function MessagesMobile() {
           backgroundColor: colors.bg,
           alignItems: "center",
           justifyContent: "center",
+          width: "100%",
+          alignSelf: "stretch",
         }}
       >
         <View
@@ -464,18 +611,12 @@ export default function MessagesMobile() {
             marginBottom: 12,
           }}
         />
-        <Text style={{ color: colors.textMuted, fontWeight: "800" }}>
-          Ładowanie…
-        </Text>
+        <Text style={{ color: colors.textMuted, fontWeight: "800" }}>Ładowanie…</Text>
       </SafeAreaView>
     );
   }
 
-  const renderAvatar = (
-    pURL?: string | null,
-    fallbackLetter?: string,
-    size = 40
-  ) => {
+  const renderAvatar = (pURL?: string | null, fallbackLetter?: string, size = 40) => {
     if (pURL) {
       return (
         <Image
@@ -511,8 +652,7 @@ export default function MessagesMobile() {
     );
   };
 
-  // ✅ Premium gating: przycisk nieaktywny bez premium
-  const canSend = !!text.trim() && !!selectedUid && isPremium;
+  const canSend = !!text.trim() && !!selectedUid && !sending && canChat;
 
   const bubbleRadii = (isMine: boolean, joinTop: boolean, joinBottom: boolean) => {
     const R = 18;
@@ -544,13 +684,7 @@ export default function MessagesMobile() {
             marginVertical: 10,
           }}
         >
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              fontWeight: "1000",
-            }}
-          >
+          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "1000" }}>
             {item.label}
           </Text>
         </View>
@@ -569,15 +703,15 @@ export default function MessagesMobile() {
     const joinTop = !!nextMsg && nextMsg.sender === msg.sender;
 
     const time = formatTimePL(msg.createdAt);
-
     const isIncomingFromFamily = !isMine && !!selectedUid && msg.sender === selectedUid;
 
     return (
       <View
         style={{
           alignSelf: isMine ? "flex-end" : "flex-start",
-          maxWidth: messageMaxWidth,
+          maxWidth: layout.messageMaxWidth,
           marginBottom: joinTop ? 6 : 10,
+          minWidth: 0,
         }}
       >
         <View
@@ -585,52 +719,32 @@ export default function MessagesMobile() {
             backgroundColor: isMine ? colors.accent : colors.card,
             borderWidth: 1,
             borderColor: isMine ? colors.accent + "55" : colors.border,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
+            paddingHorizontal: layout.isNarrow ? 10 : 12,
+            paddingVertical: layout.isNarrow ? 9 : 10,
             ...bubbleRadii(isMine, joinTop, joinBottom),
-            shadowColor: "#000",
-            shadowOpacity: Platform.OS === "ios" ? 0.08 : 0,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 6 },
-            elevation: Platform.OS === "android" ? 1 : 0,
           }}
         >
-          <Text
-            style={{
-              color: isMine ? "#022c22" : colors.text,
-              fontWeight: "800",
-              fontSize: 14,
-              lineHeight: 19,
-            }}
-          >
-            {msg.text}
-          </Text>
-
           {(!!time || isIncomingFromFamily) && (
             <View
               style={{
-                marginTop: 6,
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10 as any,
+                marginBottom: 6,
               }}
             >
               {isIncomingFromFamily ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 as any }}>
-                  <Ionicons
-                    name="arrow-down-circle"
-                    size={12}
-                    color={colors.textMuted}
-                  />
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons name="arrow-down-circle" size={12} color={colors.textMuted} />
                   <Text
                     style={{
+                      marginLeft: 6,
                       fontSize: 11,
                       color: colors.textMuted,
                       fontWeight: "900",
                     }}
                   >
-                    Przychodząca (rodzina)
+                    Rodzina
                   </Text>
                 </View>
               ) : (
@@ -650,6 +764,17 @@ export default function MessagesMobile() {
               )}
             </View>
           )}
+
+          <Text
+            style={{
+              color: isMine ? "#022c22" : colors.text,
+              fontWeight: "800",
+              fontSize: layout.isNarrow ? 13.5 : 14,
+              lineHeight: layout.isNarrow ? 18 : 19,
+            }}
+          >
+            {msg.text}
+          </Text>
         </View>
       </View>
     );
@@ -668,6 +793,9 @@ export default function MessagesMobile() {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
+          width: "100%",
+          alignSelf: "stretch",
+          minWidth: 0,
         }}
       >
         <TouchableOpacity
@@ -683,98 +811,126 @@ export default function MessagesMobile() {
             alignItems: "center",
             justifyContent: "center",
             marginRight: 10,
+            flexShrink: 0,
           }}
         >
           <Ionicons name="people" size={18} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={{ flex: 1, flexDirection: "row", gap: 10 as any }}>
-          {familyMembers.map((m) => {
-            const uid = String(m.uid || m.userId || m.id);
-            const pURL = m.photoURL || m.avatarUrl;
-            const isActive = selectedUid === uid;
-            const name = m.displayName || "Członek";
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <FlatList
+            data={familyMembers}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(m: any) => String(m.__uid)}
+            contentContainerStyle={{ paddingRight: 4 }}
+            renderItem={({ item: m }: any) => {
+              const uid = String(m.__uid);
+              const pURL = m.photoURL || m.avatarUrl;
+              const isActive = selectedUid === uid;
+              const name = m.displayName || "Członek";
 
-            return (
-              <TouchableOpacity
-                key={uid}
-                onPress={() => {
-                  setSelectedUid(uid);
-                  requestAnimationFrame(() => inputRef.current?.focus());
+              return (
+                <TouchableOpacity
+                  key={uid}
+                  onPress={() => {
+                    setSelectedUid(uid);
+                    // fokus tylko po zmianie — sticky header zostaje na web
+                    requestAnimationFrame(() => inputRef.current?.focus());
+                  }}
+                  activeOpacity={0.85}
+                  style={{ alignItems: "center", marginRight: 10 }}
+                >
+                  <View
+                    style={{
+                      padding: 2,
+                      borderRadius: 999,
+                      borderWidth: 2,
+                      borderColor: isActive ? colors.accent : "transparent",
+                      backgroundColor: "transparent",
+                    }}
+                  >
+                    {renderAvatar(pURL, name[0], 38)}
+                  </View>
+
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      marginTop: 5,
+                      maxWidth: 62,
+                      color: isActive ? colors.text : colors.textMuted,
+                      fontSize: 11,
+                      fontWeight: isActive ? "1000" : "800",
+                      textAlign: "center",
+                    }}
+                  >
+                    {name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <View
+                style={{
+                  flex: 1,
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                  justifyContent: "center",
+                  minWidth: 220,
                 }}
-                activeOpacity={0.85}
-                style={{ alignItems: "center" }}
               >
-                <View
-                  style={{
-                    padding: 2,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: isActive ? colors.accent : "transparent",
-                    backgroundColor: "transparent",
-                  }}
-                >
-                  {renderAvatar(pURL, name[0], 38)}
-                </View>
-
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    marginTop: 5,
-                    maxWidth: 62,
-                    color: isActive ? colors.text : colors.textMuted,
-                    fontSize: 11,
-                    fontWeight: isActive ? "1000" : "800",
-                    textAlign: "center",
-                  }}
-                >
-                  {name}
+                <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 12 }}>
+                  Brak domowników w rodzinie
                 </Text>
-              </TouchableOpacity>
-            );
-          })}
+                <Text
+                  style={{
+                    marginTop: 2,
+                    color: colors.textMuted,
+                    fontWeight: "800",
+                    fontSize: 11,
+                  }}
+                  numberOfLines={1}
+                >
+                  Dodaj osoby w zakładce „Rodzina”
+                </Text>
+              </View>
+            }
+          />
         </View>
 
-        <View style={{ marginLeft: 10, alignItems: "flex-end" }}>
+        <View style={{ marginLeft: 10, alignItems: "flex-end", flexShrink: 0 }}>
           <View
             style={{
               paddingHorizontal: 10,
               paddingVertical: 6,
               borderRadius: 999,
               borderWidth: 1,
-              borderColor: !isPremium ? colors.accent + "66" : colors.border,
-              backgroundColor: !isPremium ? colors.accent + "14" : colors.bg,
+              borderColor: canChat ? colors.border : colors.accent + "66",
+              backgroundColor: canChat ? colors.bg : colors.accent + "14",
               flexDirection: "row",
               alignItems: "center",
-              gap: 6 as any,
             }}
           >
             <Ionicons
-              name={!isPremium ? "sparkles" : "checkmark-circle"}
+              name={canChat ? "checkmark-circle" : "lock-closed"}
               size={14}
-              color={!isPremium ? colors.accent : colors.textMuted}
+              color={canChat ? colors.textMuted : colors.accent}
             />
             <Text
               style={{
-                color: !isPremium ? colors.accent : colors.textMuted,
+                marginLeft: 6,
+                color: canChat ? colors.textMuted : colors.accent,
                 fontWeight: "1000",
                 fontSize: 12,
               }}
             >
-              {!isPremium ? "Dołącz do Rodziny, aby móc wysyłać wiadomości" : "Premium"}
+              {canChat ? "Odblokowane" : "Wymaga Premium"}
             </Text>
           </View>
-
-          <Text
-            style={{
-              marginTop: 6,
-              color: colors.textMuted,
-              fontSize: 11,
-              fontWeight: "800",
-            }}
-          >
-            {selectedMember?.displayName ? "Rozmowa aktywna" : "Wybierz osobę"}
-          </Text>
         </View>
       </View>
     );
@@ -812,7 +968,7 @@ export default function MessagesMobile() {
             position: "absolute",
             left: 14,
             right: 14,
-            top: headerHeight + 14,
+            top: layout.headerHeight + 14,
             transform: [{ translateY: pickerY }],
           }}
         >
@@ -837,7 +993,14 @@ export default function MessagesMobile() {
                 <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 16 }}>
                   Wybierz rozmowę
                 </Text>
-                <Text style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
+                <Text
+                  style={{
+                    marginTop: 2,
+                    color: colors.textMuted,
+                    fontWeight: "800",
+                    fontSize: 12,
+                  }}
+                >
                   Maks 6 osób — szybki przełącznik
                 </Text>
               </View>
@@ -859,16 +1022,9 @@ export default function MessagesMobile() {
               </TouchableOpacity>
             </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                justifyContent: "space-between",
-                gap: 10 as any,
-              }}
-            >
-              {familyMembers.map((m) => {
-                const uid = String(m.uid || m.userId || m.id);
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              {familyMembers.map((m: any) => {
+                const uid = String(m.__uid);
                 const pURL = m.photoURL || m.avatarUrl;
                 const name = m.displayName || "Członek";
                 const isActive = selectedUid === uid;
@@ -883,7 +1039,7 @@ export default function MessagesMobile() {
                     }}
                     activeOpacity={0.85}
                     style={{
-                      width: "48%",
+                      width: layout.isNarrow ? "100%" : "48%",
                       borderRadius: 18,
                       borderWidth: 1,
                       borderColor: isActive ? colors.accent + "66" : colors.border,
@@ -891,6 +1047,7 @@ export default function MessagesMobile() {
                       padding: 12,
                       flexDirection: "row",
                       alignItems: "center",
+                      marginBottom: 10,
                     }}
                   >
                     <View
@@ -904,16 +1061,18 @@ export default function MessagesMobile() {
                       {renderAvatar(pURL, name[0], 40)}
                     </View>
 
-                    <View style={{ marginLeft: 10, flex: 1 }}>
-                      <Text
-                        numberOfLines={1}
-                        style={{ color: colors.text, fontWeight: "1100", fontSize: 14 }}
-                      >
+                    <View style={{ marginLeft: 10, flex: 1, minWidth: 0 }}>
+                      <Text numberOfLines={1} style={{ color: colors.text, fontWeight: "1100", fontSize: 14 }}>
                         {name}
                       </Text>
                       <Text
                         numberOfLines={1}
-                        style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}
+                        style={{
+                          marginTop: 2,
+                          color: colors.textMuted,
+                          fontWeight: "800",
+                          fontSize: 12,
+                        }}
                       >
                         Kliknij, aby pisać
                       </Text>
@@ -927,6 +1086,57 @@ export default function MessagesMobile() {
                   </TouchableOpacity>
                 );
               })}
+
+              {familyMembers.length === 0 && (
+                <View
+                  style={{
+                    width: "100%",
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    padding: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 14 }}>
+                    Nie masz jeszcze dodanych domowników
+                  </Text>
+                  <Text
+                    style={{
+                      marginTop: 4,
+                      color: colors.textMuted,
+                      fontWeight: "800",
+                      fontSize: 12,
+                      lineHeight: 18,
+                    }}
+                  >
+                    Przejdź do zakładki „Rodzina”, dodaj osoby i wróć tutaj, żeby pisać wiadomości.
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      closePicker();
+                      goFamily();
+                    }}
+                    activeOpacity={0.85}
+                    style={{
+                      marginTop: 12,
+                      borderRadius: 14,
+                      paddingVertical: 11,
+                      paddingHorizontal: 12,
+                      backgroundColor: colors.accent,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons name="people" size={16} color="#022c22" />
+                    <Text style={{ marginLeft: 8, color: "#022c22", fontWeight: "1100" }}>
+                      Przejdź do Rodziny
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
         </Animated.View>
@@ -944,7 +1154,7 @@ export default function MessagesMobile() {
       <View
         style={{
           marginTop: 10,
-          padding: 12,
+          padding: layout.isNarrow ? 10 : 12,
           borderRadius: 18,
           borderWidth: 1,
           borderColor: colors.border,
@@ -952,18 +1162,36 @@ export default function MessagesMobile() {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
+          width: "100%",
+          alignSelf: "stretch",
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-          <View style={{ padding: 2, borderRadius: 999, borderWidth: 2, borderColor: colors.accent + "55" }}>
-            {renderAvatar(pURL, name[0], 42)}
+        <View style={{ flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 }}>
+          <View
+            style={{
+              padding: 2,
+              borderRadius: 999,
+              borderWidth: 2,
+              borderColor: colors.accent + "55",
+              flexShrink: 0,
+            }}
+          >
+            {renderAvatar(pURL, name[0], 40)}
           </View>
-          <View style={{ marginLeft: 10, flex: 1 }}>
+          <View style={{ marginLeft: 10, flex: 1, minWidth: 0 }}>
             <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 16 }} numberOfLines={1}>
               {name}
             </Text>
-            <Text style={{ marginTop: 2, color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>
-              Prywatna rozmowa
+            <Text
+              style={{
+                marginTop: 2,
+                color: colors.textMuted,
+                fontWeight: "800",
+                fontSize: 12,
+              }}
+              numberOfLines={1}
+            >
+              Prywatna rozmowa (rodzina)
             </Text>
           </View>
         </View>
@@ -980,6 +1208,7 @@ export default function MessagesMobile() {
             alignItems: "center",
             justifyContent: "center",
             marginLeft: 10,
+            flexShrink: 0,
           }}
         >
           <Ionicons name="swap-horizontal" size={18} color={colors.text} />
@@ -988,335 +1217,522 @@ export default function MessagesMobile() {
     );
   };
 
-  /* ------------------ MAIN UI ------------------ */
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* TOP BAR */}
+  const PremiumGateScreen = ({
+    title,
+    subtitle,
+    showSelectedHint,
+  }: {
+    title: string;
+    subtitle: string;
+    showSelectedHint?: boolean;
+  }) => {
+    const selectedName = selectedMember?.displayName;
+
+    return (
       <View
         style={{
-          flexDirection: "row",
+          flex: 1,
           alignItems: "center",
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          height: headerHeight,
-          backgroundColor: colors.bg,
+          justifyContent: "center",
+          paddingHorizontal: layout.isNarrow ? 14 : 20,
+          width: "100%",
+          alignSelf: "stretch",
         }}
       >
+        <View
+          style={{
+            width: 84,
+            height: 84,
+            borderRadius: 24,
+            backgroundColor: colors.accent + "14",
+            borderWidth: 1,
+            borderColor: colors.accent + "66",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 12,
+          }}
+        >
+          <Ionicons name="people" size={38} color={colors.accent} />
+        </View>
+
+        <Text
+          style={{
+            color: colors.text,
+            fontWeight: "1100",
+            fontSize: 18,
+            textAlign: "center",
+          }}
+        >
+          {title}
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 8,
+            color: colors.textMuted,
+            textAlign: "center",
+            fontWeight: "800",
+            lineHeight: 19,
+            maxWidth: 520,
+          }}
+        >
+          {subtitle}
+        </Text>
+
+        {showSelectedHint && !!selectedName && (
+          <View
+            style={{
+              marginTop: 10,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <Ionicons name="person-circle-outline" size={18} color={colors.textMuted} />
+            <Text style={{ marginLeft: 8, color: colors.text, fontWeight: "900" }} numberOfLines={1}>
+              Wybrana rozmowa: {selectedName}
+            </Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          onPress={goPremium}
+          style={{
+            marginTop: 16,
+            backgroundColor: colors.accent,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderRadius: 14,
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="sparkles" size={18} color="#022c22" />
+          <Text style={{ marginLeft: 8, color: "#022c22", fontWeight: "1100" }}>
+            Przejdź do subskrypcji Premium
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const PremiumNoFamilyScreen = () => {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: layout.isNarrow ? 14 : 20,
+          width: "100%",
+          alignSelf: "stretch",
+        }}
+      >
+        <View
+          style={{
+            width: 84,
+            height: 84,
+            borderRadius: 24,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 12,
+          }}
+        >
+          <Ionicons name="people-outline" size={38} color={colors.textMuted} />
+        </View>
+
+        <Text
+          style={{
+            color: colors.text,
+            fontWeight: "1100",
+            fontSize: 18,
+            textAlign: "center",
+          }}
+        >
+          Dodaj domowników, żeby pisać wiadomości
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 8,
+            color: colors.textMuted,
+            textAlign: "center",
+            fontWeight: "800",
+            lineHeight: 19,
+            maxWidth: 520,
+          }}
+        >
+          Masz Premium, ale nie masz jeszcze członków rodziny.
+          {"\n"}Przejdź do „Rodzina”, aby dodać osoby, z którymi możesz pisać.
+        </Text>
+
+        <TouchableOpacity
+          onPress={goFamily}
+          style={{
+            marginTop: 16,
+            backgroundColor: colors.accent,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderRadius: 14,
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="people" size={18} color="#022c22" />
+          <Text style={{ marginLeft: 8, color: "#022c22", fontWeight: "1100" }}>
+            Przejdź do Rodziny
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           onPress={openPicker}
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 14,
-            alignItems: "center",
-            justifyContent: "center",
+            marginTop: 10,
             borderWidth: 1,
             borderColor: colors.border,
-            backgroundColor: colors.card,
+            backgroundColor: colors.bg,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderRadius: 14,
+            flexDirection: "row",
+            alignItems: "center",
           }}
           activeOpacity={0.85}
         >
-          <Ionicons name="people" size={18} color={colors.text} />
+          <Ionicons name="list" size={18} color={colors.textMuted} />
+          <Text style={{ marginLeft: 8, color: colors.text, fontWeight: "1000", fontSize: 13 }}>
+            Zobacz panel rozmów
+          </Text>
         </TouchableOpacity>
+      </View>
+    );
+  };
 
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={{ color: colors.text, fontSize: 17, fontWeight: "1100" }}>
-            Wiadomości
-          </Text>
-          <Text
-            style={{
-              marginTop: 1,
-              color: colors.textMuted,
-              fontSize: 12,
-              fontWeight: "800",
-            }}
-            numberOfLines={1}
-          >
-            {selectedMember?.displayName
-              ? `Rozmowa: ${selectedMember.displayName}`
-              : "Wybierz osobę z docka"}
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          onPress={() => router.back()}
+  // ✅ Sticky header/dock na web — dzięki temu nie “znikają” po focussie inputa
+  const TopBar = (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: layout.sidePadding,
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        height: layout.headerHeight,
+        backgroundColor: colors.bg,
+        width: "100%",
+        alignSelf: "stretch",
+        ...(isWeb
+          ? ({
+              position: "sticky",
+              top: 0,
+              zIndex: 300,
+            } as any)
+          : {}),
+      }}
+    >
+      <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+        <Text style={{ color: colors.text, fontSize: 17, fontWeight: "1100" }}>Wiadomości</Text>
+        <Text
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 14,
+            marginTop: 1,
+            color: colors.textMuted,
+            fontSize: 12,
+            fontWeight: "800",
+          }}
+          numberOfLines={1}
+        >
+          {selectedMember?.displayName ? `Rozmowa: ${selectedMember.displayName}` : "Wybierz osobę z docka"}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        onPress={() => router.back()}
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 14,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          flexShrink: 0,
+        }}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="arrow-back" size={18} color={colors.text} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const DockWrap = (
+    <View
+      style={{
+        paddingHorizontal: layout.sidePadding,
+        width: "100%",
+        alignSelf: "stretch",
+        ...(isWeb
+          ? ({
+              position: "sticky",
+              top: layout.headerHeight,
+              zIndex: 290,
+              backgroundColor: colors.bg,
+              paddingBottom: 8,
+            } as any)
+          : {}),
+      }}
+    >
+      <FamilyDock />
+    </View>
+  );
+
+  const Content = (
+    <View
+      style={{
+        flex: 1,
+        paddingHorizontal: layout.sidePadding,
+        paddingTop: layout.chatTopPadding,
+        width: "100%",
+        alignSelf: "stretch",
+        minWidth: 0,
+      }}
+    >
+      {!canChat ? (
+        <PremiumGateScreen
+          title={
+            hasFamily ? "Aby wysyłać wiadomości, potrzebujesz Premium" : "Dołącz do rodziny, aby wysyłać wiadomości"
+          }
+          subtitle={
+            hasFamily
+              ? selectedUid
+                ? "Ta rozmowa jest zablokowana. Przejdź do subskrypcji Premium, aby wysyłać wiadomości do rodziny."
+                : "Wybierz domownika z docka — a potem przejdź do Premium, żeby pisać wiadomości."
+              : "Dodaj domowników w zakładce „Rodzina”. Gdy będziesz mieć rodzinę, przejdź do Premium i zacznij pisać."
+          }
+          showSelectedHint={!!selectedUid}
+        />
+      ) : !hasFamily ? (
+        <PremiumNoFamilyScreen />
+      ) : !selectedUid ? (
+        <View
+          style={{
+            flex: 1,
             alignItems: "center",
             justifyContent: "center",
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: colors.card,
+            paddingHorizontal: layout.isNarrow ? 14 : 20,
           }}
-          activeOpacity={0.85}
         >
-          <Ionicons name="arrow-back" size={18} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+          <View
+            style={{
+              width: 78,
+              height: 78,
+              borderRadius: 22,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 12,
+            }}
+          >
+            <Ionicons name="chatbubbles-outline" size={36} color={colors.textMuted} />
+          </View>
 
-      {/* FAMILY DOCK (COMPACT, ALWAYS) */}
-      <View style={{ paddingHorizontal: 12 }}>
-        <FamilyDock />
-      </View>
+          <Text style={{ color: colors.text, fontWeight: "1100", fontSize: 16, textAlign: "center" }}>
+            Wybierz osobę z docka
+          </Text>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={keyboardOffset}
-      >
-        <View style={{ flex: 1, paddingHorizontal: 12, paddingTop: 8 }}>
-          {!selectedUid ? (
-            <View
-              style={{
-                flex: 1,
-                alignItems: "center",
-                justifyContent: "center",
-                paddingHorizontal: 20,
+          <Text style={{ marginTop: 6, color: colors.textMuted, textAlign: "center", fontWeight: "800" }}>
+            Masz max 6 osób, więc dock jest najszybszy.
+          </Text>
+
+          <TouchableOpacity
+            onPress={openPicker}
+            style={{
+              marginTop: 16,
+              backgroundColor: colors.accent,
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              borderRadius: 14,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="swap-horizontal" size={18} color="#022c22" />
+            <Text style={{ marginLeft: 8, color: "#022c22", fontWeight: "1100" }}>Otwórz wybór rozmowy</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          {renderChatHeader()}
+
+          <View
+            style={{
+              flex: 1,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+              paddingHorizontal: layout.isNarrow ? 8 : 10,
+              paddingTop: 8,
+              overflow: "hidden",
+              marginTop: layout.chatBoxTopMargin,
+              width: "100%",
+              alignSelf: "stretch",
+              minWidth: 0,
+            }}
+          >
+            <FlatList
+              ref={(r) => (listRef.current = r)}
+              data={chatItems}
+              keyExtractor={(it) => it.id}
+              renderItem={renderItem}
+              inverted
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                paddingTop: 12,
+                paddingBottom: 12,
               }}
-            >
-              <View
-                style={{
-                  width: 78,
-                  height: 78,
-                  borderRadius: 22,
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginBottom: 12,
-                }}
-              >
-                <Ionicons name="chatbubbles-outline" size={36} color={colors.textMuted} />
-              </View>
+              onScrollBeginDrag={() => inputRef.current?.blur()}
+            />
+          </View>
 
-              <Text
-                style={{
-                  color: colors.text,
-                  fontWeight: "1100",
-                  fontSize: 16,
-                  textAlign: "center",
-                }}
-              >
-                Wybierz osobę z docka
-              </Text>
-
-              <Text
-                style={{
-                  marginTop: 6,
-                  color: colors.textMuted,
-                  textAlign: "center",
-                  fontWeight: "800",
-                }}
-              >
-                Masz max 6 osób, więc dock jest najszybszy.
-              </Text>
-
-              <TouchableOpacity
-                onPress={openPicker}
-                style={{
-                  marginTop: 16,
-                  backgroundColor: colors.accent,
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  borderRadius: 14,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8 as any,
-                }}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="swap-horizontal" size={18} color="#022c22" />
-                <Text style={{ color: "#022c22", fontWeight: "1100" }}>
-                  Otwórz wybór rozmowy
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              {renderChatHeader()}
-
-              {/* MESSAGES */}
+          <View
+            style={{
+              marginTop: 10,
+              marginBottom: 8,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              padding: 10,
+              width: "100%",
+              alignSelf: "stretch",
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
               <View
                 style={{
                   flex: 1,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.bg,
-                  paddingHorizontal: 10,
-                  paddingTop: 8,
-                  overflow: "hidden",
-                  marginTop: 10,
+                  borderRadius: 16,
+                  backgroundColor: "transparent",
+                  paddingHorizontal: 12,
+                  paddingVertical: Platform.OS === "ios" ? 10 : 6,
+                  marginRight: 10,
+                  opacity: !sending ? 1 : 0.75,
+                  minWidth: 0,
                 }}
               >
-                <FlatList
-                  ref={(r) => (listRef.current = r)}
-                  data={chatItems}
-                  keyExtractor={(it) => it.id}
-                  renderItem={renderItem}
-                  inverted
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{
-                    paddingTop: 12,
-                    paddingBottom: 12,
+                <TextInput
+                  ref={(r) => (inputRef.current = r)}
+                  placeholder={"Napisz wiadomość…"}
+                  placeholderTextColor={colors.textMuted}
+                  value={text}
+                  onChangeText={setText}
+                  editable={!sending}
+                  style={{
+                    color: colors.text,
+                    fontSize: 15,
+                    fontWeight: "800",
+                    maxHeight: 110,
+                    backgroundColor: "transparent",
+                    borderWidth: 0,
+
+                    // ✅ WEB: usuwa brzydką niebieską ramkę (focus ring)
+                    ...(isWeb
+                      ? ({
+                          outlineStyle: "none",
+                          outlineWidth: 0,
+                          boxShadow: "none",
+                          WebkitTapHighlightColor: "transparent",
+                        } as any)
+                      : {}),
                   }}
-                  onScrollBeginDrag={() => inputRef.current?.blur()}
+                  multiline
+                  blurOnSubmit={false}
+                  returnKeyType="send"
+                  onSubmitEditing={() => sendMessage()}
+                  onKeyPress={(e) => {
+                    if (Platform.OS === "web") {
+                      // @ts-ignore
+                      const isEnter = e?.nativeEvent?.key === "Enter";
+                      // @ts-ignore
+                      const shift = e?.nativeEvent?.shiftKey === true;
+                      if (isEnter && !shift) {
+                        // @ts-ignore
+                        e.preventDefault?.();
+                        sendMessage();
+                      }
+                    }
+                  }}
                 />
               </View>
 
-              {/* INPUT */}
-              <View
+              <TouchableOpacity
+                onPress={() => sendMessage()}
+                activeOpacity={0.85}
+                disabled={sending}
                 style={{
-                  marginTop: 10,
-                  marginBottom: 8,
-                  borderRadius: 18,
+                  width: 46,
+                  height: 46,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: canSend ? colors.accent : colors.border,
                   borderWidth: 1,
-                  borderColor: !isPremium ? colors.accent + "66" : colors.border,
-                  backgroundColor: !isPremium ? colors.accent + "10" : colors.card,
-                  padding: 10,
+                  borderColor: canSend ? colors.accent + "66" : colors.border,
+                  flexShrink: 0,
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-                  <View
-                    style={{
-                      flex: 1,
-                      borderRadius: 16,
-                      borderWidth: 0,
-                      borderColor: "transparent",
-                      backgroundColor: "transparent",
-                      paddingHorizontal: 12,
-                      paddingVertical: Platform.OS === "ios" ? 10 : 6,
-                      marginRight: 10,
-                      opacity: isPremium ? 1 : 0.75,
-                    }}
-                  >
-                    <TextInput
-                      ref={(r) => (inputRef.current = r)}
-                      placeholder={
-                        isPremium ? "Napisz wiadomość…" : "Premium wymagane do wysyłania…"
-                      }
-                      placeholderTextColor={colors.textMuted}
-                      value={text}
-                      onChangeText={setText}
-                      editable={isPremium}
-                      style={{
-                        color: colors.text,
-                        fontSize: 15,
-                        fontWeight: "800",
-                        maxHeight: 110,
-                        backgroundColor: "transparent",
-                        borderWidth: 0,
-                        ...(Platform.OS === "web"
-                          ? ({
-                              outlineStyle: "none",
-                              outlineWidth: 0,
-                              boxShadow: "none",
-                            } as any)
-                          : {}),
-                      }}
-                      multiline
-                      blurOnSubmit={false}
-                      returnKeyType="send"
-                      onSubmitEditing={() => sendMessage()}
-                      onKeyPress={(e) => {
-                        if (Platform.OS === "web") {
-                          // @ts-ignore
-                          const isEnter = e?.nativeEvent?.key === "Enter";
-                          // @ts-ignore
-                          const shift = e?.nativeEvent?.shiftKey === true;
-                          if (isEnter && !shift) {
-                            // @ts-ignore
-                            e.preventDefault?.();
-                            sendMessage();
-                          }
-                        }
-                      }}
-                    />
-                  </View>
+                <Ionicons name={"send"} size={18} color={canSend ? "#022c22" : colors.textMuted} />
+              </TouchableOpacity>
+            </View>
 
-                  <TouchableOpacity
-                    onPress={sendMessage}
-                    activeOpacity={0.85}
-                    disabled={!canSend}
-                    style={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: 16,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: canSend ? colors.accent : colors.border,
-                      borderWidth: 1,
-                      borderColor: canSend ? colors.accent + "66" : colors.border,
-                    }}
-                  >
-                    <Ionicons
-                      name="send"
-                      size={18}
-                      color={canSend ? "#022c22" : colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                </View>
+            <View
+              style={{
+                marginTop: 8,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "flex-end",
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  setText("");
+                  inputRef.current?.focus();
+                }}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: colors.text, fontWeight: "1000", fontSize: 12 }}>Wyczyść</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </>
+      )}
 
-                <View
-                  style={{
-                    marginTop: 8,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontSize: 12,
-                      fontWeight: "800",
-                    }}
-                  >
-                    Enter = wyślij • Shift+Enter = nowa linia
-                  </Text>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      setText("");
-                      inputRef.current?.focus();
-                    }}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.bg,
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "1000",
-                        fontSize: 12,
-                      }}
-                    >
-                      Wyczyść
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-      </KeyboardAvoidingView>
-
-      {/* FAMILY PICKER MODAL */}
       <FamilyPicker />
 
-      {/* BLOCKED MESSAGE MODAL */}
       {blockedModalOpen && (
         <View
           style={{
@@ -1343,9 +1759,7 @@ export default function MessagesMobile() {
               borderColor: colors.border,
             }}
           >
-            <View
-              style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}
-            >
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
               <View
                 style={{
                   width: 36,
@@ -1391,14 +1805,68 @@ export default function MessagesMobile() {
               }}
               activeOpacity={0.85}
             >
-              <Text style={{ color: "#022c22", fontWeight: "1100" }}>
-                Okej, poprawiam
-              </Text>
+              <Text style={{ color: "#022c22", fontWeight: "1100" }}>Okej, poprawiam</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
+    </View>
+  );
+
+  const Body = (
+    <View
+      style={{
+        flex: 1,
+        width: "100%",
+        alignSelf: "stretch",
+        minWidth: 0,
+
+        ...(isWeb
+          ? ({
+              // ✅ scroll tylko w środku — header/dock sticky trzymają się dobrze
+              overflowY: "auto",
+              overflowX: "hidden",
+              WebkitOverflowScrolling: "touch",
+            } as any)
+          : {}),
+      }}
+    >
+      {TopBar}
+      {DockWrap}
+      {Content}
+    </View>
+  );
+
+  return (
+    <SafeAreaView
+      style={{
+        flex: 1,
+        backgroundColor: colors.bg,
+        width: "100%",
+        alignSelf: "stretch",
+        ...(isWeb
+          ? ({
+              height: webViewportH ?? "100vh",
+              minHeight: webViewportH ?? "100vh",
+              overflow: "hidden",
+            } as any)
+          : {}),
+      }}
+    >
+      {isWeb ? (
+        // ✅ WEB: bez KAV (mniej bugów z klawiaturą i przesuwaniem w bok)
+        Body
+      ) : (
+        // ✅ NATIVE: KAV OK
+        <KeyboardAvoidingView
+          style={{ flex: 1, width: "100%", alignSelf: "stretch" }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={layout.keyboardOffset}
+        >
+          {Body}
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
-//src/views/messages.web.tsx
+//app/messages.mobile.tsx

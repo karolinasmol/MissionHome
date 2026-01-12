@@ -85,9 +85,7 @@ function withAlpha(color: string, alpha: number) {
 
   const rgbaMatch = color
     .trim()
-    .match(
-      /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)$/i
-    );
+    .match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)$/i);
 
   if (rgbaMatch) {
     const r = Number(rgbaMatch[1]);
@@ -109,9 +107,7 @@ function relativeLuminance(hex: string) {
   const rgb = hexToRgb(hex);
   if (!rgb) return 1;
   const srgb = [rgb.r, rgb.g, rgb.b].map((v) => v / 255);
-  const lin = srgb.map((c) =>
-    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  );
+  const lin = srgb.map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
@@ -210,11 +206,7 @@ export default function AddTaskScreen() {
 
   // ✅ familyId (null jeśli brak)
   const familyId = useMemo(() => {
-    const fid =
-      (family as any)?.id ??
-      (family as any)?.familyId ??
-      (family as any)?.fid ??
-      null;
+    const fid = (family as any)?.id ?? (family as any)?.familyId ?? (family as any)?.fid ?? null;
     return fid ? String(fid) : null;
   }, [family]);
 
@@ -253,11 +245,7 @@ export default function AddTaskScreen() {
     const chips: AssigneeChip[] = [];
 
     const myLevel = (myMemberEntry as any)?.level ?? 1;
-    const myAvatar =
-      (myMemberEntry as any)?.avatarUrl ||
-      (myMemberEntry as any)?.photoURL ||
-      myPhotoURL ||
-      null;
+    const myAvatar = (myMemberEntry as any)?.avatarUrl || (myMemberEntry as any)?.photoURL || myPhotoURL || null;
 
     chips.push({
       id: "self",
@@ -292,8 +280,7 @@ export default function AddTaskScreen() {
     return chips;
   }, [members, myUid, myMemberEntry, myPhotoURL]);
 
-  const selected =
-    memberChips.find((m) => m.id === assignedToId) || memberChips[0];
+  const selected = memberChips.find((m) => m.id === assignedToId) || memberChips[0];
 
   /* ---------- PODPOWIEDZI NAZW ZADAŃ (z historii) ---------- */
 
@@ -315,11 +302,7 @@ export default function AddTaskScreen() {
 
       row.count += 1;
 
-      const candidateDates = [
-        toSafeDate(m?.completedAt),
-        toSafeDate(m?.dueDate),
-        toSafeDate(m?.createdAt),
-      ].filter(Boolean) as Date[];
+      const candidateDates = [toSafeDate(m?.completedAt), toSafeDate(m?.dueDate), toSafeDate(m?.createdAt)].filter(Boolean) as Date[];
 
       const newest = candidateDates.reduce<Date | null>((acc, d) => {
         if (!acc) return d;
@@ -367,8 +350,7 @@ export default function AddTaskScreen() {
     return res;
   }, [allTitleSuggestions, title]);
 
-  const showSuggestions =
-    titleFocused && title.trim().length > 0 && filteredSuggestions.length > 0;
+  const showSuggestions = titleFocused && title.trim().length > 0 && filteredSuggestions.length > 0;
 
   /* ---------- KALENDARZ ---------- */
 
@@ -404,8 +386,7 @@ export default function AddTaskScreen() {
       return;
     }
 
-    const expValue =
-      DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
+    const expValue = DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
 
     const assignee = selected;
 
@@ -424,43 +405,79 @@ export default function AddTaskScreen() {
     const createdByUserId = myUid;
     const createdByName = myDisplayName || "Ty";
 
+    // ✅ NOWE: weryfikacja zdjęciem tylko wtedy, gdy to jest zadanie "dla kogoś" w rodzinie
+    const needsVerification = !!familyId && !assignee.isSelf && assignedToUserId !== myUid;
+
     try {
       setSaving(true);
 
-      await createMission({
-        title: title.trim(),
+      await createMission(
+        {
+          title: title.trim(),
 
-        // ✅ familyId jawnie (null jeśli brak)
-        familyId: familyId ?? null,
+          // ✅ familyId jawnie (null jeśli brak)
+          familyId: familyId ?? null,
 
-        // ✅ creator/assigner/assignee – spójne z Twoimi dokumentami w bazie
-        createdByUserId,
-        createdByName,
-        createdByAvatarUrl: myPhotoURL,
+          // ✅ creator/assigner/assignee – spójne z Twoimi dokumentami w bazie
+          createdByUserId,
+          createdByName,
+          createdByAvatarUrl: myPhotoURL,
 
-        assignedToUserId,
-        assignedToName,
+          assignedToUserId,
+          assignedToName,
 
-        assignedByUserId,
-        assignedByName,
+          assignedByUserId,
+          assignedByName,
 
-        assignedByAvatarUrl: myPhotoURL,
-        assignedToAvatarUrl: assignee.avatarUrl,
+          assignedByAvatarUrl: myPhotoURL,
+          assignedToAvatarUrl: assignee.avatarUrl,
 
-        dueDate: chosenDate,
-        repeat: { type: repeatType },
-        expValue,
-        expMode: difficulty,
-      });
+          dueDate: chosenDate,
+          repeat: { type: repeatType },
+          expValue,
+          expMode: difficulty,
+
+          // ✅ NOWE: “dwustopniowe zamknięcie” (assignee -> dowód -> approve assignera)
+          verificationRequired: needsVerification,
+          verification: {
+            // lifecycle:
+            // - "not_required" (self)
+            // - "awaiting_proof" (po utworzeniu, czeka na zdjęcie od wykonującego)
+            // - "proof_submitted" (zdjęcie wysłane, czeka na akceptację)
+            // - "approved" / "rejected"
+            status: needsVerification ? "awaiting_proof" : "not_required",
+
+            // kto ma weryfikować
+            verifierUserId: assignedByUserId,
+            verifierName: assignedByName,
+
+            // kto ma dostarczyć dowód
+            assigneeUserId: assignedToUserId,
+            assigneeName: assignedToName,
+
+            // dowód (na start pusty)
+            proofPhotoUrl: null,
+            proofStoragePath: null,
+            proofUploadedAt: null,
+
+            // wynik weryfikacji (na start pusty)
+            verifiedAt: null,
+            verifiedByUserId: null,
+            verifiedByName: null,
+
+            // ewentualne odrzucenie
+            rejectedAt: null,
+            rejectedByUserId: null,
+            rejectedByName: null,
+            rejectedReason: null,
+          },
+        } as any
+      );
 
       router.back();
     } catch (e: any) {
       console.error("createMission error:", e?.code, e?.message, e);
-      alert(
-        e?.code === "permission-denied"
-          ? "Rules blokują zapis (permission-denied)"
-          : "Błąd zapisu!"
-      );
+      alert(e?.code === "permission-denied" ? "Rules blokują zapis (permission-denied)" : "Błąd zapisu!");
     } finally {
       setSaving(false);
     }
@@ -516,15 +533,11 @@ export default function AddTaskScreen() {
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
-          <Text style={{ color: C.text, fontSize: 18, fontWeight: "700" }}>
-            Dodaj zadanie
-          </Text>
+          <Text style={{ color: C.text, fontSize: 18, fontWeight: "700" }}>Dodaj zadanie</Text>
         </View>
 
         {/* ASSIGNED TO */}
-        <Text style={{ color: C.muted, fontSize: 13, marginBottom: 6 }}>
-          Przypisane do
-        </Text>
+        <Text style={{ color: C.muted, fontSize: 13, marginBottom: 6 }}>Przypisane do</Text>
 
         <View
           style={{
@@ -552,16 +565,12 @@ export default function AddTaskScreen() {
                 justifyContent: "center",
               }}
             >
-              <Text style={{ color: C.primary, fontWeight: "700" }}>
-                {selected.label?.[0] ?? "?"}
-              </Text>
+              <Text style={{ color: C.primary, fontWeight: "700" }}>{selected.label?.[0] ?? "?"}</Text>
             </View>
           )}
 
           <View>
-            <Text style={{ color: C.text, fontSize: 15, fontWeight: "700" }}>
-              {selected.label}
-            </Text>
+            <Text style={{ color: C.text, fontSize: 15, fontWeight: "700" }}>{selected.label}</Text>
             <Text style={{ color: C.subtle, fontSize: 12 }}>Poziom {selected.level}</Text>
           </View>
         </View>

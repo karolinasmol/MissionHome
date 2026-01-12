@@ -68,15 +68,7 @@ export function saveConsentToStorage(consent: CookieConsent) {
 }
 
 /**
- * THEME (TYLKO MODAL):
- * Poprzednio wykrywanie brało głównie prefers-color-scheme => u Ciebie nie działa,
- * bo motyw aplikacji może nie zmieniać klas/atrybutów na <html>.
- *
- * Nowe podejście:
- * - sprawdza theme na <html> i <body> (dataset + classList)
- * - jeśli brak, to bierze realny kolor tła (computed background-color) i liczy jasność
- * - CSS vars czyta z: <html> -> <body> -> #root/#__next
- * - reaguje na zmiany: obserwuje <html>, <body>, root + media query
+ * THEME (TYLKO MODAL)
  */
 
 type ThemeTokens = {
@@ -139,12 +131,10 @@ function getCssVar(names: string[], fallback: string): string {
 }
 
 function hasClassToken(el: Element, token: string) {
-  // ważne: className.includes("dark") potrafi fałszować; tu sprawdzamy token w classList
   return (el as HTMLElement).classList?.contains?.(token) ?? false;
 }
 
 function parseRgb(input: string): { r: number; g: number; b: number; a: number } | null {
-  // rgb(255, 255, 255) / rgba(255, 255, 255, 0.5)
   const m = input
     .replace(/\s+/g, "")
     .match(/^rgba?\((\d{1,3}),(\d{1,3}),(\d{1,3})(?:,([0-9.]+))?\)$/i);
@@ -159,15 +149,20 @@ function parseRgb(input: string): { r: number; g: number; b: number; a: number }
 }
 
 function relLuminance({ r, g, b }: { r: number; g: number; b: number }) {
-  // sRGB -> luminance
-  const srgb = [r, g, b].map((v) => v / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const srgb = [r, g, b]
+    .map((v) => v / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
 }
 
 function getBgColorCandidate(): string | null {
   if (typeof window === "undefined" || typeof document === "undefined") return null;
 
-  const candidates: (HTMLElement | null)[] = [document.body, document.documentElement, getRootCandidate()];
+  const candidates: (HTMLElement | null)[] = [
+    document.body,
+    document.documentElement,
+    getRootCandidate(),
+  ];
   for (const el of candidates) {
     if (!el) continue;
     const bg = safeTrim(window.getComputedStyle(el).backgroundColor);
@@ -176,7 +171,6 @@ function getBgColorCandidate(): string | null {
     const rgb = parseRgb(bg);
     if (!rgb) continue;
 
-    // jeśli transparent, szukamy dalej
     if (rgb.a === 0) continue;
 
     return bg;
@@ -207,25 +201,21 @@ function detectIsDark(): boolean {
   if (hasClassToken(html, "dark") || hasClassToken(body, "dark")) return true;
   if (hasClassToken(html, "light") || hasClassToken(body, "light")) return false;
 
-  // color-scheme CSS (czasem ustawiane przez appkę)
   const csHtml = window.getComputedStyle(html).colorScheme?.toLowerCase?.() ?? "";
   const csBody = body ? window.getComputedStyle(body).colorScheme?.toLowerCase?.() ?? "" : "";
   const cs = `${csHtml} ${csBody}`;
   if (cs.includes("dark")) return true;
   if (cs.includes("light")) return false;
 
-  // realny kolor tła (najpewniejsze)
   const bg = getBgColorCandidate();
   if (bg) {
     const rgb = parseRgb(bg);
     if (rgb) {
       const lum = relLuminance(rgb);
-      // próg: < 0.5 traktujemy jako dark
       return lum < 0.5;
     }
   }
 
-  // ostatecznie system
   return !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
 }
 
@@ -268,7 +258,6 @@ function computeModalThemeTokens(): ThemeTokens {
 
   const d = isDark ? dark : light;
 
-  // Czytamy vars, ale tylko jako nadpisanie (fallbacki z d są kluczowe)
   const modalBg = getCssVar(["--card", "--surface", "--background"], d.modalBg);
   const modalText = getCssVar(["--foreground"], d.modalText);
   const border = getCssVar(["--border"], d.border);
@@ -348,7 +337,6 @@ function useModalThemeTokens() {
       });
     }
 
-    // na wypadek, gdyby motyw zmieniał CSS variables bez atrybutów:
     const interval = window.setInterval(update, 800);
 
     return () => {
@@ -367,6 +355,20 @@ function useModalThemeTokens() {
   }, []);
 
   return tokens;
+}
+
+function useViewportWidth() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1024));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize as any);
+  }, []);
+
+  return w;
 }
 
 function createModalStyles(t: ThemeTokens) {
@@ -405,6 +407,10 @@ function createModalStyles(t: ThemeTokens) {
       shadowRadius: 30,
       elevation: 10,
       zIndex: 1,
+
+      maxHeight: "85vh" as any,
+      overflowY: "auto" as any,
+      WebkitOverflowScrolling: "touch" as any,
     },
     modalTitle: {
       fontSize: 16,
@@ -440,6 +446,7 @@ function createModalStyles(t: ThemeTokens) {
     categoryTextWrapper: {
       flex: 1,
       paddingRight: 10,
+      minWidth: 0,
     },
     categoryLabel: {
       fontSize: 14,
@@ -463,6 +470,7 @@ function createModalStyles(t: ThemeTokens) {
       justifyContent: "center",
       marginLeft: 8,
       backgroundColor: t.checkboxBg,
+      flexShrink: 0,
     },
     checkboxActive: {
       backgroundColor: t.checkboxActiveBg,
@@ -479,7 +487,6 @@ function createModalStyles(t: ThemeTokens) {
       transform: [{ translateY: -0.5 }],
     },
 
-    // modal-only secondary (nie rusza bannera)
     modalSecondaryButton: {
       backgroundColor: "transparent",
       borderColor: t.secondaryBorder,
@@ -493,14 +500,20 @@ function createModalStyles(t: ThemeTokens) {
 }
 
 const CookieBanner: React.FC = () => {
-  // motyw tylko dla modala
   const modalTheme = useModalThemeTokens();
   const modalStyles = useMemo(() => createModalStyles(modalTheme), [modalTheme]);
+
+  const vw = useViewportWidth();
+  const isNarrow = vw <= 520;
+  const isVeryNarrow = vw <= 380;
 
   const [hasStoredConsent, setHasStoredConsent] = useState(false);
   const [bannerVisible, setBannerVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [consent, setConsent] = useState<CookieConsent>(DEFAULT_CONSENT);
+
+  // ✅ na mobile: domyślnie „zwinięty” opis
+  const [bannerExpanded, setBannerExpanded] = useState(false);
 
   useEffect(() => {
     const stored = readConsentFromStorage();
@@ -582,32 +595,62 @@ const CookieBanner: React.FC = () => {
 
   return (
     <>
-      {/* Banner na dole (tylko gdy brak zapisanej zgody) */}
       {bannerVisible && (
-        <View style={styles.bannerContainer}>
+        <View style={[styles.bannerContainer, isNarrow && styles.bannerContainerNarrow]}>
           <View style={styles.bannerTextWrapper}>
-            <Text style={styles.title}>Ustawienia plików cookie</Text>
-            <Text style={styles.description}>
+            <Text style={[styles.title, isNarrow && styles.titleNarrow]}>
+              Ustawienia plików cookie
+            </Text>
+
+            <Text
+              style={[
+                styles.description,
+                isNarrow && styles.descriptionNarrow,
+                isVeryNarrow && styles.descriptionVeryNarrow,
+              ]}
+              // RN Web wspiera to dobrze i realnie zmniejsza wysokość bannera
+              numberOfLines={isNarrow && !bannerExpanded ? 2 : undefined}
+              ellipsizeMode="tail"
+            >
               W MissionHome używamy plików cookie, aby serwis działał poprawnie oraz — za Twoją
               zgodą — do analityki, funkcji dodatkowych i marketingu. Możesz zaakceptować wszystkie
               lub dostosować ustawienia.
             </Text>
 
-            <Pressable onPress={() => window.location.assign("/cookies")}>
-              <Text style={styles.link}>Polityka cookies</Text>
-            </Pressable>
+            <View style={styles.linksRow}>
+              <Pressable onPress={() => window.location.assign("/cookies")}>
+                <Text style={[styles.link, isNarrow && styles.linkNarrow]}>Polityka cookies</Text>
+              </Pressable>
+
+              {isNarrow && (
+                <Pressable onPress={() => setBannerExpanded((v) => !v)}>
+                  <Text style={[styles.link, isNarrow && styles.linkNarrow]}>
+                    {bannerExpanded ? "Mniej" : "Więcej"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
 
-          <View style={styles.bannerButtonsRow}>
+          <View
+            style={[
+              styles.bannerButtonsRow,
+              isNarrow && styles.bannerButtonsRowNarrowGrid,
+              isVeryNarrow && styles.bannerButtonsRowVeryNarrow,
+            ]}
+          >
             <Pressable
               onPress={handleRejectNonEssential}
               style={({ pressed }) => [
                 styles.button,
                 styles.secondaryButton,
+                isNarrow && styles.buttonCompact,
                 pressed && styles.buttonPressed,
               ]}
             >
-              <Text style={styles.secondaryButtonText}>Tylko niezbędne</Text>
+              <Text style={[styles.secondaryButtonText, isNarrow && styles.buttonTextCompact]}>
+                Tylko niezbędne
+              </Text>
             </Pressable>
 
             <Pressable
@@ -615,10 +658,13 @@ const CookieBanner: React.FC = () => {
               style={({ pressed }) => [
                 styles.button,
                 styles.neutralButton,
+                isNarrow && styles.buttonCompact,
                 pressed && styles.buttonPressed,
               ]}
             >
-              <Text style={styles.neutralButtonText}>Dostosuj</Text>
+              <Text style={[styles.neutralButtonText, isNarrow && styles.buttonTextCompact]}>
+                Dostosuj
+              </Text>
             </Pressable>
 
             <Pressable
@@ -626,23 +672,31 @@ const CookieBanner: React.FC = () => {
               style={({ pressed }) => [
                 styles.button,
                 styles.primaryButton,
+                isNarrow && styles.buttonCompact,
+                isNarrow && styles.acceptAllFullWidth,
                 pressed && styles.buttonPressed,
               ]}
             >
-              <Text style={styles.primaryButtonText}>Akceptuję wszystkie</Text>
+              <Text style={[styles.primaryButtonText, isNarrow && styles.buttonTextCompact]}>
+                Akceptuję wszystkie
+              </Text>
             </Pressable>
           </View>
         </View>
       )}
 
-      {/* Okno ustawień (THEMED) */}
       {settingsOpen && (
         <View style={modalStyles.overlay}>
           <Pressable
             style={modalStyles.backdropClickCatcher}
             onPress={() => setSettingsOpen(false)}
           />
-          <View style={modalStyles.modal}>
+          <View
+            style={[
+              modalStyles.modal,
+              isNarrow && { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14 },
+            ]}
+          >
             <Text style={modalStyles.modalTitle}>Ustawienia plików cookie</Text>
             <Text style={modalStyles.modalSubtitle}>Twój obecny stan</Text>
 
@@ -678,13 +732,14 @@ const CookieBanner: React.FC = () => {
               />
             </View>
 
-            <View style={styles.modalButtonsRow}>
+            <View style={[styles.modalButtonsRow, isNarrow && styles.modalButtonsRowNarrow]}>
               <Pressable
                 onPress={handleRejectNonEssential}
                 style={({ pressed }) => [
                   styles.button,
                   styles.modalButton,
                   modalStyles.modalSecondaryButton,
+                  isNarrow && styles.modalButtonNarrow,
                   pressed && styles.buttonPressed,
                 ]}
               >
@@ -697,6 +752,7 @@ const CookieBanner: React.FC = () => {
                   styles.button,
                   styles.primaryButton,
                   styles.modalButton,
+                  isNarrow && styles.modalButtonNarrow,
                   pressed && styles.buttonPressed,
                 ]}
               >
@@ -707,7 +763,6 @@ const CookieBanner: React.FC = () => {
         </View>
       )}
 
-      {/* Przycisk Cookies (po zapisaniu zgody) - bez zmian */}
       {hasStoredConsent && !settingsOpen && (
         <View style={[styles.cookieButtonWrapper, bannerVisible && styles.cookieWithBanner]}>
           <Pressable
@@ -780,30 +835,62 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 14,
     flexWrap: "wrap",
+  },
+  bannerContainerNarrow: {
+    // ✅ realnie niższy banner na mobile
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    alignItems: "stretch",
   },
   bannerTextWrapper: {
     flex: 1,
     minWidth: 220,
   },
+
   title: {
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 4,
   },
+  titleNarrow: {
+    fontSize: 14,
+    marginBottom: 3,
+  },
+
   description: {
     color: "#E5E7EB",
     fontSize: 13,
     lineHeight: 18,
   },
+  descriptionNarrow: {
+    fontSize: 12.5,
+    lineHeight: 16.5,
+  },
+  descriptionVeryNarrow: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+
+  linksRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    gap: 14,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
   link: {
     color: "#60A5FA",
-    marginTop: 8,
     fontSize: 13,
     textDecorationLine: "underline",
   },
+  linkNarrow: {
+    fontSize: 12,
+  },
+
   bannerButtonsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -811,12 +898,38 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "flex-end",
   },
+
+  // ✅ mobile: 2 kolumny + accept full width (mniej wysokości niż 3 w kolumnie)
+  bannerButtonsRowNarrowGrid: {
+    width: "100%",
+    justifyContent: "flex-start",
+  },
+  bannerButtonsRowVeryNarrow: {
+    gap: 6,
+  },
+
   button: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
   },
+  buttonCompact: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexGrow: 1,
+    flexBasis: "48%" as any, // 2 kolumny
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  acceptAllFullWidth: {
+    flexBasis: "100%" as any, // 3ci przycisk na całą szerokość
+  },
+
+  buttonTextCompact: {
+    fontSize: 12,
+  },
+
   buttonPressed: {
     opacity: 0.85,
   },
@@ -848,7 +961,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // wspólne dla modala (layout) – kolory są w modalStyles
   modalButtonsRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -856,10 +968,20 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     marginTop: 6,
   },
+  modalButtonsRowNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "flex-start",
+    gap: 10,
+  },
   modalButton: {
     minWidth: 160,
     justifyContent: "center",
     alignItems: "center",
+  },
+  modalButtonNarrow: {
+    width: "100%",
+    minWidth: 0,
   },
 
   cookieButtonWrapper: {
@@ -901,3 +1023,5 @@ const styles = StyleSheet.create({
 });
 
 export default CookieBanner;
+
+// src/components/CookieBanner.web.tsx

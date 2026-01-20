@@ -461,6 +461,15 @@ export default function FamilyScreen() {
   // 2 kolumny tylko gdy realnie jest miejsce (tablet/desktop)
   const tileW = isTwoCol ? "49%" : "100%";
 
+  // ✅ mniejsze kafelki do list osób (rodzina + znajomi)
+  // desktop: 3 kolumny, tablet: 2, mobile: 1
+  const personTileW = useMemo(() => {
+    if (screenW >= 980) return "32%"; // 3 kolumny
+    if (screenW >= 520) return "49%"; // 2 kolumny
+    return "100%"; // mobile
+  }, [screenW]);
+
+
   // Responsywne “tokeny”
   const OUTER_PAD = isNarrow ? 12 : 16;
   const SECTION_PAD = isNarrow ? 12 : 14;
@@ -1394,7 +1403,7 @@ export default function FamilyScreen() {
     try {
       if (familyId) {
         setLocalFamilyId(String(familyId));
-        return showModal("Info", "Masz już rodzinę MAX.", "info");
+        return showModal("Info", "Masz już rodzinę Premium.", "info");
       }
 
       // u Was familyId == uid ownera
@@ -1407,7 +1416,7 @@ export default function FamilyScreen() {
           ownerId: myUid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          plan: "max",
+          plan: "Premium",
         },
         { merge: true }
       );
@@ -1434,7 +1443,7 @@ export default function FamilyScreen() {
       setLocalFamilyId(fid);
       showModal(
         "Gotowe ✅",
-        "Utworzono rodzinę MAX. Możesz zapraszać znajomych.",
+        "Utworzono rodzinę Premium. Możesz zapraszać znajomych.",
         "success"
       );
     } catch (e: any) {
@@ -1445,8 +1454,8 @@ export default function FamilyScreen() {
   // ✅ PROSTA LOGIKA invitation: Premium + familyId + limit + friend + not member + not pending + OWNER ONLY
   const familyInviteDisabledReason = (toUid: string) => {
     if (!myUid) return "Brak sesji.";
-    if (!isPremium) return "Rodzina MAX jest w Premium.";
-    if (!familyId) return "Najpierw utwórz rodzinę MAX.";
+    if (!isPremium) return "Rodzina jest w Premium.";
+    if (!familyId) return "Najpierw utwórz rodzinę Premium.";
     if (!iAmOwner) return "Tylko właściciel rodziny może zapraszać.";
     if (!canAddFamilyMore) return `Limit ${MAX_FAMILY} osób w rodzinie.`;
     if (!friendUidSet.has(toUid))
@@ -1465,7 +1474,7 @@ export default function FamilyScreen() {
         "error"
       );
     if (!familyId)
-      return showModal("Brak rodziny", "Najpierw utwórz rodzinę MAX.", "info");
+      return showModal("Brak rodziny", "Najpierw utwórz rodzinę Premium.", "info");
     if (!iAmOwner)
       return showModal(
         "Brak uprawnień",
@@ -1537,7 +1546,7 @@ export default function FamilyScreen() {
       console.log("[familyInvite] invite write OK:", invId);
       showModal(
         "Wysłano ✅",
-        "Zaproszenie do rodziny MAX zostało wysłane.",
+        "Zaproszenie do rodziny Premium zostało wysłane.",
         "success"
       );
     } catch (err: any) {
@@ -1566,7 +1575,7 @@ export default function FamilyScreen() {
         "error"
       );
     if (!familyId)
-      return showModal("Brak rodziny", "Nie należysz do rodziny MAX.", "info");
+      return showModal("Brak rodziny", "Nie należysz do rodziny Premium.", "info");
 
     if (iAmOwner) {
       return showModal(
@@ -1589,7 +1598,7 @@ export default function FamilyScreen() {
 
       await batch.commit();
       setLocalFamilyId(null);
-      showModal("Gotowe ✅", "Opuściłeś rodzinę MAX.", "success");
+      showModal("Gotowe ✅", "Opuściłeś rodzinę Premium.", "success");
     } catch (e: any) {
       showModal("Błąd", e?.message || "Nie udało się opuścić rodziny.", "error");
     } finally {
@@ -1600,7 +1609,7 @@ export default function FamilyScreen() {
   const removeFamilyMember = async (targetUid: string) => {
     if (!myUid) return showModal("Brak sesji", "Zaloguj się ponownie.", "error");
     if (!familyId)
-      return showModal("Brak rodziny", "Brak aktywnej rodziny MAX.", "error");
+      return showModal("Brak rodziny", "Brak aktywnej rodziny Premium.", "error");
     if (!iAmOwner) {
       return showModal(
         "Brak uprawnień",
@@ -1651,7 +1660,7 @@ export default function FamilyScreen() {
       {
         title: "Opuścić rodzinę?",
         message:
-          "Na pewno chcesz opuścić tę rodzinę MAX? Utracisz powiązanie z członkami rodziny.",
+          "Na pewno chcesz opuścić tę rodzinę Premium? Utracisz powiązanie z członkami rodziny.",
         confirmLabel: "Tak, opuść",
         cancelLabel: "Nie",
         destructive: true,
@@ -1664,7 +1673,7 @@ export default function FamilyScreen() {
     openConfirm(
       {
         title: "Usunąć członka rodziny?",
-        message: `Na pewno chcesz usunąć ${label} z rodziny MAX?`,
+        message: `Na pewno chcesz usunąć ${label} z rodziny Premium?`,
         confirmLabel: "Tak, usuń",
         cancelLabel: "Nie",
         destructive: true,
@@ -1745,7 +1754,7 @@ export default function FamilyScreen() {
 
         await batch.commit();
         setLocalFamilyId(fid);
-        showModal("Dołączono ✅", "Przeniesiono Cię do nowej rodziny MAX.", "success");
+        showModal("Dołączono ✅", "Przeniesiono Cię do nowej rodziny Premium.", "success");
         return;
       }
 
@@ -1769,7 +1778,7 @@ export default function FamilyScreen() {
 
       await batch.commit();
       setLocalFamilyId(fid);
-      showModal("Dołączono ✅", "Jesteś w rodzinie MAX.", "success");
+      showModal("Dołączono ✅", "Jesteś w rodzinie Premium.", "success");
     } catch (e: any) {
       showModal("Błąd", e?.message || "Nie udało się zaakceptować.", "error");
     } finally {
@@ -2047,7 +2056,8 @@ export default function FamilyScreen() {
     },
     actions?: React.ReactNode,
     subtitle?: string,
-    variant: "row" | "tile" = "row"
+    variant: "row" | "tile" | "miniTile" | "compactRow" = "row"
+
   ) => {
     const photo = u.photoURL ? String(u.photoURL) : null;
 
@@ -2066,22 +2076,29 @@ export default function FamilyScreen() {
       padding: 12,
     };
 
-    if (variant === "tile") {
+    if (variant === "tile" || variant === "miniTile") {
+      const isMini = variant === "miniTile";
+
       return (
         <Wrapper
           key={`tile-${u.uid || u.email || u.displayName || Math.random()}`}
           onPress={u.uid ? goToProfile : undefined}
           activeOpacity={0.9}
           style={{
-            width: tileW,
+            width: isMini ? personTileW : tileW,
             ...baseBox,
+            padding: isMini ? 10 : 12,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: isMini ? 10 : 12 }}>
             {photo ? (
               <Image
                 source={{ uri: photo }}
-                style={{ width: 44, height: 44, borderRadius: 999 }}
+                style={{
+                  width: isMini ? 38 : 44,
+                  height: isMini ? 38 : 44,
+                  borderRadius: 999,
+                }}
                 onError={(e) =>
                   console.warn("Avatar load error:", photo, e?.nativeEvent)
                 }
@@ -2089,8 +2106,8 @@ export default function FamilyScreen() {
             ) : (
               <View
                 style={{
-                  width: 44,
-                  height: 44,
+                  width: isMini ? 38 : 44,
+                  height: isMini ? 38 : 44,
                   borderRadius: 999,
                   backgroundColor: colors.accent,
                   alignItems: "center",
@@ -2108,17 +2125,18 @@ export default function FamilyScreen() {
                 style={{
                   color: colors.text,
                   fontWeight: "950" as any,
-                  fontSize: 15,
+                  fontSize: isMini ? 14 : 15,
                 }}
                 numberOfLines={1}
               >
                 {displayNameOf(u)}
               </Text>
+
               <Text
                 style={{
                   color: colors.textMuted,
-                  fontSize: 12,
-                  marginTop: 3,
+                  fontSize: isMini ? 11 : 12,
+                  marginTop: 2,
                 }}
                 numberOfLines={1}
               >
@@ -2131,7 +2149,7 @@ export default function FamilyScreen() {
           {!!actions && (
             <View
               style={{
-                marginTop: 10,
+                marginTop: isMini ? 8 : 10,
                 flexDirection: "row",
                 justifyContent: "flex-end",
                 gap: 10,
@@ -2143,6 +2161,77 @@ export default function FamilyScreen() {
         </Wrapper>
       );
     }
+
+if (variant === "compactRow") {
+  return (
+    <Wrapper
+      key={`crow-${u.uid || u.email || u.displayName || Math.random()}`}
+      onPress={u.uid ? goToProfile : undefined}
+      activeOpacity={0.88}
+      style={{
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.bg,
+        borderRadius: INNER_RADIUS,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        minHeight: 62,
+      }}
+    >
+      {/* LEFT */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        {photo ? (
+          <Image
+            source={{ uri: photo }}
+            style={{ width: 38, height: 38, borderRadius: 999 }}
+            onError={(e) => console.warn("Avatar load error:", photo, e?.nativeEvent)}
+          />
+        ) : (
+          <View
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 999,
+              backgroundColor: colors.accent,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: "#022c22", fontWeight: "950" as any }}>
+              {safeInitial(displayNameOf(u))}
+            </Text>
+          </View>
+        )}
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{ color: colors.text, fontWeight: "950" as any, fontSize: 14 }}
+            numberOfLines={1}
+          >
+            {displayNameOf(u)}
+          </Text>
+
+          <Text
+            style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}
+            numberOfLines={1}
+          >
+            {subtitle || u.email || "—"}
+            {u.city ? ` • ${u.city}` : ""}
+          </Text>
+        </View>
+      </View>
+
+      {/* RIGHT */}
+      {!!actions ? <View style={{ flexShrink: 0 }}>{actions}</View> : null}
+    </Wrapper>
+  );
+}
+
+
 
     // row (fallback)
     return (
@@ -2448,7 +2537,7 @@ export default function FamilyScreen() {
               </View>
 
               <Text style={{ color: colors.textMuted, marginTop: 10, lineHeight: 18 }}>
-                Szybko ogarnij rodzinę MAX, zaproszenia i znajomych — wszystko w jednym miejscu.
+                Szybko ogarnij rodzinę, zaproszenia i znajomych — wszystko w jednym miejscu.
               </Text>
             </View>
           </View>
@@ -2461,7 +2550,7 @@ export default function FamilyScreen() {
               <SectionHeader
                 icon={"home" as any}
                 title="Rodzina"
-                subtitle="Rodzina MAX, członkowie i zaproszenia — wszystko w jednej, logicznej sekcji."
+                subtitle="Rodzina Premium, członkowie i zaproszenia — wszystko w jednej, logicznej sekcji."
                 right={
                   <>
                     <View style={pill(familyId ? "good" : "neutral")}>
@@ -2523,7 +2612,7 @@ export default function FamilyScreen() {
                             fontSize: 11,
                           }}
                         >
-                          RODZINA MAX
+                          RODZINA Premium
                         </Text>
                       </View>
                       <Text style={{ color: colors.text, fontWeight: "950" as any, fontSize: 15 }}>
@@ -2561,14 +2650,14 @@ export default function FamilyScreen() {
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                           <Ionicons name="add-circle" size={18} color="#022c22" />
                           <Text style={{ fontWeight: "950" as any, color: "#022c22" }}>
-                            Utwórz rodzinę MAX
+                            Utwórz rodzinę Premium
                           </Text>
                         </View>
                       </TouchableOpacity>
 
                       {!isPremium ? (
                         <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
-                          Rodzina MAX jest dostępna w Premium.
+                          Rodzina jest dostępna w Premium.
                         </Text>
                       ) : null}
                     </View>
@@ -2655,8 +2744,8 @@ export default function FamilyScreen() {
                               tone="muted"
                             />
                           </>,
-                          "Zaproszenie do rodziny MAX",
-                          "tile"
+                          "Zaproszenie do rodziny Premium",
+                          "minitile"
                         );
                       })}
                     </View>
@@ -2737,7 +2826,7 @@ export default function FamilyScreen() {
                               </Text>
                             </View>,
                             subtitle,
-                            "tile"
+                            "minitile"
                           );
                         }
 
@@ -2764,7 +2853,7 @@ export default function FamilyScreen() {
                               tone="danger"
                             />,
                             subtitle,
-                            "tile"
+                            "minitile"
                           );
                         }
 
@@ -2783,7 +2872,7 @@ export default function FamilyScreen() {
                             </Text>
                           </View>,
                           subtitle,
-                          "tile"
+                          "minitile"
                         );
                       })}
                   </View>
@@ -2871,7 +2960,7 @@ export default function FamilyScreen() {
                               tone="muted"
                             />,
                             "Oczekuje",
-                            "tile"
+                            "minitile"
                           );
                         })}
                       </View>
@@ -2917,7 +3006,7 @@ export default function FamilyScreen() {
                               tone={disabled ? "muted" : "primary"}
                             />,
                             disabled ? reason || "—" : "Znajomy",
-                            "tile"
+                            "minitile"
                           );
                         })}
                       </View>
@@ -3316,7 +3405,7 @@ export default function FamilyScreen() {
                             />
                           </>,
                           "Prośba o dodanie",
-                          "tile"
+                          "minitile"
                         );
                       })}
                     </View>
@@ -3370,7 +3459,7 @@ export default function FamilyScreen() {
                             tone="muted"
                           />,
                           "Oczekuje",
-                          "tile"
+                          "minitile"
                         );
                       })}
                     </View>
@@ -3412,7 +3501,8 @@ export default function FamilyScreen() {
                       Nie masz jeszcze znajomych.
                     </Text>
                   ) : (
-                    <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    // ✅ RÓWNA LISTA, 1 KOLUMNA
+                    <View style={{ marginTop: 10, gap: 10 }}>
                       {friendsAccepted.map((f) => {
                         const other = otherProfileFromFriendship(f);
                         const busy = friendActionId === f.id;
@@ -3436,7 +3526,7 @@ export default function FamilyScreen() {
                             tone="danger"
                           />,
                           "Znajomy",
-                          "tile"
+                          "compactRow" // ✅ TU JEST KLUCZ
                         );
                       })}
                     </View>

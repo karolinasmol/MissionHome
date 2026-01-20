@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  Modal,
+  Pressable,
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,11 +46,7 @@ function clamp255(n: number) {
 function shadeHex(hex: string, amount: number) {
   if (!isHex6(hex)) return hex;
   const { r, g, b } = hexToRgb(hex);
-  return rgbToHex(
-    clamp255(r + amount),
-    clamp255(g + amount),
-    clamp255(b + amount)
-  );
+  return rgbToHex(clamp255(r + amount), clamp255(g + amount), clamp255(b + amount));
 }
 
 function luminance(hex: string) {
@@ -57,33 +55,95 @@ function luminance(hex: string) {
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 
+type ModalKind = "success" | "error";
+
 export default function BugReportWeb() {
   const router = useRouter();
   const { colors } = useThemeColors();
   const { width } = useWindowDimensions();
 
   const isPhone = width < 520;
-  const isTablet = width >= 520 && width < 900;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [frequency, setFrequency] = useState("");
   const [sending, setSending] = useState(false);
 
+  // ✅ MODAL (jak w idea)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalKind, setModalKind] = useState<ModalKind>("success");
+  const [modalTitle, setModalTitle] = useState("Dziękujemy!");
+  const [modalMsg, setModalMsg] = useState("Zgłoszenie zostało wysłane ✅");
+
   const user = auth.currentUser;
 
-  const canSend =
-    title.trim().length > 0 && description.trim().length > 0 && !sending;
+  const canSend = title.trim().length > 0 && description.trim().length > 0 && !sending;
 
-  const inputBg = (() => {
+  const inputBg = useMemo(() => {
     const base = typeof colors.card === "string" ? colors.card : "#111827";
     if (!isHex6(base)) return base;
     const lum = luminance(base);
     return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
-  })();
+  }, [colors.card]);
+
+  const modalCardBg = useMemo(() => {
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
+    if (!isHex6(base)) return base;
+    const lum = luminance(base);
+    return lum < 0.45 ? shadeHex(base, 10) : shadeHex(base, -6);
+  }, [colors.card]);
+
+  // ====== ŁADNIEJSZY PRZYCISK NA JASNYCH MOTYWACH ======
+  const bgBase = typeof colors.bg === "string" ? colors.bg : "#ffffff";
+  const isLightTheme = isHex6(bgBase) ? luminance(bgBase) > 0.62 : true;
+
+  const pickOnColor = (bgHex: string) => {
+    if (!isHex6(bgHex)) return isLightTheme ? "#0f172a" : "#e2e8f0";
+    return luminance(bgHex) > 0.62 ? "#0f172a" : "#ecfeff";
+  };
+
+  const enabledBg = typeof colors.accent === "string" ? colors.accent : "#22c55e";
+  const enabledFg = pickOnColor(enabledBg);
+
+  const disabledBg = isLightTheme ? "#e2e8f0" : "#1e293b";
+  const disabledFg = isLightTheme ? "#334155" : "#64748b";
+  const disabledBorder = isLightTheme ? "#cbd5e1" : colors.border;
+
+  const enabledBorder = isHex6(enabledBg)
+    ? isLightTheme
+      ? shadeHex(enabledBg, -22)
+      : shadeHex(enabledBg, 18)
+    : colors.border;
+  // =====================================================
+
+  const openModal = (kind: ModalKind, t: string, m: string) => {
+    setModalKind(kind);
+    setModalTitle(t);
+    setModalMsg(m);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => setModalOpen(false);
+
+  const handleModalPrimary = () => {
+    if (modalKind === "success") {
+      setTitle("");
+      setDescription("");
+      setFrequency("");
+      closeModal();
+      router.back();
+      return;
+    }
+    closeModal();
+  };
 
   const handleSend = async () => {
     if (!canSend) return;
+
+    if (!user?.uid) {
+      openModal("error", "Zaloguj się", "Musisz być zalogowany, aby wysłać zgłoszenie.");
+      return;
+    }
 
     try {
       setSending(true);
@@ -92,30 +152,122 @@ export default function BugReportWeb() {
         title: title.trim(),
         description: description.trim(),
         frequency: frequency.trim() || null,
-        platform: Platform.OS,
+        platform: Platform.OS, // web
         appVersion: "1.0.0",
-        userId: user?.uid || null,
-        userEmail: user?.email || null,
+        userId: user.uid,
+        userEmail: user.email || null,
         createdAt: serverTimestamp(),
         status: "new",
       });
 
-      window.alert("Dziękujemy! Zgłoszenie zostało wysłane ✅");
-
-      setTitle("");
-      setDescription("");
-      setFrequency("");
-
-      router.back();
-    } catch (e) {
-      window.alert("Nie udało się wysłać zgłoszenia.");
+      openModal("success", "Dziękujemy!", "Zgłoszenie zostało wysłane ✅");
+    } catch (e: any) {
+      console.error("BUG REPORT ERROR:", e);
+      const msg = e?.message || "Nie udało się wysłać zgłoszenia.";
+      openModal("error", "Błąd", msg);
     } finally {
       setSending(false);
     }
   };
 
+  const modalIcon = modalKind === "success" ? "checkmark-circle" : "alert-circle";
+  const modalAccent = modalKind === "success" ? colors.accent : "#ef4444";
+  const modalPrimaryText = modalKind === "success" ? "OK, wracam" : "OK";
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/* ✅ MODAL (ładny, aplikacyjny) */}
+      <Modal visible={modalOpen} transparent animationType="fade" onRequestClose={closeModal}>
+        <Pressable
+          onPress={closeModal}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+          }}
+        >
+          <Pressable
+            onPress={() => {}}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              borderRadius: 18,
+              backgroundColor: modalCardBg,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 16,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Ionicons name={modalIcon as any} size={22} color={modalAccent} />
+              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                {modalTitle}
+              </Text>
+
+              <View style={{ flex: 1 }} />
+
+              <TouchableOpacity
+                onPress={closeModal}
+                style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 }}
+              >
+                <Ionicons name="close" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 13,
+                lineHeight: 18,
+                marginTop: 10,
+              }}
+            >
+              {modalMsg}
+            </Text>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 10,
+                marginTop: 14,
+              }}
+            >
+              {modalKind === "error" ? (
+                <TouchableOpacity
+                  onPress={closeModal}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: 14 }}>Zamknij</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={handleModalPrimary}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  backgroundColor: modalAccent,
+                }}
+              >
+                <Text style={{ color: "#022c22", fontSize: 14, fontWeight: "800" }}>
+                  {modalPrimaryText}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ScrollView
         contentContainerStyle={{
           paddingVertical: isPhone ? 18 : 24,
@@ -124,6 +276,7 @@ export default function BugReportWeb() {
           maxWidth: 820,
           alignSelf: "center",
         }}
+        keyboardShouldPersistTaps="handled"
       >
         {/* HEADER */}
         <View
@@ -151,10 +304,32 @@ export default function BugReportWeb() {
               color: colors.text,
               fontSize: isPhone ? 18 : 22,
               fontWeight: "900",
+              flex: 1,
             }}
           >
             Zgłoś błąd
           </Text>
+
+          {/* Zgłoś pomysł */}
+          <TouchableOpacity
+            onPress={() => router.push("/idea")}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: inputBg,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Ionicons name="bulb-outline" size={18} color={colors.text} />
+            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 13 }}>
+              Zgłoś pomysł
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* CARD */}
@@ -181,6 +356,7 @@ export default function BugReportWeb() {
           >
             Pomóż nam ulepszyć MissionHome 💙
           </Text>
+
           <Text
             style={{
               color: colors.textMuted,
@@ -293,18 +469,30 @@ export default function BugReportWeb() {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
-                backgroundColor: canSend ? colors.accent : "#1e293b",
-                opacity: sending ? 0.7 : 1,
+
+                backgroundColor: canSend ? enabledBg : disabledBg,
+                borderWidth: 1,
+                borderColor: canSend ? enabledBorder : disabledBorder,
+
+                opacity: sending ? 0.75 : 1,
+
+                shadowColor: "#000",
+                shadowOpacity: canSend ? 0.14 : 0.06,
+                shadowRadius: canSend ? 10 : 6,
+                shadowOffset: { width: 0, height: canSend ? 4 : 2 },
+
+                elevation: canSend ? 3 : 1,
               }}
             >
               {sending ? (
-                <ActivityIndicator size="small" color="#022c22" />
+                <ActivityIndicator size="small" color={canSend ? enabledFg : disabledFg} />
               ) : (
-                <Ionicons name="send" size={16} color="#022c22" />
+                <Ionicons name="send" size={16} color={canSend ? enabledFg : disabledFg} />
               )}
+
               <Text
                 style={{
-                  color: canSend ? "#022c22" : "#64748b",
+                  color: canSend ? enabledFg : disabledFg,
                   fontWeight: "800",
                 }}
               >

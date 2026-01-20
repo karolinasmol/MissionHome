@@ -299,14 +299,21 @@ export default function CustomHeader() {
       userRef,
       (snap) => {
         const data = snap.data() as any;
-        const u = typeof data?.username === "string" ? data.username.trim() : "";
-        setUsername(u || null);
+
+        // ✅ główne źródło: displayName (to zapisujesz w Firestore)
+        // ✅ fallback: username (żeby stare konta też działały)
+        const name =
+          (typeof data?.displayName === "string" ? data.displayName.trim() : "") ||
+          (typeof data?.username === "string" ? data.username.trim() : "");
+
+        setUsername(name || null);
       },
       () => setUsername(null)
     );
 
     return () => unsub();
   }, [uid]);
+
 
   const fallbackName = user?.displayName || user?.email?.split("@")[0] || "Użytkownik";
   const shownName = username || fallbackName;

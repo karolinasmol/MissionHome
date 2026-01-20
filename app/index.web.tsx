@@ -1673,13 +1673,13 @@ export default function HomeScreen() {
     onPrev: () => void;
     onNext: () => void;
   }) => {
-    // ✅ RESPONSYWNE ROZMIARY
-    const h = Math.round(44 * uiScale);
-    const btn = Math.round(44 * uiScale);
-    const minW = isPhone ? 128 : isNarrow ? 150 : 180;
-    const iconSize = Math.round(18 * uiScale);
+    // ✅ RESPONSYWNE ROZMIARY (ciasny Stepper)
+    const h = Math.round(36 * uiScale);        // ✅ brakowało -> fix error
+    const btn = h;                             // strzałki mają tyle co wysokość
+    const minW = isPhone ? 112 : isNarrow ? 128 : 150;
+    const padX = isPhone ? 6 : isNarrow ? 8 : 10;
+    const iconSize = Math.round(16 * uiScale);
     const fontSize = Math.round(12 * uiScale);
-    const padX = isPhone ? 8 : isNarrow ? 10 : 12;
 
     return (
       <View
@@ -1710,8 +1710,16 @@ export default function HomeScreen() {
           <Ionicons name="chevron-back" size={iconSize} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={{ paddingHorizontal: padX, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: colors.text, fontSize: fontSize, fontWeight: "900", letterSpacing: 0.2 }}>{label}</Text>
+        <View
+          style={{
+            paddingHorizontal: padX, // ✅ mniejsze = mniej miejsca obok strzałek
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize, fontWeight: "900", letterSpacing: 0.2 }}>
+            {label}
+          </Text>
         </View>
 
         <TouchableOpacity
@@ -1731,6 +1739,7 @@ export default function HomeScreen() {
       </View>
     );
   };
+
 
   /* --------------------------------------------------------- */
   /* -------------------- TOUR: steps + node ------------------ */
@@ -2057,7 +2066,7 @@ export default function HomeScreen() {
 
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8, gap: 10 }}>
                       <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                        Dziś zgarnięte: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayEarned}</Text> / {dayPossible} EXP
+                        Dziś zgarnięte: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayEarned}</Text> EXP
                       </Text>
                       <Text style={{ color: colors.textMuted, fontSize: 11 }}>
                         Próg LVL {hudLevel + 1}:{" "}
@@ -2136,12 +2145,12 @@ export default function HomeScreen() {
                           <TinyChip label={formatDatePill(selectedDate)} iconLeft="calendar-outline" onPress={() => setDatePickerOpen(true)} />
                           <TinyChip label="Dziś" iconLeft="today-outline" tone="accent" onPress={goToToday} />
                           <Stepper
-                            label="Tydzień"
+                            label=" Tydzień"
                             onPrev={() => setSelectedDate(startOfDay(addDays(selectedDate, -7)))}
                             onNext={() => setSelectedDate(startOfDay(addDays(selectedDate, 7)))}
                           />
                           <Stepper
-                            label="Miesiąc"
+                            label="  Miesiąc"
                             onPrev={() => setSelectedDate(startOfDay(addMonths(selectedDate, -1)))}
                             onNext={() => setSelectedDate(startOfDay(addMonths(selectedDate, 1)))}
                           />
@@ -2176,6 +2185,7 @@ export default function HomeScreen() {
                             marginHorizontal: 4,
                             paddingVertical: 12,
                             alignItems: "center",
+                            justifyContent: "center",
                             borderRadius: 18,
                             backgroundColor: bgColor,
                             borderWidth: 1,
@@ -2302,6 +2312,7 @@ export default function HomeScreen() {
                               marginRight: 8,
                               paddingVertical: isPhone ? 8 : 10,
                               alignItems: "center",
+                              justifyContent: "center",
                               borderRadius: isPhone ? 14 : 16,
                               backgroundColor: bgColor,
                               borderWidth: 1,

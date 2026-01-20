@@ -1,19 +1,25 @@
-// app/index.tsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   SafeAreaView,
   ScrollView,
-  Alert,
   Image,
+  Platform,
   Animated,
+  useWindowDimensions,
+  Alert,
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+
+import WelcomeTutorialModal from "../src/components/WelcomeTutorialModal";
 import { useThemeColors } from "../src/context/ThemeContext";
+
+import GuidedTourOverlay from "../src/components/GuidedTourOverlay";
+import type { TourStep as GuidedTourStep } from "../src/components/GuidedTourOverlay";
 
 import {
   doc,
@@ -27,12 +33,48 @@ import {
 
 import { useMissions } from "../src/hooks/useMissions";
 import { useFamily } from "../src/hooks/useFamily";
-import { db } from "../src/firebase/firebase"; // ✅ bez .web
-import { auth } from "../src/firebase/firebase";
+
+// ✅ WAŻNE: użyj pliku firebase, który działa na native + web (albo zrób re-export w ../src/firebase/firebase.ts)
+import { db, auth, onAuthStateChanged } from "../src/firebase/firebase";
+
+// ✅ otwieramy krok 5 w globalnym CustomHeader (żeby nie dublować headera na ekranie)
+import { setTourStep5Open as setTourStep5OpenBus } from "../src/tour/steps/homeTourSteps";
+import { HOME_TOUR_STEPS } from "../src/tour/steps/homeTourSteps";
 
 /* --------------------------------------------------------- */
 /* ------------------------ HELPERS ------------------------- */
 /* --------------------------------------------------------- */
+
+// ✅ Native: true (płynniejsze animacje), Web: false (unika warningów RNW)
+const USE_NATIVE_DRIVER = Platform.OS !== "web";
+
+function showAlert(title: string, message?: string) {
+  if (Platform.OS === "web") {
+    // @ts-ignore
+    if (typeof window !== "undefined" && typeof window.alert === "function")
+      window.alert(message ? `${title}\n\n${message}` : title);
+    return;
+  }
+  Alert.alert(title, message);
+}
+
+function confirmAsync(message: string, title = "Potwierdź"): Promise<boolean> {
+  if (Platform.OS === "web") {
+    // @ts-ignore
+    const ok =
+      typeof window !== "undefined" && typeof window.confirm === "function"
+        ? window.confirm(message)
+        : true;
+    return Promise.resolve(!!ok);
+  }
+
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Anuluj", style: "cancel", onPress: () => resolve(false) },
+      { text: "OK", style: "destructive", onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 function startOfDay(date: Date) {
   const d = new Date(date);
@@ -41,7 +83,7 @@ function startOfDay(date: Date) {
 }
 
 function startOfWeek(date: Date) {
-  const d = new Date(date);
+  const d = startOfDay(date);
   const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
@@ -49,20 +91,32 @@ function startOfWeek(date: Date) {
   return d;
 }
 
+// ✅ stabilny addDays (bez driftów godzin / DST)
 function addDays(date: Date, days: number) {
-  const d = new Date(date);
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
   d.setDate(d.getDate() + days);
   return d;
 }
 
+// ✅ stabilny addMonths (bez driftów i „dziwnych” przeskoków)
 function addMonths(date: Date, months: number) {
-  const d = new Date(date);
-  const day = d.getDate();
-  d.setDate(1);
-  d.setMonth(d.getMonth() + months);
-  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  d.setDate(Math.min(day, lastDay));
-  return d;
+  const base = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const targetY = base.getFullYear();
+  const targetM = base.getMonth() + months;
+  const day = base.getDate();
+
+  const firstOfTarget = new Date(targetY, targetM, 1, 0, 0, 0, 0);
+  const lastDay = new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth() + 1, 0).getDate();
+
+  return new Date(
+    firstOfTarget.getFullYear(),
+    firstOfTarget.getMonth(),
+    Math.min(day, lastDay),
+    0,
+    0,
+    0,
+    0
+  );
 }
 
 function isSameDay(a: Date, b: Date) {
@@ -83,10 +137,9 @@ function formatDayLong(date: Date) {
 
 function formatWeekRange(weekStart: Date) {
   const weekEnd = addDays(weekStart, 6);
-  return `${weekStart.getDate()}–${weekEnd.getDate()} ${weekStart.toLocaleDateString(
-    "pl-PL",
-    { month: "short" }
-  )}`;
+  return `${weekStart.getDate()}–${weekEnd.getDate()} ${weekStart.toLocaleDateString("pl-PL", {
+    month: "short",
+  })}`;
 }
 
 // 🔹 klucz daty do skipDates (RRRR-MM-DD)
@@ -102,6 +155,61 @@ function toSafeDate(v: any): Date | null {
   if (!v) return null;
   const d = v?.toDate?.() ? v.toDate() : new Date(v);
   return isNaN(d.getTime()) ? null : d;
+}
+
+/* ------------------ date UI helpers (web-friendly) ------------------ */
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function formatMonthYear(date: Date) {
+  return date.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
+}
+
+function formatDatePill(date: Date) {
+  return date.toLocaleDateString("pl-PL", { day: "2-digit", month: "short", year: "numeric" });
+}
+function formatDatePillShort(date: Date) {
+  const d = startOfDay(date);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+function formatISODate(date: Date) {
+  const d = startOfDay(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function parseISODate(value: string) {
+  if (!value || typeof value !== "string") return null;
+  const parts = value.split("-");
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function getMonthMatrix(viewMonth: Date) {
+  const first = startOfMonth(viewMonth);
+  const mondayIndex = (first.getDay() + 6) % 7; // monday-first index: 0..6
+  const gridStart = addDays(first, -mondayIndex);
+
+  const weeks: Date[][] = [];
+  for (let w = 0; w < 6; w++) {
+    const row: Date[] = [];
+    for (let i = 0; i < 7; i++) row.push(addDays(gridStart, w * 7 + i));
+    weeks.push(row);
+  }
+  return weeks;
 }
 
 /* --------------------------------------------------------- */
@@ -134,12 +242,6 @@ function getExpProgress(m: any): number {
  * EXP krzywa:
  *  - do LVL 2 potrzeba 100 EXP
  *  - każdy kolejny level wymaga +50 EXP więcej niż poprzedni
- *
- * LVL 1 → 0
- * LVL 2 → 100
- * LVL 3 → 250
- * LVL 4 → 450
- * LVL 5 → 700
  */
 function requiredExpForLevel(level: number) {
   if (level <= 1) return 0;
@@ -187,8 +289,7 @@ function filterMissionsForDate(allMissions: any[], selectedDate: Date) {
       return false;
     }
 
-    const dueRaw =
-      m.dueDate?.toDate?.() ? m.dueDate.toDate() : new Date(m.dueDate);
+    const dueRaw = m.dueDate?.toDate?.() ? m.dueDate.toDate() : new Date(m.dueDate);
     const due = startOfDay(dueRaw);
 
     const repeat = m.repeat?.type ?? "none";
@@ -210,7 +311,6 @@ function isMissionDoneOnDate(m: any, date: Date) {
   const repeat = m?.repeat?.type ?? "none";
   const dateKey = formatDateKey(date);
 
-  // NEW: per-day completion for recurring missions
   if (repeat !== "none") {
     if (Array.isArray(m.completedDates) && m.completedDates.includes(dateKey)) {
       return true;
@@ -223,7 +323,6 @@ function isMissionDoneOnDate(m: any, date: Date) {
     return false;
   }
 
-  // one-off missions
   return !!m.completed;
 }
 
@@ -234,8 +333,8 @@ function isMissionDoneOnDate(m: any, date: Date) {
 type FireworkParticle = {
   id: string;
   missionId: string;
-  originX: number;
-  originY: number;
+  originX: number; // ✅ już względem screenRef
+  originY: number; // ✅ już względem screenRef
   translateX: Animated.Value;
   translateY: Animated.Value;
   scale: Animated.Value;
@@ -251,15 +350,7 @@ function useFireworkManager() {
   const [particles, setParticles] = useState<FireworkParticle[]>([]);
 
   const shoot = (missionId: string, originX: number, originY: number) => {
-    const COLORS = [
-      "#22c55e",
-      "#0ea5e9",
-      "#eab308",
-      "#f43f5e",
-      "#a855f7",
-      "#f472b6",
-      "#2dd4bf",
-    ];
+    const COLORS = ["#22c55e", "#0ea5e9", "#eab308", "#f43f5e", "#a855f7", "#f472b6", "#2dd4bf"];
 
     const count = 32 + Math.floor(Math.random() * 12); // 32–44 cząstek
     const coreCount = Math.floor(count * 0.35); // ~1/3 – szybki flash
@@ -269,15 +360,9 @@ function useFireworkManager() {
       const angle = Math.random() * Math.PI * 2;
       const isCore = i < coreCount;
 
-      const distance = isCore
-        ? 10 + Math.random() * 18 // krótki wybuch przy guziku
-        : 40 + Math.random() * 80; // dalszy rozprysk
-
-      const duration = isCore
-        ? 350 + Math.random() * 200
-        : 800 + Math.random() * 400;
-
-      const delay = isCore ? 0 : 120 + Math.random() * 120; // druga faza lekko opóźniona
+      const distance = isCore ? 10 + Math.random() * 18 : 40 + Math.random() * 80;
+      const duration = isCore ? 350 + Math.random() * 200 : 800 + Math.random() * 400;
+      const delay = isCore ? 0 : 120 + Math.random() * 120;
 
       newParticles.push({
         id: `${missionId}_${Date.now()}_${i}`,
@@ -307,25 +392,25 @@ function useFireworkManager() {
           toValue: targetX,
           duration: p.duration,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.translateY, {
           toValue: targetY,
           duration: p.duration,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.scale, {
           toValue: 1.3,
           duration: p.duration * 0.6,
           delay: p.delay,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(p.opacity, {
           toValue: 0,
           duration: p.duration,
           delay: p.delay + p.duration * 0.4,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ]).start(() => {
         setParticles((prev) => prev.filter((pp) => pp.id !== p.id));
@@ -334,6 +419,365 @@ function useFireworkManager() {
   };
 
   return { particles, shoot };
+}
+
+/* --------------------------------------------------------- */
+/* ------------------- MEASURE (web + native) ---------------- */
+/* --------------------------------------------------------- */
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+type WebElementLike = {
+  getBoundingClientRect: () => { left: number; top: number; width: number; height: number };
+};
+
+function isWebElement(node: any): node is WebElementLike {
+  return !!node && typeof node.getBoundingClientRect === "function";
+}
+
+async function measureRect(node: any): Promise<Rect | null> {
+  return new Promise((resolve) => {
+    try {
+      if (!node) return resolve(null);
+
+      // ✅ WEB: DOM
+      if (isWebElement(node)) {
+        const r = node.getBoundingClientRect();
+        return resolve({
+          x: r.left,
+          y: r.top,
+          width: r.width,
+          height: r.height,
+        });
+      }
+
+      // ✅ RN: measureInWindow
+      if (node.measureInWindow) {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          if ([x, y, width, height].some((v) => typeof v !== "number" || Number.isNaN(v))) {
+            resolve(null);
+          } else {
+            resolve({ x, y, width, height });
+          }
+        });
+        return;
+      }
+
+      resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/* --------------------------------------------------------- */
+/* ------------------- DATE PICKER MODAL -------------------- */
+/* --------------------------------------------------------- */
+
+function DatePickerModal({
+  visible,
+  colors,
+  selectedDate,
+  today,
+  hasCompletedMissionOnDate,
+  onSelectDate,
+  onClose,
+}: {
+  visible: boolean;
+  colors: any;
+  selectedDate: Date;
+  today: Date;
+  hasCompletedMissionOnDate: (d: Date) => boolean;
+  onSelectDate: (d: Date) => void;
+  onClose: () => void;
+}) {
+  const { width: W } = useWindowDimensions();
+  const [viewMonth, setViewMonth] = useState<Date>(() => startOfMonth(selectedDate));
+
+  useEffect(() => {
+    if (!visible) return;
+    setViewMonth(startOfMonth(selectedDate));
+  }, [visible, selectedDate]);
+
+  if (!visible) return null;
+
+  const pad = 18;
+  const maxW = 560;
+
+  const weeks = getMonthMatrix(viewMonth);
+  const monthLabel = formatMonthYear(viewMonth);
+
+  const softShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0px 18px 60px rgba(0,0,0,0.45)" } as any)
+      : {
+          shadowColor: "#000",
+          shadowOpacity: 0.22,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: 14 },
+          elevation: 10,
+        };
+
+  const inputValue = formatISODate(selectedDate);
+
+  const selectAndClose = (d: Date) => {
+    onSelectDate(startOfDay(d));
+    onClose();
+  };
+
+  const WebDateInput =
+    Platform.OS === "web"
+      ? React.createElement("input", {
+          type: "date",
+          value: inputValue,
+          onChange: (e: any) => {
+            const v = e?.target?.value;
+            const parsed = parseISODate(v);
+            if (parsed) selectAndClose(parsed);
+          },
+          style: {
+            width: "100%",
+            padding: "12px 12px",
+            borderRadius: 16,
+            border: `1px solid ${colors.border}`,
+            background: colors.bg,
+            color: colors.text,
+            fontSize: 14,
+            fontWeight: 900,
+            outline: "none",
+          },
+        } as any)
+      : null;
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 260,
+        backgroundColor: "rgba(15,23,42,0.78)",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: pad,
+        paddingVertical: pad,
+      }}
+    >
+      <View
+        style={{
+          width: "100%",
+          maxWidth: maxW,
+          backgroundColor: colors.card,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 16,
+          ...softShadow,
+        }}
+      >
+        {/* header */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <View
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.accent + "18",
+                borderWidth: 1,
+                borderColor: colors.accent + "55",
+                marginRight: 10,
+              }}
+            >
+              <Ionicons name="calendar-clear-outline" size={20} color={colors.accent} />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>
+                Wybierz datę
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2, fontWeight: "800" }}>
+                Aktualnie: {formatDatePill(selectedDate)}
+              </Text>
+            </View>
+          </View>
+
+          {/* ✅ tylko X */}
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+              alignItems: "center",
+              justifyContent: "center",
+              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+            }}
+          >
+            <Ionicons name="close" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* system date input (web/mobile browsers) */}
+        <View style={{ marginTop: 12 }}>
+          {WebDateInput}
+          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", marginTop: 8 }}>
+            Możesz też kliknąć dzień w kalendarzu niżej.
+          </Text>
+        </View>
+
+        {/* month header */}
+        <View style={{ marginTop: 14 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: 10,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => setViewMonth((m) => startOfMonth(addMonths(m, -1)))}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Poprzedni miesiąc"
+            >
+              <Ionicons name="chevron-back" size={18} color={colors.text} />
+            </TouchableOpacity>
+
+            <View style={{ alignItems: "center", flex: 1 }}>
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.2 }}>
+                {monthLabel}
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700", marginTop: 2 }}>
+                Kliknij dzień
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setViewMonth((m) => startOfMonth(addMonths(m, 1)))}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Następny miesiąc"
+            >
+              <Ionicons name="chevron-forward" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          {/* weekday labels */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 12, paddingHorizontal: 4 }}>
+            {WEEKDAY_LABELS.map((w) => (
+              <View key={w} style={{ width: `${100 / 7}%`, alignItems: "center" }}>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "900" }}>{w}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* calendar grid */}
+          <View style={{ marginTop: 10 }}>
+            {weeks.map((row, ri) => (
+              <View key={ri} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                {row.map((d, ci) => {
+                  const inMonth = d.getMonth() === viewMonth.getMonth();
+                  const active = isSameDay(d, selectedDate);
+                  const isToday = isSameDay(d, today);
+                  const inPast = d < today && !isSameDay(d, today);
+                  const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                  const bg = active ? colors.accent : inMonth ? colors.bg : "transparent";
+                  const border = active ? colors.accent : colors.border;
+                  const text = active ? "#022c22" : inMonth ? colors.text : colors.textMuted;
+
+                  return (
+                    <TouchableOpacity
+                      key={`${ri}-${ci}`}
+                      onPress={() => selectAndClose(d)} // ✅ wybór dnia = zamknięcie
+                      style={{ width: `${100 / 7}%`, paddingHorizontal: 4 }}
+                      activeOpacity={0.85}
+                    >
+                      <View
+                        style={{
+                          height: 46,
+                          borderRadius: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: bg,
+                          borderWidth: inMonth || active ? 1 : 0,
+                          borderColor: border,
+                          opacity: inMonth ? 1 : 0.45,
+                          ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                        }}
+                      >
+                        <Text style={{ color: text, fontWeight: "900", fontSize: 13 }}>{d.getDate()}</Text>
+
+                        {isToday && !active && (
+                          <View
+                            style={{
+                              position: "absolute",
+                              top: 8,
+                              right: 9,
+                              width: 7,
+                              height: 7,
+                              borderRadius: 999,
+                              backgroundColor: colors.accent,
+                            }}
+                          />
+                        )}
+
+                        {hasDone && !active && (
+                          <View
+                            style={{
+                              position: "absolute",
+                              bottom: 8,
+                              width: 6,
+                              height: 6,
+                              borderRadius: 999,
+                              backgroundColor: "#22c55e",
+                            }}
+                          />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 /* --------------------------------------------------------- */
@@ -346,35 +790,161 @@ export default function HomeScreen() {
   const { missions, loading } = useMissions();
   const { members } = useFamily();
 
-  const { particles: fireworkParticles, shoot: triggerFirework } =
-    useFireworkManager();
+  const { width: screenW } = useWindowDimensions();
+  const { particles: fireworkParticles, shoot: triggerFirework } = useFireworkManager();
+
+  // ✅ ref do kontenera ekranu (GuidedTourOverlay odejmuje offset)
+  const screenRef = useRef<any>(null);
+
+  // ✅ ref do scrolla (żeby po zmianie dnia wracać na górę i “odświeżać” sekcje)
+  const scrollRef = useRef<any>(null);
 
   // refy do checkboxów
   const checkboxRefs = useRef<Record<string, any>>({});
+  const demoCheckboxAnchorRef = useRef<any>(null);
 
-  console.log("🟦 RENDER HOME – missions count:", missions?.length);
+  // refs do animacji kart
+  const animationRefs = useRef<Record<string, Animated.Value>>({});
+
+  // Anchory guided tour
+  const hudAnchorRef = useRef<any>(null);
+  const weekDaysAnchorRef = useRef<any>(null);
+  const addTaskAnchorRef = useRef<any>(null);
+
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [tourSession, setTourSession] = useState(0);
 
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
+  const [repeatDeleteDialog, setRepeatDeleteDialog] = useState<{ mission: any; dateKey: string } | null>(null);
   const [timeTravelDialogOpen, setTimeTravelDialogOpen] = useState(false);
 
-  const [userStats, setUserStats] = useState<{
-    level: number;
-    totalExp: number;
-  } | null>(null);
+  const [userStats, setUserStats] = useState<{ level: number; totalExp: number } | null>(null);
+
+  // ✅ modal wyboru daty
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  // welcome modal
+  const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
+  const [welcomeModalReady, setWelcomeModalReady] = useState(false);
 
   const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart]
-  );
+  // ✅ dziś jako STATE (żeby po północy UI nie “zamrażało” logiki inPast / streak)
+  const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = startOfDay(new Date());
+      setToday((prev) => (isSameDay(prev, now) ? prev : now));
+    }, 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const today = useMemo(() => startOfDay(new Date()), []);
+  const [currentUser, setCurrentUser] = useState(() => auth.currentUser);
 
-  const currentUser = auth.currentUser;
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u: any) => setCurrentUser(u));
+    return unsub;
+  }, []);
+
   const myUid = currentUser?.uid ?? null;
   const myPhotoURL = currentUser?.photoURL || null;
   const myDisplayName = currentUser?.displayName || null;
+
+  // ✅ OPTIMISTIC UI (żeby po kliknięciu checkboxa od razu było widać "Wykonane")
+  const [optimisticDone, setOptimisticDone] = useState<Record<string, true>>({});
+
+  // ✅ HOLD SORT (żeby po odkliknięciu misja nie przeskakiwała od razu na dół)
+  const COMPLETE_PREVIEW_MS = 900;
+  const [holdSort, setHoldSort] = useState<Record<string, number>>({});
+  const holdTimersRef = useRef<Record<string, any>>({});
+  useEffect(() => {
+    return () => {
+      Object.values(holdTimersRef.current).forEach((t) => {
+        try {
+          clearTimeout(t);
+        } catch {}
+      });
+      holdTimersRef.current = {};
+    };
+  }, []);
+
+  const makeDoneKey = useCallback((m: any, date: Date) => {
+    const id = String(m?.id ?? "");
+    if (!id) return "";
+    const repeat = m?.repeat?.type ?? "none";
+    if (repeat !== "none") return `${id}::${formatDateKey(date)}`;
+    return id;
+  }, []);
+
+  const isMissionDoneOnDateUI = useCallback(
+    (m: any, date: Date) => {
+      const k = makeDoneKey(m, date);
+      if (k && optimisticDone[k]) return true;
+      return isMissionDoneOnDate(m, date);
+    },
+    [optimisticDone, makeDoneKey]
+  );
+
+  // czyścimy optimistic po zmianie usera
+  useEffect(() => {
+    setOptimisticDone({});
+    setHoldSort({});
+    Object.values(holdTimersRef.current).forEach((t) => {
+      try {
+        clearTimeout(t);
+      } catch {}
+    });
+    holdTimersRef.current = {};
+  }, [myUid]);
+
+  // czyścimy optimistic, gdy snapshot już "dogoni" stan
+  useEffect(() => {
+    if (!missions || !Array.isArray(missions)) return;
+    setOptimisticDone((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+
+      const next = { ...prev };
+      let changed = false;
+
+      for (const k of keys) {
+        const parts = k.split("::");
+        const id = parts[0];
+        const dk = parts[1] || null;
+
+        const m = (missions as any[]).find((x) => String(x?.id ?? "") === String(id));
+        if (!m) {
+          delete next[k];
+          changed = true;
+          continue;
+        }
+
+        if (dk) {
+          const dt = parseISODate(dk);
+          if (dt && isMissionDoneOnDate(m, dt)) {
+            delete next[k];
+            changed = true;
+          }
+        } else {
+          if (!!m.completed) {
+            delete next[k];
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [missions]);
+
+  // ✅ po zmianie dnia: przewiń na górę
+  useEffect(() => {
+    try {
+      scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+    } catch {}
+  }, [selectedDate]);
 
   /* --------------------------------------------------------- */
   /* ✅ LISTA UID-ÓW CZŁONKÓW RODZINY (do filtrów widoczności) */
@@ -382,9 +952,7 @@ export default function HomeScreen() {
 
   const familyMemberIds: string[] = useMemo(() => {
     if (!members) return [];
-    return members
-      .map((x: any) => String(x.uid || x.userId || x.id || ""))
-      .filter((id: string) => !!id);
+    return members.map((x: any) => String(x.uid || x.userId || x.id || "")).filter((id: string) => !!id);
   }, [members]);
 
   /* --------------------------------------------------------- */
@@ -399,19 +967,12 @@ export default function HomeScreen() {
     const assignedBy = m?.assignedByUserId ? String(m.assignedByUserId) : null;
     const createdBy = m?.createdByUserId ? String(m.createdByUserId) : null;
 
-    // 1) Zadania przypisane bezpośrednio do mnie
     if (assignedTo && assignedTo === myId) return true;
 
-    // 2) Legacy: brak assignedToUserId, ale jestem twórcą / przypisującym
-    if (!assignedTo && (assignedBy === myId || createdBy === myId)) {
-      return true;
-    }
+    if (!assignedTo && (assignedBy === myId || createdBy === myId)) return true;
 
-    // 3) Zadania, które JA przypisałem do kogoś z mojej rodziny
     const isFamilyTarget = !!assignedTo && familyMemberIds.includes(assignedTo);
-    if (isFamilyTarget && (assignedBy === myId || createdBy === myId)) {
-      return true;
-    }
+    if (isFamilyTarget && (assignedBy === myId || createdBy === myId)) return true;
 
     return false;
   };
@@ -422,25 +983,78 @@ export default function HomeScreen() {
   }, [missions, myUid, familyMemberIds]);
 
   /* --------------------------------------------------------- */
-  /* --------- NASŁUCH userStats z kolekcji "users" ---------- */
+  /* --------- NASŁUCH userStats + onboarding z "users" ------- */
   /* --------------------------------------------------------- */
 
   useEffect(() => {
     if (!myUid) return;
 
     const userDocRef = doc(db, "users", myUid);
-    const unsub = onSnapshot(userDocRef, (snap) => {
-      const data = snap.data();
-      if (data) {
-        setUserStats({
-          level: (data.level as number | undefined) ?? 1,
-          totalExp: (data.totalExp as number | undefined) ?? 0,
-        });
+
+    const unsub = onSnapshot(
+      userDocRef,
+      (snap) => {
+        const data = snap.data() as any;
+        if (data) {
+          setUserStats({
+            level: (data.level as number | undefined) ?? 1,
+            totalExp: (data.totalExp as number | undefined) ?? 0,
+          });
+
+          const seen = !!data?.onboarding?.welcomeSeen;
+          setWelcomeModalOpen(!seen);
+          setWelcomeModalReady(true);
+        } else {
+          setWelcomeModalOpen(true);
+          setWelcomeModalReady(true);
+        }
+      },
+      (err) => {
+        console.error("🟥 users/{uid} onSnapshot error:", err?.code, err?.message, err);
+        setUserStats({ level: 1, totalExp: 0 });
+        setWelcomeModalOpen(true);
+        setWelcomeModalReady(true);
       }
-    });
+    );
 
     return unsub;
   }, [myUid]);
+
+  const markWelcomeSeen = async (action: "start" | "skip") => {
+    // ✅ 1) UI ma zareagować OD RAZU
+    setWelcomeModalOpen(false);
+
+    if (action === "start") {
+      setTourStepIndex(0);
+      setTourOpen(true);
+      setTourSession((s) => s + 1);
+    } else {
+      router.replace("/");
+    }
+
+    // ✅ 2) Zapis do Firestore – tylko jeśli znamy UID
+    if (!myUid) {
+      console.log("🟨 markWelcomeSeen: myUid is null – started UI locally, skip saving for now.");
+      return;
+    }
+
+    try {
+      await setDoc(
+        doc(db, "users", myUid),
+        {
+          onboarding: {
+            welcomeSeen: true,
+            welcomeSeenAt: serverTimestamp(),
+            welcomeAction: action,
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err: any) {
+      console.error("🟥 WELCOME MODAL save error:", err?.code, err?.message, err);
+    }
+  };
 
   /* --------------------------------------------------------- */
   /* -------------- MAP ASSIGNED / CREATOR MEMBER ------------ */
@@ -456,7 +1070,6 @@ export default function HomeScreen() {
     );
   }, [members, myUid]);
 
-  // 🔸 kto DODAŁ / PRZYPISAŁ zadanie
   const getCreatorMember = (m: any) => {
     const rawId = m?.assignedByUserId || m?.createdByUserId || null;
     const creatorId = rawId ? String(rawId) : null;
@@ -466,22 +1079,9 @@ export default function HomeScreen() {
 
     if (myUid && creatorId === String(myUid)) {
       const avatarUrl =
-        (meFromMembers as any)?.avatarUrl ||
-        (meFromMembers as any)?.photoURL ||
-        myPhotoURL ||
-        null;
-
-      const label =
-        creatorName ||
-        (meFromMembers as any)?.displayName ||
-        myDisplayName ||
-        "Ty";
-
-      return {
-        id: "self",
-        label,
-        avatarUrl,
-      };
+        (meFromMembers as any)?.avatarUrl || (meFromMembers as any)?.photoURL || myPhotoURL || null;
+      const label = creatorName || (meFromMembers as any)?.displayName || myDisplayName || "Ty";
+      return { id: "self", label, avatarUrl };
     }
 
     const found = members?.find((x: any) => {
@@ -492,56 +1092,27 @@ export default function HomeScreen() {
     if (found) {
       return {
         id: creatorId!,
-        label:
-          found.displayName || found.username || creatorName || "Bez nazwy",
+        label: found.displayName || found.username || creatorName || "Bez nazwy",
         avatarUrl: found.avatarUrl || found.photoURL || null,
       };
     }
 
-    return {
-      id: creatorId || "unknown",
-      label: creatorName,
-      avatarUrl: null,
-    };
+    return { id: creatorId || "unknown", label: creatorName, avatarUrl: null };
   };
 
-  // 🔸 do kogo jest PRZYPISANE zadanie
   const getAssignedMember = (m: any) => {
     const assignedId = m?.assignedToUserId ? String(m.assignedToUserId) : null;
     const byId = m?.assignedByUserId || m?.createdByUserId || null;
-    const treatAsSelf =
-      !!myUid &&
-      (assignedId === String(myUid) || (!assignedId && byId === myUid));
+    const treatAsSelf = !!myUid && (assignedId === String(myUid) || (!assignedId && byId === myUid));
 
     if (treatAsSelf) {
-      const level =
-        (meFromMembers as any)?.level ??
-        (m.assignedToLevel as number | undefined) ??
-        1;
-      const totalExp =
-        (meFromMembers as any)?.totalExp ??
-        (m.assignedToTotalExp as number | undefined) ??
-        0;
-
+      const level = (meFromMembers as any)?.level ?? (m.assignedToLevel as number | undefined) ?? 1;
+      const totalExp = (meFromMembers as any)?.totalExp ?? (m.assignedToTotalExp as number | undefined) ?? 0;
       const avatarUrl =
-        (meFromMembers as any)?.avatarUrl ||
-        (meFromMembers as any)?.photoURL ||
-        myPhotoURL ||
-        null;
+        (meFromMembers as any)?.avatarUrl || (meFromMembers as any)?.photoURL || myPhotoURL || null;
+      const label = m.assignedToName || (meFromMembers as any)?.displayName || myDisplayName || "Ty";
 
-      const label =
-        m.assignedToName ||
-        (meFromMembers as any)?.displayName ||
-        myDisplayName ||
-        "Ty";
-
-      return {
-        id: "self",
-        label,
-        avatarUrl,
-        level,
-        totalExp,
-      };
+      return { id: "self", label, avatarUrl, level, totalExp };
     }
 
     const found = members?.find((x: any) => {
@@ -553,8 +1124,7 @@ export default function HomeScreen() {
       return {
         id: assignedId!,
         label: found.displayName || found.username || "Bez nazwy",
-        avatarUrl:
-          m.assignedToAvatarUrl || found.avatarUrl || found.photoURL || null,
+        avatarUrl: m.assignedToAvatarUrl || found.avatarUrl || found.photoURL || null,
         level: found.level ?? 1,
         totalExp: (found as any).totalExp ?? 0,
       };
@@ -580,20 +1150,29 @@ export default function HomeScreen() {
 
   const missionsForDaySorted = useMemo(() => {
     const list = [...missionsForDay];
+
+    // ✅ do SORTOWANIA trzymamy świeżo odkliknięte misje "na miejscu" przez ~900ms
+    const isDoneForSort = (m: any) => {
+      const k = makeDoneKey(m, selectedDate);
+      if (k && holdSort[k]) return false;
+      return isMissionDoneOnDateUI(m, selectedDate);
+    };
+
     list.sort((a, b) => {
-      const ac = isMissionDoneOnDate(a, selectedDate) ? 1 : 0;
-      const bc = isMissionDoneOnDate(b, selectedDate) ? 1 : 0;
+      const ac = isDoneForSort(a) ? 1 : 0;
+      const bc = isDoneForSort(b) ? 1 : 0;
       if (ac !== bc) return ac - bc;
       const ae = (a.expValue ?? 0) as number;
       const be = (b.expValue ?? 0) as number;
       return be - ae;
     });
+
     return list;
-  }, [missionsForDay, selectedDate]);
+  }, [missionsForDay, selectedDate, isMissionDoneOnDateUI, makeDoneKey, holdSort]);
 
   const hasCompletedMissionOnDate = (date: Date) => {
     const list = filterMissionsForDate(visibleMissions, date);
-    return list.some((m) => isMissionDoneOnDate(m, date));
+    return list.some((m) => isMissionDoneOnDateUI(m, date));
   };
 
   const streak = useMemo(() => {
@@ -603,8 +1182,7 @@ export default function HomeScreen() {
 
     for (let i = 0; i < MAX_DAYS; i++) {
       const list = filterMissionsForDate(visibleMissions, cursor);
-      const anyCompleted = list.some((m) => isMissionDoneOnDate(m, cursor));
-
+      const anyCompleted = list.some((m) => isMissionDoneOnDateUI(m, cursor));
       if (!anyCompleted) break;
 
       count += 1;
@@ -612,7 +1190,7 @@ export default function HomeScreen() {
     }
 
     return count;
-  }, [visibleMissions, today]);
+  }, [visibleMissions, today, isMissionDoneOnDateUI]);
 
   /* --------------------------------------------------------- */
   /* ---------------------- HUD METRICS ----------------------- */
@@ -638,27 +1216,13 @@ export default function HomeScreen() {
       };
     }
 
-    if (missionsForDaySorted.length > 0) {
-      return getAssignedMember(missionsForDaySorted[0]);
-    }
+    if (missionsForDaySorted.length > 0) return getAssignedMember(missionsForDaySorted[0]);
 
-    return {
-      id: "self",
-      label: myDisplayName || "Ty",
-      avatarUrl: myPhotoURL,
-      level: 1,
-      totalExp: 0,
-    };
+    return { id: "self", label: myDisplayName || "Ty", avatarUrl: myPhotoURL, level: 1, totalExp: 0 };
   }, [members, missionsForDaySorted, myUid, myPhotoURL, myDisplayName]);
 
-  const hudLevel = Math.max(
-    1,
-    Number(userStats?.level ?? hudMember?.level ?? 1)
-  );
-  const hudTotalExp = Math.max(
-    0,
-    Number(userStats?.totalExp ?? hudMember?.totalExp ?? 0)
-  );
+  const hudLevel = Math.max(1, Number(userStats?.level ?? hudMember?.level ?? 1));
+  const hudTotalExp = Math.max(0, Number(userStats?.totalExp ?? hudMember?.totalExp ?? 0));
 
   const baseReq = hudLevel <= 1 ? 0 : requiredExpForLevel(hudLevel);
   const nextReq = requiredExpForLevel(hudLevel + 1);
@@ -669,22 +1233,14 @@ export default function HomeScreen() {
 
   const dayEarned = useMemo(() => {
     return missionsForDaySorted.reduce((acc, m) => {
-      if (!isMissionDoneOnDate(m, selectedDate)) return acc;
+      if (!isMissionDoneOnDateUI(m, selectedDate)) return acc;
       return acc + ((m.expValue as number | undefined) ?? 0);
     }, 0);
-  }, [missionsForDaySorted, selectedDate]);
+  }, [missionsForDaySorted, selectedDate, isMissionDoneOnDateUI]);
 
   const dayPossible = useMemo(() => {
-    return missionsForDaySorted.reduce((acc, m) => {
-      return acc + ((m.expValue as number | undefined) ?? 0);
-    }, 0);
+    return missionsForDaySorted.reduce((acc, m) => acc + ((m.expValue as number | undefined) ?? 0), 0);
   }, [missionsForDaySorted]);
-
-  /* --------------------------------------------------------- */
-  /* 🔹 ANIMACJE KART MISJI ---------------------------------- */
-  /* --------------------------------------------------------- */
-
-  const animationRefs = useRef<Record<string, Animated.Value>>({});
 
   /* --------------------------------------------------------- */
   /* -------------------- COMPLETE MISSION -------------------- */
@@ -692,27 +1248,49 @@ export default function HomeScreen() {
 
   const handleComplete = (mission: any, anim?: Animated.Value) => {
     if (!mission?.id) {
-      Alert.alert("Ups", "Brak ID zadania – nie mogę oznaczyć jako wykonane.");
+      showAlert("Błąd", "Brak ID zadania – nie mogę oznaczyć jako wykonane.");
       return;
     }
 
-    const alreadyDone = isMissionDoneOnDate(mission, selectedDate);
-    if (alreadyDone) {
-      Alert.alert("Gotowe ✅", "To zadanie jest już oznaczone jako wykonane.");
-      return;
-    }
+    const alreadyDone = isMissionDoneOnDateUI(mission, selectedDate);
+    if (alreadyDone) return;
 
-    // ✅ blokada: nie da się odznaczać poza dzisiaj
-    const isTodaySelected = isSameDay(selectedDate, new Date());
+    const isTodaySelected = isSameDay(selectedDate, today);
     if (!isTodaySelected) {
       setTimeTravelDialogOpen(true);
       return;
     }
 
+    const doneKey = makeDoneKey(mission, selectedDate);
+    if (doneKey) {
+      setOptimisticDone((prev) => (prev[doneKey] ? prev : { ...prev, [doneKey]: true }));
+
+      const expiresAt = Date.now() + COMPLETE_PREVIEW_MS;
+      setHoldSort((prev) => ({ ...prev, [doneKey]: expiresAt }));
+
+      if (holdTimersRef.current[doneKey]) {
+        try {
+          clearTimeout(holdTimersRef.current[doneKey]);
+        } catch {}
+      }
+
+      holdTimersRef.current[doneKey] = setTimeout(() => {
+        setHoldSort((prev) => {
+          if (!prev[doneKey]) return prev;
+          const next = { ...prev };
+          delete next[doneKey];
+          return next;
+        });
+        try {
+          delete holdTimersRef.current[doneKey];
+        } catch {}
+      }, COMPLETE_PREVIEW_MS);
+    }
+
     const doUpdate = async () => {
       try {
         const repeat = mission?.repeat?.type ?? "none";
-        const todayKey = formatDateKey(new Date());
+        const todayKey = formatDateKey(today);
 
         const byUserId = myUid ?? null;
         const byName = myDisplayName || "Ty";
@@ -723,8 +1301,6 @@ export default function HomeScreen() {
             completedDates: arrayUnion(todayKey),
             completedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-
-            // ✅ kto wykonał (per dzień)
             [`completedByByDate.${todayKey}`]: {
               userId: byUserId,
               name: byName,
@@ -738,39 +1314,47 @@ export default function HomeScreen() {
           completed: true,
           completedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-
-          // ✅ kto wykonał (jednorazowe)
           completedByUserId: byUserId,
           completedByName: byName,
         });
       } catch (err: any) {
         console.error("🟥 COMPLETE ERROR:", err?.code, err?.message, err);
-        Alert.alert(
-          "Błąd",
-          "Błąd podczas oznaczania jako wykonane. Spróbuj ponownie."
-        );
+
+        if (doneKey) {
+          setOptimisticDone((prev) => {
+            if (!prev[doneKey]) return prev;
+            const next = { ...prev };
+            delete next[doneKey];
+            return next;
+          });
+
+          setHoldSort((prev) => {
+            if (!prev[doneKey]) return prev;
+            const next = { ...prev };
+            delete next[doneKey];
+            return next;
+          });
+
+          if (holdTimersRef.current[doneKey]) {
+            try {
+              clearTimeout(holdTimersRef.current[doneKey]);
+            } catch {}
+            try {
+              delete holdTimersRef.current[doneKey];
+            } catch {}
+          }
+        }
+
+        showAlert("Błąd", "Błąd podczas oznaczania jako wykonane.");
       }
     };
 
-    // jeśli mamy animację dla tej karty – zrób mały bounce przed zapisem
     if (anim) {
       Animated.sequence([
-        Animated.timing(anim, {
-          toValue: 0.94,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-        Animated.timing(anim, {
-          toValue: 1,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // po animacji wykonaj zapis w Firestore
-        doUpdate();
-      });
+        Animated.timing(anim, { toValue: 0.94, duration: 120, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(anim, { toValue: 1, duration: 120, useNativeDriver: USE_NATIVE_DRIVER }),
+      ]).start(() => doUpdate());
     } else {
-      // fallback – bez animacji
       doUpdate();
     }
   };
@@ -783,19 +1367,48 @@ export default function HomeScreen() {
     try {
       if (!mission?.id) {
         console.error("🟥 DELETE ABORT – missing mission.id", mission);
-        Alert.alert("Błąd", "Brak ID zadania – nie mogę usunąć.");
+        showAlert("Błąd", "Brak ID zadania – nie mogę usunąć.");
         return;
       }
 
       const missionRef = doc(db, "missions", mission.id);
-      const deletedRef = doc(db, "deleted_missions", mission.id);
+
+      // bucketId = uid (dla prywatnych) albo familyId (dla rodzinnych)
+      const bucketId = mission?.familyId ? String(mission.familyId) : String(myUid || "");
+
+      if (!bucketId) {
+        console.error("🟥 DELETE ABORT – missing bucketId (no myUid)", { mission, myUid });
+        showAlert("Błąd", "Brak UID – zaloguj się ponownie.");
+        return;
+      }
+
+      const deletedRef = doc(db, "deleted_missions", bucketId, "deleted_missions", mission.id);
+
+      const vis = Array.from(
+        new Set(
+          [
+            myUid,
+            mission?.assignedToUserId,
+            mission?.assignedByUserId,
+            mission?.createdByUserId,
+            mission?.assignedTo,
+            mission?.assignedBy,
+            mission?.createdBy,
+          ]
+            .filter(Boolean)
+            .map((x) => String(x))
+        )
+      );
 
       await setDoc(
         deletedRef,
         {
           ...mission,
+          id: mission.id,
+          bucketId,
           originalCollection: "missions",
           deletedAt: new Date().toISOString(),
+          visibleTo: vis,
         },
         { merge: true }
       );
@@ -809,18 +1422,10 @@ export default function HomeScreen() {
           await updateDoc(doc(db, "missions", mission.id), { archived: true });
         }
       } catch (err2: any) {
-        console.error(
-          "🟥 DELETE ERROR (fallback archived):",
-          err2?.code,
-          err2?.message,
-          err2
-        );
+        console.error("🟥 DELETE ERROR (fallback archived):", err2?.code, err2?.message, err2);
       }
 
-      Alert.alert(
-        "Błąd",
-        "Błąd podczas usuwania zadania. Spróbuj ponownie później."
-      );
+      showAlert("Błąd", "Błąd podczas usuwania (sprawdź konsolę).");
     }
   };
 
@@ -828,18 +1433,13 @@ export default function HomeScreen() {
     try {
       if (!mission?.id) {
         console.error("🟥 SKIP ABORT – missing mission.id", mission);
-        Alert.alert("Błąd", "Brak ID zadania – nie mogę ukryć dla tego dnia.");
+        showAlert("Błąd", "Brak ID zadania – nie mogę ukryć dla tego dnia.");
         return;
       }
 
       const missionRef = doc(db, "missions", mission.id);
-      const prevSkip: string[] = Array.isArray(mission.skipDates)
-        ? mission.skipDates
-        : [];
-      if (prevSkip.includes(dateKey)) {
-        console.log("🟨 SKIP already contains date", dateKey);
-        return;
-      }
+      const prevSkip: string[] = Array.isArray(mission.skipDates) ? mission.skipDates : [];
+      if (prevSkip.includes(dateKey)) return;
 
       const nextSkip = [...prevSkip, dateKey];
 
@@ -849,45 +1449,21 @@ export default function HomeScreen() {
       });
     } catch (err: any) {
       console.error("🟥 SKIP ERROR:", err?.code, err?.message, err);
-      Alert.alert(
-        "Błąd",
-        "Błąd podczas ukrywania zadania dla tego dnia. Spróbuj ponownie."
-      );
+      showAlert("Błąd", "Błąd podczas ukrywania tego dnia.");
     }
   };
 
-  const handleDelete = (mission: any) => {
+  const handleDelete = async (mission: any) => {
     const isRepeating = mission?.repeat?.type && mission.repeat.type !== "none";
     const dateKey = formatDateKey(selectedDate);
 
     if (!isRepeating) {
-      Alert.alert("Usuń zadanie", "Czy na pewno chcesz usunąć to zadanie?", [
-        { text: "Anuluj", style: "cancel" },
-        {
-          text: "Usuń",
-          style: "destructive",
-          onPress: () => deleteSeries(mission),
-        },
-      ]);
+      const ok = await confirmAsync("Czy na pewno chcesz usunąć to zadanie?");
+      if (ok) await deleteSeries(mission);
       return;
     }
 
-    Alert.alert(
-      "Usuń zadanie cykliczne",
-      "To zadanie powtarza się w czasie. Co chcesz zrobić?",
-      [
-        { text: "Anuluj", style: "cancel" },
-        {
-          text: "Tylko ten dzień",
-          onPress: () => deleteOnlyToday(mission, dateKey),
-        },
-        {
-          text: "Całą serię",
-          style: "destructive",
-          onPress: () => deleteSeries(mission),
-        },
-      ]
-    );
+    setRepeatDeleteDialog({ mission, dateKey });
   };
 
   /* --------------------------------------------------------- */
@@ -899,11 +1475,7 @@ export default function HomeScreen() {
       pathname: "/editmission",
       params: {
         missionId: mission.id,
-        date: (
-          mission.dueDate.toDate?.()
-            ? mission.dueDate.toDate()
-            : new Date(mission.dueDate)
-        ).toISOString(),
+        date: (mission.dueDate.toDate?.() ? mission.dueDate.toDate() : new Date(mission.dueDate)).toISOString(),
       },
     });
   };
@@ -915,9 +1487,7 @@ export default function HomeScreen() {
     });
   };
 
-  const goToToday = () => {
-    setSelectedDate(startOfDay(new Date()));
-  };
+  const goToToday = () => setSelectedDate(startOfDay(new Date()));
 
   /* --------------------------------------------------------- */
   /* -------------------------- FOOTER ------------------------ */
@@ -926,23 +1496,425 @@ export default function HomeScreen() {
   const safePush = (to: any) => {
     try {
       router.push(to);
-    } catch (e) {
+    } catch {
       console.log("🟨 NAV blocked / route missing:", to);
     }
   };
+
+  /* --------------------------------------------------------- */
+  /* ---------------------- UI HELPERS ------------------------ */
+  /* --------------------------------------------------------- */
+
+  const cardShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0px 12px 34px rgba(0,0,0,0.24)" } as any)
+      : {
+          shadowColor: "#000",
+          shadowOpacity: 0.14,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 10 },
+          elevation: 6,
+        };
+
+  const softShadow =
+    Platform.OS === "web"
+      ? ({ boxShadow: "0px 10px 26px rgba(0,0,0,0.20)" } as any)
+      : {
+          shadowColor: "#000",
+          shadowOpacity: 0.12,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: 8 },
+          elevation: 4,
+        };
+
+  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(56px)" } as any) : null;
+
+  const isNarrow = screenW < 640;
+  const [hintNavRow, setHintNavRow] = useState(true);
+  const [hintWeekRow, setHintWeekRow] = useState(true);
+  const isPhone = screenW < 420;
+  const uiScale = Math.max(0.82, Math.min(1, screenW / 430));
+  const canFitWeekRow = screenW >= 360;
+  const HSP = isPhone ? 6 : 8;
+
+  // ✅ czy pokazujemy labelki przy ikonkach (desktop/tablet)
+  const showNavLabels = !isNarrow && screenW >= 520;
+
+  useEffect(() => {
+    if (!isNarrow) return;
+    setHintNavRow(true);
+    const t = setTimeout(() => setHintNavRow(false), 4500);
+    return () => clearTimeout(t);
+  }, [isNarrow, selectedDate]);
+
+  useEffect(() => {
+    if (!isNarrow) return;
+    setHintWeekRow(true);
+    const t = setTimeout(() => setHintWeekRow(false), 4500);
+    return () => clearTimeout(t);
+  }, [isNarrow, selectedDate]);
+
+  const ScrollHintOverlay = ({ side }: { side: "left" | "right" }) => {
+    if (Platform.OS !== "web") return null;
+    if (!isNarrow) return null;
+
+    const isLeft = side === "left";
+    return (
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          width: 34,
+          ...(isLeft ? { left: 0 } : { right: 0 }),
+          justifyContent: "center",
+          alignItems: isLeft ? "flex-start" : "flex-end",
+          paddingHorizontal: 6,
+          zIndex: 5,
+          ...(Platform.OS === "web"
+            ? ({
+                background: isLeft
+                  ? `linear-gradient(90deg, ${colors.card} 0%, ${colors.card}00 100%)`
+                  : `linear-gradient(270deg, ${colors.card} 0%, ${colors.card}00 100%)`,
+              } as any)
+            : null),
+        }}
+        pointerEvents="none"
+      >
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 999,
+            backgroundColor: colors.bg,
+            borderWidth: 1,
+            borderColor: colors.border,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: 0.85,
+          }}
+        >
+          <Ionicons name={isLeft ? "chevron-back" : "chevron-forward"} size={14} color={colors.textMuted} />
+        </View>
+      </View>
+    );
+  };
+
+  // ✅ MAŁE IKONOWE PRZYCISKI (zamiast dużych chipów/stepperów)
+  const IconPillButton = ({
+    icon,
+    label,
+    onPress,
+    tone = "neutral",
+    style,
+  }: {
+    icon: any;
+    label?: string;
+    onPress: () => void;
+    tone?: "neutral" | "accent";
+    style?: any;
+  }) => {
+    const h = Math.round(44 * uiScale);
+    const size = Math.round(18 * uiScale);
+
+    const bg = tone === "accent" ? colors.accent : colors.bg;
+    const border = tone === "accent" ? colors.accent + "00" : colors.border;
+    const iconColor = tone === "accent" ? "#022c22" : colors.textMuted;
+    const textColor = tone === "accent" ? "#022c22" : colors.text;
+
+    const hasLabel = label !== undefined && label !== null; // ✅ nie “truthy”, tylko realnie czy jest
+
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.9}
+        style={[
+          {
+            height: h,
+            paddingHorizontal: hasLabel ? Math.round(14 * uiScale) : Math.round(14 * uiScale),
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: border,
+            backgroundColor: bg,
+            flexDirection: "row",
+            alignItems: "center",
+          },
+          Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null,
+          style || null,
+        ]}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons name={icon} size={size} color={iconColor} />
+
+        {hasLabel ? (
+          <Text
+            style={{
+              marginLeft: 8,
+              color: textColor,
+              fontSize: Math.round(12 * uiScale),
+              fontWeight: "900",
+              letterSpacing: 0.2,
+
+              // ✅ kluczowe, żeby tekst nie znikał / nie był “zjadany”
+              flexShrink: 1,
+              minWidth: 0,
+            }}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {String(label)}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
+  const DatePillButton = ({
+    date,
+    onPress,
+    style,
+  }: {
+    date: Date;
+    onPress: () => void;
+    style?: any;
+  }) => {
+    const h = Math.round(44 * uiScale);
+    const size = Math.round(18 * uiScale);
+
+    const d = startOfDay(date);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getFullYear());
+
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.9}
+        style={[
+          {
+            height: h,
+            paddingHorizontal: Math.round(14 * uiScale),
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.bg,
+            flexDirection: "row",
+            alignItems: "center",
+          },
+          Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null,
+          style || null,
+        ]}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons name="calendar-clear-outline" size={size} color={colors.textMuted} />
+
+        <View style={{ marginLeft: 10, flex: 1, minWidth: 0 }}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: Math.round(12 * uiScale),
+              fontWeight: "900",
+              letterSpacing: 0.2,
+            }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
+            {dd}.{mm}.{yyyy}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+
+  const IconStepperPill = ({
+    icon,
+    label,
+    onPrev,
+    onNext,
+  }: {
+    icon: any;
+    label?: string;
+    onPrev: () => void;
+    onNext: () => void;
+  }) => {
+    const h = Math.round(44 * uiScale);
+    const btnW = Math.round(42 * uiScale);
+    const iconSize = Math.round(18 * uiScale);
+    const midIconSize = Math.round(16 * uiScale);
+
+    return (
+      <View
+        style={{
+          height: h,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.bg,
+          flexDirection: "row",
+          alignItems: "center",
+          overflow: "hidden",
+        }}
+      >
+        <TouchableOpacity
+          onPress={onPrev}
+          style={{
+            width: btnW,
+            height: h,
+            alignItems: "center",
+            justifyContent: "center",
+            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="chevron-back" size={iconSize} color={colors.text} />
+        </TouchableOpacity>
+
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: label ? 10 : 12 }}>
+          <Ionicons name={icon} size={midIconSize} color={colors.textMuted} />
+          {label ? (
+            <Text
+              style={{
+                marginLeft: 8,
+                color: colors.text,
+                fontSize: Math.round(12 * uiScale),
+                fontWeight: "900",
+                letterSpacing: 0.2,
+              }}
+            >
+              {label}
+            </Text>
+          ) : null}
+        </View>
+
+        <TouchableOpacity
+          onPress={onNext}
+          style={{
+            width: btnW,
+            height: h,
+            alignItems: "center",
+            justifyContent: "center",
+            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="chevron-forward" size={iconSize} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // ✅ elegancki “streak” (bez obwódki w środku)
+  const StreakPill = ({ value }: { value: number }) => {
+    const h = Math.round(44 * uiScale);
+
+    return (
+      <View
+        style={{
+          height: h,
+          paddingHorizontal: 12,
+          borderRadius: 999,
+          backgroundColor: "#f9731612",
+          borderWidth: 1,
+          borderColor: "#f973163a",
+          flexDirection: "row",
+          alignItems: "center",
+        }}
+      >
+        <Ionicons name="flame-outline" size={18} color="#f97316" />
+
+        <Text style={{ marginLeft: 8, color: "#f97316", fontWeight: "900", fontSize: 13, letterSpacing: 0.2 }}>
+          {value}
+        </Text>
+      </View>
+    );
+  };
+
+
+
+  /* --------------------------------------------------------- */
+  /* -------------------- TOUR: steps + node ------------------ */
+  /* --------------------------------------------------------- */
+
+  const getNodeForStep = useCallback(
+    (key: GuidedTourStep["key"]) => {
+      if (key === "hud") return hudAnchorRef.current;
+      if (key === "week") return weekDaysAnchorRef.current;
+      if (key === "add") return addTaskAnchorRef.current;
+
+      if (key === "checkbox") {
+        const first = missionsForDaySorted?.[0];
+        if (first?.id && checkboxRefs.current[first.id]) return checkboxRefs.current[first.id];
+        if (demoCheckboxAnchorRef.current) return demoCheckboxAnchorRef.current;
+        return addTaskAnchorRef.current;
+      }
+
+      return null;
+    },
+    [missionsForDaySorted]
+  );
+
+  const markTourSeen = async () => {
+    if (!myUid) return;
+    try {
+      await setDoc(
+        doc(db, "users", myUid),
+        {
+          onboarding: {
+            tourSeen: true,
+            tourSeenAt: serverTimestamp(),
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.log("🟨 tourSeen save failed", e);
+    }
+  };
+
+  const closeTour = async () => {
+    setTourOpen(false);
+    await markTourSeen();
+  };
+
+  const finishTour = async () => {
+    setTourOpen(false);
+    await markTourSeen();
+    try {
+      setTourStep5OpenBus(true);
+    } catch {}
+  };
+
+  const tourRefreshToken = useMemo(() => {
+    const firstId = missionsForDaySorted?.[0]?.id ?? "none";
+    const len = missionsForDaySorted?.length ?? 0;
+    return `${formatDateKey(selectedDate)}|${firstId}|${len}`;
+  }, [selectedDate, missionsForDaySorted]);
+
+  /* --------------------------------------------------------- */
+  /* -------------------------- FOOTER ------------------------ */
+  /* --------------------------------------------------------- */
 
   const FooterLink = ({ label, to }: { label: string; to?: any }) => {
     return (
       <TouchableOpacity
         activeOpacity={0.86}
         onPress={() => (to ? safePush(to) : undefined)}
-        style={{ marginTop: 4 }}
+        style={
+          Platform.OS === "web"
+            ? ({ cursor: "pointer", marginHorizontal: 8, marginVertical: 4 } as any)
+            : { marginHorizontal: 8, marginVertical: 4 }
+        }
       >
         <Text
           style={{
             color: colors.textMuted,
             fontSize: 11,
-            fontWeight: "600",
+            fontWeight: "700",
+            letterSpacing: 0.2,
+            textAlign: "center",
           }}
         >
           {label}
@@ -953,114 +1925,33 @@ export default function HomeScreen() {
 
   const AppFooter = () => {
     return (
-      <View
-        style={{
-          marginTop: 32,
-          paddingVertical: 18,
-          paddingHorizontal: 16,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.bg,
-        }}
-      >
-        {/* LOGO + NAZWA */}
-        <View
-          style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}
-        >
-          <View
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.accent,
-              marginRight: 10,
-            }}
-          >
-            <Ionicons name="home-outline" size={18} color="#022c22" />
+      <View style={{ marginTop: 28, paddingVertical: 18, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}>
+        <View style={{ alignItems: "center", maxWidth: 720 }}>
+          <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.2, textAlign: "center" }}>
+            MissionHome
+          </Text>
+
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4, fontWeight: "700", textAlign: "center" }}>
+            Wbijaj poziom w codzienności ✨
+          </Text>
+
+          <View style={{ marginTop: 10, flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
+            <FooterLink label="O aplikacji" to="/about-app" />
+            <FooterLink label="Regulamin" to="/rules" />
+            <FooterLink label="Polityka prywatności" to="/privacy" />
+            <FooterLink label="Kontakt" to="/contact" />
           </View>
 
-          <View>
-            <Text
-              style={{ color: colors.text, fontSize: 16, fontWeight: "900" }}
-            >
-              MissionHome
-            </Text>
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 12,
-                marginTop: 1,
-                fontWeight: "700",
-              }}
-            >
-              Porządek w domu, exp w życiu ✨
-            </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 2 }}>
+            <FooterLink label="FAQ" to="/faq" />
+            <FooterLink label="Zgłoś błąd" to="/bug" />
+            <FooterLink label="Zgłoś pomysł" to="/idea" />
           </View>
-        </View>
 
-        {/* SOCIAL IKONY */}
-        <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          {(
-            [
-              "logo-facebook",
-              "logo-instagram",
-              "logo-linkedin",
-              "logo-youtube",
-            ] as const
-          ).map((icon) => (
-            <TouchableOpacity
-              key={icon}
-              activeOpacity={0.9}
-              style={{ marginHorizontal: 8 }}
-            >
-              <Ionicons name={icon as any} size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          ))}
+          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", marginTop: 10, textAlign: "center" }}>
+            © {new Date().getFullYear()} MissionHome - wszystkie prawa zastrzeżone
+          </Text>
         </View>
-
-        {/* LINKI LINIA 1 */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-          }}
-        >
-          <FooterLink label="O aplikacji" to="/about-app" />
-          <FooterLink label="Regulamin" to="/rules" />
-          <FooterLink label="Polityka prywatności i cookies" to="/privacy" />
-          <FooterLink label="Kontakt" to="/contact" />
-        </View>
-
-        {/* LINKI LINIA 2 */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-            marginTop: 6,
-          }}
-        >
-          <FooterLink label="FAQ" to="/faq" />
-          <FooterLink label="Zgłoś błąd" to="/bug" />
-          <FooterLink label="Zgłoś pomysł" to="/idea" />
-        </View>
-
-        {/* COPYRIGHT */}
-        <Text
-          style={{
-            color: colors.textMuted,
-            fontSize: 11,
-            fontWeight: "800",
-            marginTop: 12,
-            textAlign: "center",
-          }}
-        >
-          © {new Date().getFullYear()} MissionHome - wszystkie prawa
-          zastrzeżone
-        </Text>
       </View>
     );
   };
@@ -1071,1120 +1962,8 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          flexGrow: 1,
-          width: "100%",
-          paddingVertical: 16,
-          alignItems: "center",
-        }}
-      >
-        <View
-          style={{
-            width: "100%",
-            paddingHorizontal: 24,
-            flexGrow: 1,
-            alignSelf: "center",
-          }}
-        >
-          {/* HUD */}
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              padding: 14,
-              marginBottom: 16,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            {/* PLAYER HUD */}
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 12,
-              }}
-            >
-              {hudMember.avatarUrl ? (
-                <Image
-                  source={{ uri: hudMember.avatarUrl }}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 999,
-                    marginRight: 10,
-                  }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 999,
-                    backgroundColor: "#22d3ee33",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    marginRight: 10,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#22d3ee",
-                      fontWeight: "800",
-                      fontSize: 16,
-                    }}
-                  >
-                    {hudMember.label?.[0] ?? "?"}
-                  </Text>
-                </View>
-              )}
-
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: "800",
-                  }}
-                >
-                  {hudMember.id === "self" ? "Twój poziom" : hudMember.label}
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginTop: 4,
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                    LVL{" "}
-                    <Text style={{ color: colors.text, fontWeight: "800" }}>
-                      {hudLevel}
-                    </Text>
-                    {"  "}• EXP{" "}
-                    <Text style={{ color: colors.text, fontWeight: "800" }}>
-                      {hudTotalExp}
-                    </Text>
-                  </Text>
-
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 999,
-                      backgroundColor: colors.accent + "22",
-                      borderWidth: 1,
-                      borderColor: colors.accent + "66",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.accent,
-                        fontSize: 11,
-                        fontWeight: "800",
-                      }}
-                    >
-                      Do LVL {hudLevel + 1}: {hudToNext} EXP
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ marginTop: 8 }}>
-                  <View
-                    style={{
-                      height: 8,
-                      borderRadius: 999,
-                      backgroundColor: "#020617",
-                      overflow: "hidden",
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    }}
-                  >
-                    <View
-                      style={{
-                        height: "100%",
-                        width: `${hudProgress * 100}%`,
-                        borderRadius: 999,
-                        backgroundColor: colors.accent,
-                      }}
-                    />
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      marginTop: 6,
-                    }}
-                  >
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      Dziś zgarnięte:{" "}
-                      <Text style={{ color: colors.text, fontWeight: "800" }}>
-                        {dayEarned}
-                      </Text>{" "}
-                      / {dayPossible} EXP
-                    </Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      Próg LVL {hudLevel + 1}:{" "}
-                      <Text style={{ color: colors.text, fontWeight: "800" }}>
-                        {nextReq}
-                      </Text>
-                    </Text>
-                  </View>
-
-                  {/* STREAK */}
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginTop: 8,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                        backgroundColor: "#f9731622",
-                        borderWidth: 1,
-                        borderColor: "#f9731688",
-                      }}
-                    >
-                      <Ionicons name="flame" size={14} color="#f97316" />
-                      <Text
-                        style={{
-                          marginLeft: 6,
-                          color: "#f97316",
-                          fontSize: 11,
-                          fontWeight: "800",
-                        }}
-                      >
-                        Streak: {streak}{" "}
-                        {streak === 1 ? "dzień z rzędu" : "dni z rzędu"}
-                      </Text>
-                    </View>
-
-                    {streak > 0 && (
-                      <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                        Trzymaj tempo! 🔥
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* header tygodnia + przyciski + DZIŚ */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginBottom: 8,
-                alignItems: "center",
-              }}
-            >
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedDate(addDays(selectedDate, -7));
-                }}
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.text} />
-              </TouchableOpacity>
-
-              <View style={{ alignItems: "center" }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: "700",
-                  }}
-                >
-                  Tydzień
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                  {formatWeekRange(weekStart)}
-                </Text>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginTop: 6,
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={() => setSelectedDate(addMonths(selectedDate, -1))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.card,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name="play-skip-back-outline"
-                      size={14}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={goToToday}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: "#0ea5e944",
-                      marginHorizontal: 8,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 11,
-                        fontWeight: "800",
-                      }}
-                    >
-                      Dziś
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => setSelectedDate(addMonths(selectedDate, 1))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.card,
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons
-                      name="play-skip-forward-outline"
-                      size={14}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedDate(addDays(selectedDate, 7));
-                }}
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={colors.text}
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* days */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-              }}
-            >
-              {weekDays.map((d, i) => {
-                const active = isSameDay(d, selectedDate);
-                const isTodayDay = isSameDay(d, today);
-                const inPast = d < today && !isSameDay(d, today);
-                const hasDone = inPast && hasCompletedMissionOnDate(d);
-
-                const bgColor = active
-                  ? colors.accent
-                  : hasDone
-                  ? "#22c55e22"
-                  : colors.card;
-
-                const borderColor = active
-                  ? colors.accent
-                  : hasDone
-                  ? "#22c55e88"
-                  : colors.border;
-
-                const textColor = active
-                  ? "#022c22"
-                  : hasDone
-                  ? "#16a34a"
-                  : colors.text;
-
-                const subTextColor = active
-                  ? "#022c22"
-                  : hasDone
-                  ? "#16a34a"
-                  : colors.textMuted;
-
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => setSelectedDate(startOfDay(d))}
-                    style={{
-                      flex: 1,
-                      marginHorizontal: 2,
-                      paddingVertical: 8,
-                      alignItems: "center",
-                      borderRadius: 12,
-                      backgroundColor: bgColor,
-                      borderWidth: 1,
-                      borderColor: borderColor,
-                    }}
-                    hitSlop={{
-                      top: 6,
-                      bottom: 6,
-                      left: 6,
-                      right: 6,
-                    }}
-                  >
-                    {isTodayDay && !active && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          right: 6,
-                          width: 6,
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: colors.accent,
-                        }}
-                      />
-                    )}
-
-                    <Text style={{ color: subTextColor, fontSize: 12 }}>
-                      {WEEKDAY_LABELS[i]}
-                    </Text>
-                    <Text
-                      style={{
-                        color: textColor,
-                        fontWeight: "700",
-                        fontSize: 14,
-                      }}
-                    >
-                      {d.getDate()}
-                    </Text>
-
-                    {hasDone && !active && (
-                      <View
-                        style={{
-                          marginTop: 3,
-                          width: 6,
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: "#22c55e",
-                        }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* HEADER */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "700",
-                }}
-              >
-                Zadania na:
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {formatDayLong(selectedDate)}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={goToAddTask}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: colors.accent,
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 999,
-              }}
-              hitSlop={{
-                top: 10,
-                bottom: 10,
-                left: 10,
-                right: 10,
-              }}
-            >
-              <Ionicons name="add-circle-outline" size={18} color="#022c22" />
-              <Text
-                style={{
-                  color: "#022c22",
-                  fontWeight: "700",
-                  marginLeft: 6,
-                  fontSize: 14,
-                }}
-              >
-                Dodaj zadanie
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* LISTA ZADAŃ */}
-          {loading ? (
-            <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
-          ) : missionsForDaySorted.length === 0 ? (
-            <View
-              style={{
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <Text style={{ color: colors.textMuted }}>
-                Brak zadań tego dnia.
-              </Text>
-            </View>
-          ) : (
-            missionsForDaySorted.map((m: any, idx: number) => {
-              const assigned = getAssignedMember(m);
-              const creator = getCreatorMember(m);
-              const diff = getDifficultyLabel(m);
-              const expProgress = getExpProgress(m);
-              const isDone = isMissionDoneOnDate(m, selectedDate);
-              const expValue = (m.expValue ?? 0) as number;
-
-              const samePersonAssignedAndCreator =
-                creator && assigned ? isSameMember(assigned, creator) : false;
-
-              const hideCreatorInfo = !creator || samePersonAssignedAndCreator;
-              const hideAssignedInfo = samePersonAssignedAndCreator;
-              const selfCompactRow = hideCreatorInfo && hideAssignedInfo;
-
-              const animKey = m.id ?? `fallback-${idx}`;
-              if (!animationRefs.current[animKey]) {
-                animationRefs.current[animKey] = new Animated.Value(1);
-              }
-              const rowAnim = animationRefs.current[animKey];
-
-              return (
-                <Animated.View
-                  key={m.id ?? `fallback-${idx}`}
-                  style={{
-                    transform: [{ scale: rowAnim }],
-                    opacity: rowAnim.interpolate({
-                      inputRange: [0.9, 1],
-                      outputRange: [0.85, 1],
-                      extrapolate: "clamp",
-                    }),
-                  }}
-                >
-                  <View
-                    style={{
-                      padding: 14,
-                      marginBottom: 12,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      backgroundColor: colors.card,
-                      borderColor: isDone ? "#22c55e66" : colors.border,
-                    }}
-                  >
-                    {/* Top row: checkbox + tytuł + akcje */}
-                    <View
-                      style={{ flexDirection: "row", alignItems: "center" }}
-                    >
-                      {/* Wrapper na guzik */}
-                      <View
-                        ref={(el) => {
-                          if (m.id) {
-                            checkboxRefs.current[m.id] = el;
-                          }
-                        }}
-                        style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 10,
-                          marginRight: 10,
-                          justifyContent: "center",
-                          alignItems: "center",
-                        }}
-                      >
-                        <TouchableOpacity
-                          onPress={() => {
-                            const node = checkboxRefs.current[m.id];
-                            if (node && node.measureInWindow) {
-                              node.measureInWindow(
-                                (
-                                  x: number,
-                                  y: number,
-                                  width: number,
-                                  height: number
-                                ) => {
-                                  const cx = x + width / 2;
-                                  const cy = y + height / 2;
-                                  // 💥 globalny wybuch przy tym checkboxie
-                                  triggerFirework(m.id, cx, cy);
-                                  handleComplete({ ...m }, rowAnim);
-                                }
-                              );
-                            } else {
-                              // fallback – środek ekranu, gdyby measure nie zadziałał
-                              triggerFirework(m.id, 200, 200);
-                              handleComplete({ ...m }, rowAnim);
-                            }
-                          }}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            borderRadius: 10,
-                            justifyContent: "center",
-                            alignItems: "center",
-                            borderWidth: 1,
-                            borderColor: isDone ? "#22c55e88" : colors.border,
-                            backgroundColor: isDone
-                              ? "#22c55e22"
-                              : "transparent",
-                          }}
-                          hitSlop={{
-                            top: 10,
-                            bottom: 10,
-                            left: 10,
-                            right: 10,
-                          }}
-                        >
-                          <Ionicons
-                            name={isDone ? "checkmark" : "ellipse-outline"}
-                            size={18}
-                            color={isDone ? "#22c55e" : colors.textMuted}
-                          />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: isDone ? colors.textMuted : colors.text,
-                            fontSize: 15,
-                            fontWeight: "800",
-                            textDecorationLine: isDone
-                              ? "line-through"
-                              : "none",
-                          }}
-                        >
-                          {m.title}
-                        </Text>
-
-                        {isDone ? (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              marginTop: 4,
-                            }}
-                          >
-                            <View
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor: "#22c55e22",
-                                borderWidth: 1,
-                                borderColor: "#22c55e66",
-                                marginRight: 8,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: "#22c55e",
-                                  fontSize: 11,
-                                  fontWeight: "900",
-                                }}
-                              >
-                                Wykonane ✅
-                              </Text>
-                            </View>
-
-                            <View
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor: colors.accent + "22",
-                                borderWidth: 1,
-                                borderColor: colors.accent + "55",
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: colors.accent,
-                                  fontSize: 11,
-                                  fontWeight: "900",
-                                }}
-                              >
-                                EXP zgarnięty: +{expValue}
-                              </Text>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-
-                      {/* Edit */}
-                      <TouchableOpacity
-                        onPress={() => handleEdit({ ...m })}
-                        style={{ marginRight: 8, padding: 6 }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={18}
-                          color={colors.textMuted}
-                        />
-                      </TouchableOpacity>
-
-                      {/* Delete */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          const safeMission = { ...m };
-                          handleDelete(safeMission);
-                        }}
-                        onLongPress={() => {
-                          Alert.alert(
-                            "DEBUG",
-                            `id=${String(m?.id)}\nrepeat=${String(
-                              m?.repeat?.type
-                            )}\narchived=${String(m?.archived)}`
-                          );
-                        }}
-                        delayLongPress={350}
-                        style={{ padding: 6 }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={20}
-                          color={colors.textMuted}
-                        />
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Assigned info + avatar + kto dodał */}
-                    {selfCompactRow ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          marginTop: 8,
-                          marginBottom: 4,
-                        }}
-                      >
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                          }}
-                        >
-                          {assigned.avatarUrl ? (
-                            <Image
-                              source={{ uri: assigned.avatarUrl }}
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 999,
-                                marginRight: 6,
-                                opacity: isDone ? 0.8 : 1,
-                              }}
-                            />
-                          ) : (
-                            <View
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 999,
-                                backgroundColor: "#22d3ee33",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                marginRight: 6,
-                                opacity: isDone ? 0.8 : 1,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: "#22d3ee",
-                                  fontWeight: "700",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {assigned.label?.[0] ?? "?"}
-                              </Text>
-                            </View>
-                          )}
-
-                          <Text
-                            style={{
-                              color: colors.textMuted,
-                              fontSize: 12,
-                            }}
-                          >
-                            Twoje zadanie
-                          </Text>
-                        </View>
-
-                        <View
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            borderRadius: 999,
-                            backgroundColor: diff.color + "33",
-                            borderWidth: 1,
-                            borderColor: diff.color + "88",
-                            opacity: isDone ? 0.8 : 1,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: diff.color,
-                              fontSize: 11,
-                              fontWeight: "600",
-                            }}
-                          >
-                            {diff.label}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginTop: 10,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {assigned.avatarUrl ? (
-                          <Image
-                            source={{ uri: assigned.avatarUrl }}
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 999,
-                              marginRight: 8,
-                              opacity: isDone ? 0.7 : 1,
-                            }}
-                          />
-                        ) : (
-                          <View
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 999,
-                              backgroundColor: "#22d3ee33",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              marginRight: 8,
-                              opacity: isDone ? 0.7 : 1,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: "#22d3ee",
-                                fontWeight: "700",
-                                fontSize: 14,
-                              }}
-                            >
-                              {assigned.label?.[0] ?? "?"}
-                            </Text>
-                          </View>
-                        )}
-
-                        <View style={{ flex: 1 }}>
-                          {!hideAssignedInfo && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 12,
-                              }}
-                            >
-                              Przypisane do:{" "}
-                              <Text style={{ color: colors.text }}>
-                                {assigned.label}
-                              </Text>
-                            </Text>
-                          )}
-
-                          {!hideCreatorInfo && creator && (
-                            <Text
-                              style={{
-                                color: colors.textMuted,
-                                fontSize: 11,
-                              }}
-                            >
-                              Dodane przez:{" "}
-                              <Text style={{ color: colors.text }}>
-                                {creator.label}
-                              </Text>
-                            </Text>
-                          )}
-                        </View>
-
-                        <View
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            borderRadius: 999,
-                            backgroundColor: diff.color + "33",
-                            borderWidth: 1,
-                            borderColor: diff.color + "88",
-                            opacity: isDone ? 0.8 : 1,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: diff.color,
-                              fontSize: 11,
-                              fontWeight: "600",
-                            }}
-                          >
-                            {diff.label}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Cykliczność */}
-                    {m.repeat?.type && m.repeat.type !== "none" && (
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontSize: 11,
-                          marginBottom: 6,
-                        }}
-                      >
-                        Cykliczność:{" "}
-                        {m.repeat.type === "daily"
-                          ? "Codziennie"
-                          : m.repeat.type === "weekly"
-                          ? "Co tydzień"
-                          : m.repeat.type === "monthly"
-                          ? "Co miesiąc"
-                          : "Brak"}
-                      </Text>
-                    )}
-
-                    {/* EXP bar za misję */}
-                    <View style={{ marginTop: 6, opacity: isDone ? 0.85 : 1 }}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          justifyContent: "space-between",
-                          marginBottom: 2,
-                        }}
-                      >
-                        <Text
-                          style={{ color: colors.textMuted, fontSize: 11 }}
-                        >
-                          EXP za misję
-                        </Text>
-                        <Text
-                          style={{
-                            color: colors.text,
-                            fontSize: 11,
-                            fontWeight: "800",
-                          }}
-                        >
-                          {expValue} EXP
-                        </Text>
-                      </View>
-
-                      <View
-                        style={{
-                          height: 6,
-                          borderRadius: 999,
-                          backgroundColor: "#020617",
-                          overflow: "hidden",
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        }}
-                      >
-                        <View
-                          style={{
-                            height: "100%",
-                            width: `${expProgress * 100}%`,
-                            borderRadius: 999,
-                            backgroundColor: colors.accent,
-                          }}
-                        />
-                      </View>
-                    </View>
-
-                    {!isDone && (
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontSize: 11,
-                          marginTop: 10,
-                        }}
-                      >
-                        Kliknij kółko po lewej, żeby odznaczyć jako wykonane i
-                        zgarnąć EXP 💥
-                      </Text>
-                    )}
-                  </View>
-                </Animated.View>
-              );
-            })
-          )}
-
-          {/* SPACER */}
-          <View style={{ flex: 1 }} />
-
-          {/* FOOTER */}
-          <AppFooter />
-        </View>
-      </ScrollView>
-
-      {/* TIME TRAVEL modal: blokada odznaczania poza dzisiaj */}
-      {timeTravelDialogOpen && (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(15,23,42,0.70)",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 250,
-            paddingHorizontal: 18,
-          }}
-        >
-          <View
-            style={{
-              width: "100%",
-              maxWidth: 420,
-              backgroundColor: colors.card,
-              borderRadius: 16,
-              padding: 18,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 8,
-              }}
-            >
-              <View
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 999,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "#a855f722",
-                  borderWidth: 1,
-                  borderColor: "#a855f766",
-                  marginRight: 10,
-                }}
-              >
-                <Ionicons name="time-outline" size={18} color="#c084fc" />
-              </View>
-
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 16,
-                  fontWeight: "900",
-                }}
-              >
-                Umiesz podróżować w czasie? 😏
-              </Text>
-            </View>
-
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 13,
-                marginBottom: 14,
-                lineHeight: 18,
-              }}
-            >
-              Możesz oznaczać zadania tylko w dniu, w którym je wykonujesz.
-              Cofanie się w czasie zostawmy filmom science-fiction. ✨
-            </Text>
-
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={{
-                paddingVertical: 10,
-                borderRadius: 999,
-                backgroundColor: colors.accent,
-                alignSelf: "center",
-                paddingHorizontal: 22,
-                minWidth: 140,
-              }}
-              onPress={() => setTimeTravelDialogOpen(false)}
-            >
-              <Text
-                style={{
-                  color: "#022c22",
-                  fontSize: 13,
-                  fontWeight: "900",
-                  textAlign: "center",
-                }}
-              >
-                Okej, wracam do dziś
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* 🔥 GLOBALNY OVERLAY Z FAJERWERKAMI – NAD WSZYSTKIM */}
-      {fireworkParticles.length > 0 && (
+      <View ref={screenRef} style={{ flex: 1 }}>
+        {/* tło: “orby” */}
         <View
           pointerEvents="none"
           style={{
@@ -2193,7 +1972,903 @@ export default function HomeScreen() {
             left: 0,
             right: 0,
             bottom: 0,
-            zIndex: 9999,
+            zIndex: 0,
+          }}
+        >
+          <View
+            style={{
+              position: "absolute",
+              width: 360,
+              height: 360,
+              borderRadius: 999,
+              backgroundColor: colors.accent + "24",
+              top: -190,
+              left: -160,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 300,
+              height: 300,
+              borderRadius: 999,
+              backgroundColor: "#22c55e1f",
+              top: -120,
+              right: -150,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 260,
+              height: 260,
+              borderRadius: 999,
+              backgroundColor: "#a855f71c",
+              top: 240,
+              left: -120,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 340,
+              height: 340,
+              borderRadius: 999,
+              backgroundColor: "#0ea5e91c",
+              top: 480,
+              right: -190,
+              ...(orbBlur as any),
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              width: 200,
+              height: 200,
+              borderRadius: 999,
+              backgroundColor: "#f973161a",
+              top: 780,
+              left: 20,
+              ...(orbBlur as any),
+            }}
+          />
+        </View>
+
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1, zIndex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            width: "100%",
+            paddingVertical: isNarrow ? 12 : 18,
+            alignItems: "center",
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 980,
+              paddingHorizontal: isNarrow ? 12 : 18,
+              flexGrow: 1,
+              alignSelf: "center",
+              ...(Platform.OS === "web" ? ({ marginHorizontal: "auto" } as any) : null),
+            }}
+          >
+            {/* HUD */}
+            <View
+              ref={hudAnchorRef}
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: isNarrow ? 18 : 24,
+                padding: isNarrow ? 12 : 16,
+                marginBottom: isNarrow ? 12 : 16,
+                borderWidth: 1,
+                borderColor: colors.border,
+                ...cardShadow,
+              }}
+            >
+                            {/* PLAYER HUD */}
+                            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+                              {hudMember.avatarUrl ? (
+                                <Image
+                                  source={{ uri: hudMember.avatarUrl }}
+                                  style={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 999,
+                                    marginRight: 12,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                  }}
+                                />
+                              ) : (
+                                <View
+                                  style={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.accent + "14",
+                                    justifyContent: "center",
+                                    alignItems: "center",
+                                    marginRight: 12,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 16 }}>
+                                    {hudMember.label?.[0] ?? "?"}
+                                  </Text>
+                                </View>
+                              )}
+
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>
+                                  {hudMember.id === "self" ? "Twój poziom" : hudMember.label}
+                                </Text>
+
+                                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, justifyContent: "space-between" }}>
+                                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                                    LVL <Text style={{ color: colors.text, fontWeight: "900" }}>{hudLevel}</Text>
+                                    {"  "}• EXP <Text style={{ color: colors.text, fontWeight: "900" }}>{hudTotalExp}</Text>
+                                  </Text>
+
+                                  <View
+                                    style={{
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      borderRadius: 999,
+                                      backgroundColor: colors.accent + "18",
+                                      borderWidth: 1,
+                                      borderColor: colors.accent + "55",
+                                    }}
+                                  >
+                                    <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
+                                      Do LVL {hudLevel + 1}: {hudToNext} EXP
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                <View style={{ marginTop: 10 }}>
+                                  <View
+                                    style={{
+                                      height: 10,
+                                      borderRadius: 999,
+                                      backgroundColor: colors.bg,
+                                      overflow: "hidden",
+                                      borderWidth: 1,
+                                      borderColor: colors.border,
+                                    }}
+                                  >
+                                    <View
+                                      style={{
+                                        height: "100%",
+                                        width: `${hudProgress * 100}%`,
+                                        borderRadius: 999,
+                                        backgroundColor: colors.accent,
+                                      }}
+                                    />
+                                  </View>
+
+                                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
+                                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                                      Dziś zgarnięte: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayEarned}</Text> EXP
+                                    </Text>
+                                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
+                                      Próg LVL {hudLevel + 1}:{" "}
+                                      <Text style={{ color: colors.text, fontWeight: "900" }}>{requiredExpForLevel(hudLevel + 1)}</Text>
+                                    </Text>
+                                  </View>
+
+                                  {/* ✅ STREAK + ELEGANCKIE: data / dziś */}
+                                  <View style={{ marginTop: 12 }}>
+                                    {Platform.OS !== "web" ? (
+                                      <View
+                                        style={{
+                                          flexDirection: "row",
+                                          alignItems: "center",
+                                          width: "100%",
+                                        }}
+                                      >
+                                        {/* ✅ Data */}
+                                        <DatePillButton
+                                          date={selectedDate}
+                                          onPress={() => setDatePickerOpen(true)}
+                                          style={{ flex: 1, minWidth: 0 }}
+                                        />
+
+                                        <View style={{ width: 10 }} />
+
+                                        {/* ✅ Dziś */}
+                                        <IconPillButton
+                                          icon="locate-outline"
+                                          tone="accent"
+                                          label="Dziś"
+                                          onPress={goToToday}
+                                          style={{ paddingHorizontal: 14 }}
+                                        />
+
+                                        <View style={{ width: 10 }} />
+
+                                        {/* ✅ Streak – mini badge */}
+                                        <StreakPill value={streak} />
+                                      </View>
+                                    ) : (
+                                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                                        <View style={{ marginRight: 10 }}>
+                                          <IconPillButton
+                                            icon="calendar-clear-outline"
+                                            label={formatDatePill(selectedDate)}
+                                            onPress={() => setDatePickerOpen(true)}
+                                          />
+                                        </View>
+
+                                        <View style={{ marginRight: 10 }}>
+                                          <IconPillButton
+                                            icon="locate-outline"
+                                            tone="accent"
+                                            label={showNavLabels ? "Dziś" : undefined}
+                                            onPress={goToToday}
+                                          />
+                                        </View>
+
+                                        <View style={{ marginRight: 10 }}>
+                                          <IconStepperPill
+                                            icon="calendar-clear-outline"
+                                            label={showNavLabels ? "Tydz" : undefined}
+                                            onPrev={() => setSelectedDate(startOfDay(addDays(selectedDate, -7)))}
+                                            onNext={() => setSelectedDate(startOfDay(addDays(selectedDate, 7)))}
+                                          />
+                                        </View>
+
+                                        <IconStepperPill
+                                          icon="calendar-number-outline"
+                                          label={showNavLabels ? "Mies" : undefined}
+                                          onPrev={() => setSelectedDate(startOfDay(addMonths(selectedDate, -1)))}
+                                          onNext={() => setSelectedDate(startOfDay(addMonths(selectedDate, 1)))}
+                                        />
+                                      </View>
+                                    )}
+                                  </View>
+                                </View>
+                              </View>
+                            </View>
+
+                            {/* ✅ Tydzień jako paski dni — FULL WIDTH pod PLAYER HUD */}
+                            <View ref={weekDaysAnchorRef} style={{ marginTop: 14, width: "100%" }}>
+                              {!isNarrow ? (
+                                <View style={{ flexDirection: "row", width: "100%" }}>
+                                  {weekDays.map((d, i) => {
+                                    const active = isSameDay(d, selectedDate);
+                                    const isTodayDay = isSameDay(d, today);
+                                    const inPast = d < today && !isSameDay(d, today);
+                                    const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                                    const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.bg;
+                                    const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+                                    const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+                                    const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                                    return (
+                                      <TouchableOpacity
+                                        key={i}
+                                        onPress={() => setSelectedDate(startOfDay(d))}
+                                        style={{
+                                          flex: 1,
+                                          marginRight: i === 6 ? 0 : 5, // ✅ bez wcięcia od lewej/prawej
+                                          paddingVertical: 12,
+                                          alignItems: "center",
+                                          borderRadius: 18,
+                                          backgroundColor: bgColor,
+                                          borderWidth: 1,
+                                          borderColor: borderColor,
+                                          ...(active ? softShadow : null),
+                                          ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                                        }}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                      >
+                                        {isTodayDay && !active && (
+                                          <View
+                                            style={{
+                                              position: "absolute",
+                                              top: 9,
+                                              right: 10,
+                                              width: 8,
+                                              height: 8,
+                                              borderRadius: 999,
+                                              backgroundColor: colors.accent,
+                                            }}
+                                          />
+                                        )}
+
+                                        <Text style={{ color: subTextColor, fontSize: isPhone ? 11 : 12, fontWeight: "900" }}>
+                                          {WEEKDAY_LABELS[i]}
+                                        </Text>
+                                        <Text style={{ color: textColor, fontWeight: "900", fontSize: isPhone ? 15 : 16, marginTop: 2 }}>
+                                          {d.getDate()}
+                                        </Text>
+
+                                        {hasDone && !active && (
+                                          <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />
+                                        )}
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+                              ) : canFitWeekRow ? (
+                                <View
+                                  style={{
+                                    width: "100%",
+                                    alignSelf: "stretch",
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 6,
+                                    borderRadius: 18,
+                                    borderWidth: 1,
+                                    borderColor: colors.border,
+                                    backgroundColor: colors.bg,
+                                    ...(softShadow as any),
+                                  }}
+                                >
+                                  <View style={{ flexDirection: "row", width: "100%" }}>
+                                    {weekDays.map((d, i) => {
+                                      const active = isSameDay(d, selectedDate);
+                                      const isTodayDay = isSameDay(d, today);
+                                      const inPast = d < today && !isSameDay(d, today);
+                                      const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                                      const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.card;
+                                      const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+                                      const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+                                      const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                                      return (
+                                        <TouchableOpacity
+                                          key={i}
+                                          onPress={() => setSelectedDate(startOfDay(d))}
+                                          activeOpacity={0.9}
+                                          style={{
+                                            flex: 1,
+                                            marginRight: i === 6 ? 0 : 4,
+                                            paddingVertical: isPhone ? 11 : 12,
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            borderRadius: 16,
+                                            backgroundColor: bgColor,
+                                            borderWidth: 1,
+                                            borderColor: borderColor,
+                                            ...(active ? softShadow : null),
+                                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                                          }}
+                                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        >
+                                          {isTodayDay && !active && (
+                                            <View
+                                              style={{
+                                                position: "absolute",
+                                                top: 8,
+                                                right: 8,
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: 999,
+                                                backgroundColor: colors.accent,
+                                              }}
+                                            />
+                                          )}
+
+                                          <Text style={{ color: subTextColor, fontSize: 11, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
+                                          <Text style={{ color: textColor, fontWeight: "900", fontSize: 15, marginTop: 2 }}>{d.getDate()}</Text>
+
+                                          {hasDone && !active && (
+                                            <View style={{ marginTop: 6, width: 6, height: 6, borderRadius: 999, backgroundColor: "#22c55e" }} />
+                                          )}
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                  </View>
+                                </View>
+                              ) : (
+                                <View style={{ position: "relative", width: "100%" }}>
+                                  {hintWeekRow && <ScrollHintOverlay side="right" />}
+
+                                  <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={{ paddingVertical: 2, paddingHorizontal: 2, paddingRight: 28 }}
+                                    onScrollBeginDrag={() => setHintWeekRow(false)}
+                                  >
+                                    {weekDays.map((d, i) => {
+                                      const active = isSameDay(d, selectedDate);
+                                      const isTodayDay = isSameDay(d, today);
+                                      const inPast = d < today && !isSameDay(d, today);
+                                      const hasDone = inPast && hasCompletedMissionOnDate(d);
+
+                                      const bgColor = active ? colors.accent : hasDone ? "#22c55e18" : colors.bg;
+                                      const borderColor = active ? colors.accent : hasDone ? "#22c55e66" : colors.border;
+                                      const textColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.text;
+                                      const subTextColor = active ? "#022c22" : hasDone ? "#16a34a" : colors.textMuted;
+
+                                      return (
+                                        <TouchableOpacity
+                                          key={i}
+                                          onPress={() => setSelectedDate(startOfDay(d))}
+                                          style={{
+                                            width: isPhone ? 54 : 64,
+                                            marginRight: 8,
+                                            paddingVertical: isPhone ? 8 : 10,
+                                            alignItems: "center",
+                                            borderRadius: isPhone ? 14 : 16,
+                                            backgroundColor: bgColor,
+                                            borderWidth: 1,
+                                            borderColor: borderColor,
+                                            ...(active ? softShadow : null),
+                                            ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                                          }}
+                                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        >
+                                          {isTodayDay && !active && (
+                                            <View
+                                              style={{
+                                                position: "absolute",
+                                                top: 9,
+                                                right: 10,
+                                                width: 8,
+                                                height: 8,
+                                                borderRadius: 999,
+                                                backgroundColor: colors.accent,
+                                              }}
+                                            />
+                                          )}
+
+                                          <Text style={{ color: subTextColor, fontSize: 12, fontWeight: "900" }}>{WEEKDAY_LABELS[i]}</Text>
+                                          <Text style={{ color: textColor, fontWeight: "900", fontSize: 16, marginTop: 2 }}>{d.getDate()}</Text>
+
+                                          {hasDone && !active && (
+                                            <View style={{ marginTop: 6, width: 7, height: 7, borderRadius: 999, backgroundColor: "#22c55e" }} />
+                                          )}
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                  </ScrollView>
+                                </View>
+                              )}
+
+                              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 10, fontWeight: "800" }}>
+                                Tydzień: <Text style={{ color: colors.text, fontWeight: "900" }}>{formatWeekRange(weekStart)}</Text>
+                              </Text>
+                            </View>
+
+
+              {/* LISTA ZADAŃ */}
+              {/* HEADER: Zadania + Dodaj */}
+              <View style={{ marginTop: 14, marginBottom: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: "900", letterSpacing: 0.2 }}>Zadania na dziś</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", marginTop: 2 }}>{formatDayLong(selectedDate)}</Text>
+                </View>
+
+                <TouchableOpacity
+                  ref={addTaskAnchorRef}
+                  onPress={goToAddTask}
+                  activeOpacity={0.9}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    borderWidth: 1,
+                    borderColor: colors.accent + "00",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Dodaj zadanie"
+                >
+                  <Ionicons name="add" size={18} color="#022c22" />
+                  <Text style={{ color: "#022c22", fontWeight: "900", marginLeft: 8, fontSize: 13, letterSpacing: 0.2 }}>
+                    Dodaj zadanie
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {loading ? (
+                <Text style={{ color: colors.textMuted }}>Ładowanie…</Text>
+              ) : missionsForDaySorted.length === 0 ? (
+                tourOpen ? (
+                  <View style={{ padding: 16, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, ...softShadow }}>
+                    <Text style={{ color: colors.textMuted, fontWeight: "800", marginBottom: 12 }}>
+                      Brak zadań tego dnia — ale spokojnie, poniżej masz przykład 👇
+                    </Text>
+
+                    <View style={{ padding: 14, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg }}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View
+                          ref={demoCheckboxAnchorRef}
+                          style={{ width: 36, height: 36, borderRadius: 12, marginRight: 10, justifyContent: "center", alignItems: "center" }}
+                        >
+                          <View
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              borderRadius: 12,
+                              justifyContent: "center",
+                              alignItems: "center",
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              backgroundColor: colors.bg,
+                            }}
+                          >
+                            <Ionicons name="ellipse-outline" size={18} color={colors.textMuted} />
+                          </View>
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.2 }}>
+                            (Przykład) Wyniosę śmieci
+                          </Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 6 }}>
+                            Kliknij kółko po lewej, żeby oznaczyć jako wykonane ✅
+                          </Text>
+                        </View>
+
+                        <View
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 999,
+                            backgroundColor: colors.accent + "18",
+                            borderWidth: 1,
+                            borderColor: colors.accent + "55",
+                          }}
+                        >
+                          <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>+25 EXP</Text>
+                        </View>
+                      </View>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+                        <View
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 999,
+                            backgroundColor: "#22c55e18",
+                            borderWidth: 1,
+                            borderColor: "#22c55e55",
+                            marginRight: 8,
+                            marginBottom: 6,
+                          }}
+                        >
+                          <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>Wykonane ✅</Text>
+                        </View>
+
+                        <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 6 }}>…i wtedy rośnie streak + dostajesz EXP.</Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ padding: 16, borderRadius: 18, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, ...softShadow }}>
+                    <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Brak zadań tego dnia.</Text>
+                  </View>
+                )
+              ) : (
+                missionsForDaySorted.map((m: any, idx2: number) => {
+                  const assigned = getAssignedMember(m);
+                  const creator = getCreatorMember(m);
+                  const diff = getDifficultyLabel(m);
+                  const expProgress = getExpProgress(m);
+                  const isDone = isMissionDoneOnDateUI(m, selectedDate);
+                  const expValue = (m.expValue ?? 0) as number;
+
+                  const samePersonAssignedAndCreator = creator && assigned ? isSameMember(assigned, creator) : false;
+                  const hideCreatorInfo = !creator || samePersonAssignedAndCreator;
+                  const hideAssignedInfo = samePersonAssignedAndCreator;
+                  const selfCompactRow = hideCreatorInfo && hideAssignedInfo;
+
+                  const animKey = m.id ?? `fallback-${idx2}`;
+                  if (!animationRefs.current[animKey]) animationRefs.current[animKey] = new Animated.Value(1);
+                  const rowAnim = animationRefs.current[animKey];
+
+                  const renderAvatar = (avatarUrl: string | null, label: string, size: number) => {
+                    if (avatarUrl) {
+                      return (
+                        <Image
+                          source={{ uri: avatarUrl }}
+                          style={{
+                            width: size,
+                            height: size,
+                            borderRadius: 999,
+                            marginRight: 8,
+                            opacity: isDone ? 0.8 : 1,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                        />
+                      );
+                    }
+
+                    return (
+                      <View
+                        style={{
+                          width: size,
+                          height: size,
+                          borderRadius: 999,
+                          marginRight: 8,
+                          backgroundColor: colors.accent + "14",
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: isDone ? 0.8 : 1,
+                        }}
+                      >
+                        <Text style={{ color: colors.accent, fontWeight: "900", fontSize: Math.max(11, Math.round(size * 0.45)) }}>
+                          {(label?.[0] ?? "?").toUpperCase()}
+                        </Text>
+                      </View>
+                    );
+                  };
+
+                  const repeatLabel =
+                    m?.repeat?.type === "daily"
+                      ? "Codziennie"
+                      : m?.repeat?.type === "weekly"
+                      ? "Co tydzień"
+                      : m?.repeat?.type === "monthly"
+                      ? "Co miesiąc"
+                      : null;
+
+                  return (
+                    <Animated.View
+                      key={m.id ?? `fallback-${idx2}`}
+                      style={{
+                        transform: [{ scale: rowAnim }],
+                        opacity: rowAnim.interpolate({ inputRange: [0.9, 1], outputRange: [0.85, 1], extrapolate: "clamp" }),
+                      }}
+                    >
+                      <View
+                        style={{
+                          padding: isNarrow ? 12 : 14,
+                          marginBottom: isNarrow ? 10 : 12,
+                          borderRadius: isNarrow ? 18 : 22,
+                          borderWidth: 1,
+                          backgroundColor: colors.card,
+                          borderColor: isDone ? "#22c55e66" : colors.border,
+                          ...cardShadow,
+                        }}
+                      >
+                        {/* Top row: checkbox + title + actions */}
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          {/* Checkbox wrapper */}
+                          <View
+                            ref={(node) => {
+                              try {
+                                if (m?.id) checkboxRefs.current[m.id] = node;
+                              } catch {}
+                            }}
+                            style={{ width: 38, height: 38, borderRadius: 12, marginRight: 10, justifyContent: "center", alignItems: "center" }}
+                          >
+                            <TouchableOpacity
+                              onPress={async () => {
+                                try {
+                                  const node = checkboxRefs.current[m.id];
+                                  const r = await measureRect(node);
+                                  const sr = await measureRect(screenRef.current);
+                                  const offX = sr?.x ?? 0;
+                                  const offY = sr?.y ?? 0;
+
+                                  if (r) {
+                                    const cx = r.x - offX + r.width / 2;
+                                    const cy = r.y - offY + r.height / 2;
+                                    triggerFirework(String(m.id), cx, cy);
+                                  }
+                                } catch {}
+
+                                handleComplete(m, rowAnim);
+                              }}
+                              activeOpacity={0.9}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                borderRadius: 12,
+                                justifyContent: "center",
+                                alignItems: "center",
+                                borderWidth: 1,
+                                borderColor: isDone ? "#22c55e88" : colors.border,
+                                backgroundColor: isDone ? "#22c55e18" : "transparent",
+                                ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                              }}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              accessibilityLabel={isDone ? "Zadanie wykonane" : "Oznacz jako wykonane"}
+                            >
+                              <Ionicons name={isDone ? "checkmark" : "ellipse-outline"} size={18} color={isDone ? "#22c55e" : colors.textMuted} />
+                            </TouchableOpacity>
+                          </View>
+
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                color: isDone ? colors.textMuted : colors.text,
+                                fontSize: 15,
+                                fontWeight: "900",
+                                letterSpacing: 0.2,
+                                textDecorationLine: isDone ? "line-through" : "none",
+                              }}
+                              numberOfLines={2}
+                            >
+                              {m.title || m.name || "Bez tytułu"}
+                            </Text>
+
+                            {isDone ? (
+                              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                                <View
+                                  style={{
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 999,
+                                    backgroundColor: "#22c55e22",
+                                    borderWidth: 1,
+                                    borderColor: "#22c55e66",
+                                    marginRight: 8,
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>Wykonane ✅</Text>
+                                </View>
+
+                                <View
+                                  style={{
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 5,
+                                    borderRadius: 999,
+                                    backgroundColor: colors.accent + "18",
+                                    borderWidth: 1,
+                                    borderColor: colors.accent + "55",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "900", letterSpacing: 0.2 }}>
+                                    EXP zgarnięty: +{expValue}
+                                  </Text>
+                                </View>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          {/* Edit */}
+                          <TouchableOpacity
+                            onPress={() => handleEdit({ ...m })}
+                            style={{ marginRight: 6, padding: 6, ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null) }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityLabel="Edytuj"
+                          >
+                            <Ionicons name="create-outline" size={18} color={colors.textMuted} />
+                          </TouchableOpacity>
+
+                          {/* Delete */}
+                          <TouchableOpacity
+                            onPress={() => handleDelete({ ...m })}
+                            style={{ padding: 6, ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null) }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityLabel="Usuń"
+                          >
+                            <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Assigned/Creator row + difficulty chip */}
+                        {selfCompactRow ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 4 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, paddingRight: 10 }}>
+                              {renderAvatar(assigned?.avatarUrl || null, assigned?.label || "Ty", 24)}
+                              <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800" }} numberOfLines={1}>
+                                Twoje zadanie
+                              </Text>
+                            </View>
+
+                            <View
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 5,
+                                borderRadius: 999,
+                                backgroundColor: diff.color + "33",
+                                borderWidth: 1,
+                                borderColor: diff.color + "88",
+                                opacity: isDone ? 0.85 : 1,
+                              }}
+                            >
+                              <Text style={{ color: diff.color, fontSize: 11, fontWeight: "800", letterSpacing: 0.2 }}>{diff.label}</Text>
+                            </View>
+                          </View>
+                        ) : (
+                          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, marginBottom: 4 }}>
+                            {renderAvatar(assigned?.avatarUrl || null, assigned?.label || "?", 32)}
+
+                            <View style={{ flex: 1 }}>
+                              {!hideAssignedInfo ? (
+                                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800" }}>
+                                  Przypisane do: <Text style={{ color: colors.text, fontWeight: "900" }}>{assigned?.label}</Text>
+                                </Text>
+                              ) : null}
+
+                              {!hideCreatorInfo && creator ? (
+                                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", marginTop: 2 }}>
+                                  Dodane przez: <Text style={{ color: colors.text, fontWeight: "900" }}>{creator?.label}</Text>
+                                </Text>
+                              ) : null}
+                            </View>
+
+                            <View
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 5,
+                                borderRadius: 999,
+                                backgroundColor: diff.color + "33",
+                                borderWidth: 1,
+                                borderColor: diff.color + "88",
+                                opacity: isDone ? 0.85 : 1,
+                              }}
+                            >
+                              <Text style={{ color: diff.color, fontSize: 11, fontWeight: "800", letterSpacing: 0.2 }}>{diff.label}</Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* Repeat info */}
+                        {repeatLabel ? (
+                          <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 6, fontWeight: "800" }}>
+                            Cykliczność: {repeatLabel}
+                          </Text>
+                        ) : null}
+
+                        {/* EXP bar */}
+                        <View style={{ marginTop: 6, opacity: isDone ? 0.85 : 1 }}>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                            <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800" }}>EXP za misję</Text>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: "900" }}>{expValue} EXP</Text>
+                          </View>
+
+                          <View
+                            style={{
+                              height: 8,
+                              borderRadius: 999,
+                              backgroundColor: colors.bg,
+                              overflow: "hidden",
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                            }}
+                          >
+                            <View style={{ height: "100%", width: `${expProgress * 100}%`, borderRadius: 999, backgroundColor: colors.accent }} />
+                          </View>
+                        </View>
+
+                        {!isDone ? (
+                          <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 10, fontWeight: "800", lineHeight: 16 }}>
+                            Kliknij kółko po lewej, żeby oznaczyć jako wykonane i zgarnąć EXP 💥
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Animated.View>
+                  );
+                })
+              )}
+
+              <AppFooter />
+            </View>
+            </View>
+          </ScrollView>
+
+        {/* ✅ FIREWORK OVERLAY */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 5000,
           }}
         >
           {fireworkParticles.map((p) => (
@@ -2201,24 +2876,279 @@ export default function HomeScreen() {
               key={p.id}
               style={{
                 position: "absolute",
+                left: p.originX,
+                top: p.originY,
                 width: 8,
                 height: 8,
                 borderRadius: 999,
                 backgroundColor: p.color,
-                left: p.originX - 4,
-                top: p.originY - 4,
-                transform: [
-                  { translateX: p.translateX },
-                  { translateY: p.translateY },
-                  { scale: p.scale },
-                ],
                 opacity: p.opacity,
+                transform: [{ translateX: p.translateX }, { translateY: p.translateY }, { scale: p.scale }],
               }}
             />
           ))}
         </View>
-      )}
+
+        {/* ✅ Date picker modal */}
+        <DatePickerModal
+          visible={datePickerOpen}
+          colors={colors}
+          selectedDate={selectedDate}
+          today={today}
+          hasCompletedMissionOnDate={hasCompletedMissionOnDate}
+          onSelectDate={(d) => setSelectedDate(startOfDay(d))}
+          onClose={() => setDatePickerOpen(false)}
+        />
+
+        {/* ✅ Repeat delete dialog */}
+        {repeatDeleteDialog ? (
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9000,
+              backgroundColor: "rgba(15,23,42,0.78)",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 18,
+              paddingVertical: 18,
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                backgroundColor: colors.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 16,
+                ...cardShadow,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Usuwanie powtarzanego zadania</Text>
+                <TouchableOpacity
+                  onPress={() => setRepeatDeleteDialog(null)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                To zadanie jest powtarzane. Chcesz usunąć całą serię, czy tylko ukryć je w wybranym dniu?
+              </Text>
+
+              <View style={{ flexDirection: "row", marginTop: 14, flexWrap: "wrap" }}>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const { mission } = repeatDeleteDialog;
+                    setRepeatDeleteDialog(null);
+                    await deleteSeries(mission);
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: "#ef4444",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 10,
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "900", fontSize: 13 }}>Usuń serię</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    const { mission, dateKey } = repeatDeleteDialog;
+                    setRepeatDeleteDialog(null);
+                    await deleteOnlyToday(mission, dateKey);
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>Tylko ten dzień</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setRepeatDeleteDialog(null)}
+                style={{
+                  marginTop: 10,
+                  paddingVertical: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Anuluj</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {/* ✅ Time-travel dialog */}
+        {timeTravelDialogOpen ? (
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9000,
+              backgroundColor: "rgba(15,23,42,0.78)",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 18,
+              paddingVertical: 18,
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                backgroundColor: colors.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 16,
+                ...cardShadow,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Hej, to nie jest „dziś” 😉</Text>
+                <TouchableOpacity
+                  onPress={() => setTimeTravelDialogOpen(false)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 999,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 10, lineHeight: 18, fontWeight: "700" }}>
+                Odhaczanie działa tylko dla dzisiejszej daty, żeby EXP i streak były uczciwe. Przeskoczyć na „Dziś”?
+              </Text>
+
+              <View style={{ flexDirection: "row", marginTop: 14 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setTimeTravelDialogOpen(false);
+                    goToToday();
+                  }}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    backgroundColor: colors.accent,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 10,
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: "#022c22", fontWeight: "900", fontSize: 13 }}>Idź na dziś</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setTimeTravelDialogOpen(false)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.bg,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: "900", fontSize: 13 }}>Zostaję</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* ✅ Welcome modal */}
+        {welcomeModalReady ? (
+          <WelcomeTutorialModal
+            visible={welcomeModalOpen}
+            colors={colors}
+            onStart={() => markWelcomeSeen("start")}
+            onSkip={() => markWelcomeSeen("skip")}
+          />
+        ) : null}
+
+        {/* ✅ Guided tour overlay */}
+        <GuidedTourOverlay
+          visible={tourOpen}
+          stepIndex={tourStepIndex}
+          steps={HOME_TOUR_STEPS}
+          totalSteps={15}
+          stepIndexOffset={0}
+          getNodeForStep={getNodeForStep}
+          getScreenNode={() => screenRef.current}
+          refreshToken={`${tourRefreshToken}|${tourSession}`}
+          colors={colors}
+          onPrev={() => setTourStepIndex((i) => Math.max(0, i - 1))}
+          onNext={() => {
+            const last = HOME_TOUR_STEPS.length - 1;
+            if (tourStepIndex >= last) {
+              finishTour();
+            } else {
+              setTourStepIndex((i) => i + 1);
+            }
+          }}
+          onClose={() => {
+            setTourOpen(false);
+            setTourStepIndex(0);
+            closeTour();
+          }}
+        />
+      </View>
     </SafeAreaView>
   );
 }
-// app/index.tsx
+
+//app/index.tsx

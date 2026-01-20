@@ -9,7 +9,9 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
-  Alert,
+  Modal,
+  Pressable,
+  useWindowDimensions,
   KeyboardAvoidingView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,11 +24,9 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 function isHex6(color: string) {
   return /^#?[0-9a-fA-F]{6}$/.test(color);
 }
-
 function normalizeHex6(color: string) {
   return color.startsWith("#") ? color : `#${color}`;
 }
-
 function hexToRgb(hex: string) {
   const h = normalizeHex6(hex).slice(1);
   const r = parseInt(h.slice(0, 2), 16);
@@ -34,101 +34,132 @@ function hexToRgb(hex: string) {
   const b = parseInt(h.slice(4, 6), 16);
   return { r, g, b };
 }
-
 function rgbToHex(r: number, g: number, b: number) {
   const to2 = (n: number) => n.toString(16).padStart(2, "0");
   return `#${to2(r)}${to2(g)}${to2(b)}`;
 }
-
 function clamp255(n: number) {
   return Math.max(0, Math.min(255, n));
 }
-
 function shadeHex(hex: string, amount: number) {
   if (!isHex6(hex)) return hex;
   const { r, g, b } = hexToRgb(hex);
-  return rgbToHex(
-    clamp255(r + amount),
-    clamp255(g + amount),
-    clamp255(b + amount)
-  );
+  return rgbToHex(clamp255(r + amount), clamp255(g + amount), clamp255(b + amount));
 }
-
 function luminance(hex: string) {
   if (!isHex6(hex)) return 0.5;
   const { r, g, b } = hexToRgb(hex);
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 
-function pickFirstStringColor(...vals: any[]) {
-  for (const v of vals) {
-    if (typeof v === "string" && v.trim().length > 0) return v;
-  }
-  return null;
-}
+type ModalKind = "success" | "error";
 
 export default function IdeaScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const { width } = useWindowDimensions();
+
+  const isPhone = width < 520;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [benefit, setBenefit] = useState("");
   const [sending, setSending] = useState(false);
 
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalKind, setModalKind] = useState<ModalKind>("success");
+  const [modalTitle, setModalTitle] = useState("Dziękujemy!");
+  const [modalMsg, setModalMsg] = useState("Twój pomysł został wysłany 💡");
+
   const user = auth.currentUser;
 
-  // kompatybilność nazewnictwa (u Ciebie w kodzie przewijają się różne klucze)
-  const screenBg =
-    pickFirstStringColor((colors as any).bg, (colors as any).background) ??
-    "#0b1220";
-
-  const cardBg =
-    pickFirstStringColor((colors as any).card) ??
-    // awaryjnie: jasna karta na jasnym tle / ciemna na ciemnym
-    (isHex6(screenBg) && luminance(screenBg) < 0.45
-      ? "rgba(255,255,255,0.06)"
-      : "rgba(255,255,255,0.55)");
-
-  const borderColor =
-    pickFirstStringColor((colors as any).border) ?? "rgba(148,163,184,0.35)";
-
-  const textColor = pickFirstStringColor((colors as any).text) ?? "#0f172a";
-
-  const textMuted =
-    pickFirstStringColor((colors as any).textMuted, (colors as any).textSecondary) ??
-    "rgba(15,23,42,0.7)";
-
-  const accent = pickFirstStringColor((colors as any).accent) ?? "#34d399";
-  const disabledBg = pickFirstStringColor((colors as any).disabled) ?? "#1e293b";
-
+  // --- tło inputów jak w web ---
   const inputBg = useMemo(() => {
-    // Baza do inputów: najpierw karta (najbardziej logiczne), potem tło ekranu.
-    const base =
-      pickFirstStringColor((colors as any).card, (colors as any).bg, (colors as any).background) ??
-      "#e2e8f0";
-
-    // Jeśli to nie jest hex, to nie próbujemy shade’ować — ale nadal zwracamy bazę.
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
     if (!isHex6(base)) return base;
-
     const lum = luminance(base);
-    // Ciemny motyw: lekko jaśniej
-    // Jasny motyw: lekko ciemniej
     return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
-  }, [colors]);
+  }, [colors.card]);
 
-  const onAccent = useMemo(() => {
-    if (!isHex6(accent)) return "#022c22";
-    return luminance(accent) > 0.6 ? "#022c22" : "#ffffff";
-  }, [accent]);
+  const modalCardBg = useMemo(() => {
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
+    if (!isHex6(base)) return base;
+    const lum = luminance(base);
+    return lum < 0.45 ? shadeHex(base, 10) : shadeHex(base, -6);
+  }, [colors.card]);
 
-  const canSend =
-    title.trim().length > 0 && description.trim().length > 0 && !sending;
+  // --- wykrycie jasnego motywu ---
+  const bgBase = typeof colors.bg === "string" ? colors.bg : "#ffffff";
+  const isLightTheme = isHex6(bgBase) ? luminance(bgBase) > 0.62 : true;
+
+  const pickOnColor = (bgHex: string) => {
+    if (!isHex6(bgHex)) return isLightTheme ? "#0f172a" : "#e2e8f0";
+    return luminance(bgHex) > 0.62 ? "#0f172a" : "#ecfeff";
+  };
+
+  // --- TU jest fix na „za ciemny accent na jasnym” ---
+  const rawAccent = typeof colors.accent === "string" ? colors.accent : "#22c55e";
+  const primaryBg = useMemo(() => {
+    if (!isHex6(rawAccent)) return rawAccent;
+
+    const lum = luminance(rawAccent);
+
+    // Jasny motyw + ciemny accent -> rozjaśnij na potrzeby buttona
+    if (isLightTheme && lum < 0.48) return shadeHex(rawAccent, 34);
+
+    // Ciemny motyw + bardzo jasny accent -> lekko przygaś
+    if (!isLightTheme && lum > 0.78) return shadeHex(rawAccent, -24);
+
+    return rawAccent;
+  }, [rawAccent, isLightTheme]);
+
+  const primaryFg = useMemo(() => pickOnColor(primaryBg), [primaryBg, isLightTheme]);
+
+  const disabledBg = isLightTheme ? "#e2e8f0" : "#1e293b";
+  const disabledFg = isLightTheme ? "#334155" : "#64748b";
+  const disabledBorder = isLightTheme ? "#cbd5e1" : colors.border;
+
+  const primaryBorder = useMemo(() => {
+    if (!isHex6(primaryBg)) return colors.border;
+    return isLightTheme ? shadeHex(primaryBg, -22) : shadeHex(primaryBg, 18);
+  }, [primaryBg, isLightTheme, colors.border]);
+
+  const canSend = title.trim().length > 0 && description.trim().length > 0 && !sending;
+
+  const openModal = (kind: ModalKind, t: string, m: string) => {
+    setModalKind(kind);
+    setModalTitle(t);
+    setModalMsg(m);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => setModalOpen(false);
+
+  const handleModalPrimary = async () => {
+    if (Platform.OS !== "web") await Haptics.selectionAsync();
+
+    if (modalKind === "success") {
+      setTitle("");
+      setDescription("");
+      setBenefit("");
+      closeModal();
+      router.back();
+      return;
+    }
+    closeModal();
+  };
 
   const handleSend = async () => {
     if (!canSend) return;
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    if (!user?.uid) {
+      openModal("error", "Zaloguj się", "Musisz być zalogowany, aby wysłać pomysł.");
+      return;
+    }
 
     try {
       setSending(true);
@@ -139,103 +170,216 @@ export default function IdeaScreen() {
         benefit: benefit.trim() || null,
         platform: Platform.OS,
         appVersion: "1.0.0",
-        userId: user?.uid || null,
-        userEmail: user?.email || null,
+        userId: user.uid,
+        userEmail: user.email || null,
         createdAt: serverTimestamp(),
         status: "new",
       });
 
-      Alert.alert("Dziękujemy!", "Twój pomysł został wysłany 💡");
-
-      setTitle("");
-      setDescription("");
-      setBenefit("");
-      router.back();
+      openModal("success", "Dziękujemy!", "Twój pomysł został wysłany 💡");
     } catch (err: any) {
       console.error("IDEA REPORT ERROR", err);
-      const msg =
-        err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
-      Alert.alert("Błąd", msg);
+      const msg = err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
+      openModal("error", "Błąd", msg);
     } finally {
       setSending(false);
     }
   };
 
+  const modalIcon = modalKind === "success" ? "checkmark-circle" : "alert-circle";
+  const modalAccent = modalKind === "success" ? colors.accent : "#ef4444";
+  const modalPrimaryText = modalKind === "success" ? "OK, wracam" : "OK";
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: screenBg }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
+        {/* MODAL */}
+        <Modal visible={modalOpen} transparent animationType="fade" onRequestClose={closeModal}>
+          <Pressable
+            onPress={closeModal}
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.55)",
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 16,
+            }}
+          >
+            <Pressable
+              onPress={() => {}}
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                borderRadius: 18,
+                backgroundColor: modalCardBg,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 16,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Ionicons name={modalIcon as any} size={22} color={modalAccent} />
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                  {modalTitle}
+                </Text>
+
+                <View style={{ flex: 1 }} />
+
+                <TouchableOpacity
+                  onPress={closeModal}
+                  style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 }}
+                >
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 13,
+                  lineHeight: 18,
+                  marginTop: 10,
+                }}
+              >
+                {modalMsg}
+              </Text>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "flex-end",
+                  gap: 10,
+                  marginTop: 14,
+                }}
+              >
+                {modalKind === "error" ? (
+                  <TouchableOpacity
+                    onPress={closeModal}
+                    style={{
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.textMuted, fontSize: 14 }}>Zamknij</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                <TouchableOpacity
+                  onPress={handleModalPrimary}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    backgroundColor: modalAccent,
+                  }}
+                >
+                  <Text style={{ color: "#022c22", fontSize: 14, fontWeight: "800" }}>
+                    {modalPrimaryText}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <ScrollView
-          style={{ flex: 1 }}
           contentContainerStyle={{
+            paddingVertical: 18,
             paddingHorizontal: 16,
-            paddingBottom: 40,
+            paddingBottom: 32,
+            width: "100%",
+            maxWidth: 900,
+            alignSelf: "center",
           }}
-          showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          bounces={Platform.OS === "ios"}
         >
           {/* HEADER */}
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
-              paddingTop: 4,
-              paddingBottom: 12,
+              gap: 10,
+              marginBottom: 18,
             }}
           >
             <TouchableOpacity
-              onPress={() => {
-                Haptics.selectionAsync();
+              onPress={async () => {
+                if (Platform.OS !== "web") await Haptics.selectionAsync();
                 router.back();
               }}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
+              style={{ padding: 6, borderRadius: 10 }}
             >
               <Ionicons
                 name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
                 size={24}
-                color={textColor}
+                color={colors.text}
               />
             </TouchableOpacity>
 
             <Text
               style={{
+                color: colors.text,
+                fontSize: isPhone ? 20 : 22,
+                fontWeight: "900",
                 flex: 1,
-                textAlign: "center",
-                marginRight: 36,
-                color: textColor,
-                fontSize: 20,
-                fontWeight: "600",
               }}
             >
               Zgłoś pomysł
             </Text>
+
+            {/* PRZEJŚCIE: Zgłoś błąd */}
+            <TouchableOpacity
+              onPress={async () => {
+                if (Platform.OS !== "web") await Haptics.selectionAsync();
+                router.push("/bug");
+              }}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: inputBg,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Ionicons name="bug-outline" size={18} color={colors.text} />
+              <Text style={{ color: colors.text, fontWeight: "800", fontSize: 13 }}>
+                Zgłoś błąd
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* FORM CARD */}
           <View
             style={{
-              backgroundColor: cardBg,
-              borderColor: borderColor,
+              backgroundColor: colors.card,
+              borderColor: colors.border,
               borderWidth: 1,
               borderRadius: 18,
-              padding: 16,
+              padding: isPhone ? 14 : 16,
+
+              shadowColor: "#000",
+              shadowOpacity: 0.10,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 2,
             }}
           >
             <Text
               style={{
-                color: textColor,
-                fontWeight: "700",
-                fontSize: 16,
-                marginBottom: 8,
+                color: colors.text,
+                fontWeight: "800",
+                fontSize: isPhone ? 15 : 16,
+                marginBottom: 6,
               }}
             >
               Pomóż nam ulepszyć MissionHome 💡
@@ -243,174 +387,172 @@ export default function IdeaScreen() {
 
             <Text
               style={{
-                color: textMuted,
+                color: colors.textMuted,
                 fontSize: 13,
-                lineHeight: 18,
-                marginBottom: 20,
+                marginBottom: 14,
               }}
             >
-              Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia.
-              Im bardziej konkretny opis, tym łatwiej nam będzie je wdrożyć.
+              Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia. Im bardziej
+              konkretny opis, tym łatwiej nam będzie je wdrożyć.
             </Text>
 
-            {/* CO JEST MILE WIDZIANE */}
-            <View style={{ marginBottom: 18 }}>
+            <View style={{ marginBottom: 14 }}>
               <Text
                 style={{
-                  color: textColor,
-                  fontSize: 13,
+                  color: colors.text,
+                  fontSize: 12,
                   fontWeight: "700",
-                  marginBottom: 6,
+                  marginBottom: 4,
                 }}
               >
                 Jakie pomysły są mile widziane?
               </Text>
-
               <Text
                 style={{
-                  color: textMuted,
-                  fontSize: 12,
-                  lineHeight: 18,
+                  color: colors.textMuted,
+                  fontSize: 11,
+                  lineHeight: 16,
                 }}
               >
-                • nowe funkcje aplikacji {"\n"}
-                • zmiany w wyglądzie {"\n"}
-                • usprawnienia ułatwiające codzienne korzystanie
+                • nowe funkcje aplikacji {"\n"}• zmiany w wyglądzie {"\n"}• usprawnienia, które
+                ułatwią codzienne korzystanie
               </Text>
             </View>
 
-            {/* TITLE INPUT */}
-            <Text style={{ color: textMuted, fontSize: 12 }}>Tytuł pomysłu</Text>
-
+            {/* TYTUŁ */}
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
+              Tytuł pomysłu
+            </Text>
             <TextInput
               value={title}
               onChangeText={setTitle}
               placeholder="Np. Widok tygodnia w kalendarzu"
-              placeholderTextColor={textMuted}
+              placeholderTextColor={colors.textMuted}
               style={{
-                marginTop: 6,
-                marginBottom: 16,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: borderColor,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
+                borderColor: colors.border,
+                padding: 12,
                 backgroundColor: inputBg,
-                color: textColor,
+                color: colors.text,
+                marginBottom: 12,
                 fontSize: 14,
               }}
+              returnKeyType="next"
             />
 
-            {/* DESCRIPTION INPUT */}
-            <Text style={{ color: textMuted, fontSize: 12 }}>Opisz swój pomysł</Text>
-
+            {/* OPIS */}
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
+              Opisz swój pomysł
+            </Text>
             <TextInput
               value={description}
               onChangeText={setDescription}
               placeholder={
-                "Co dokładnie chcesz dodać lub zmienić?\nJak miałoby działać?\nDla kogo byłaby ta funkcja?"
+                "Co dokładnie chcesz dodać lub zmienić?\nJak miałoby to działać krok po kroku?\nDla kogo byłaby ta funkcja?"
               }
-              placeholderTextColor={textMuted}
+              placeholderTextColor={colors.textMuted}
               multiline
               textAlignVertical="top"
               style={{
-                marginTop: 6,
-                marginBottom: 16,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: borderColor,
+                borderColor: colors.border,
                 padding: 12,
                 backgroundColor: inputBg,
-                color: textColor,
-                fontSize: 14,
+                color: colors.text,
                 minHeight: 140,
+                fontSize: 14,
+                marginBottom: 12,
               }}
             />
 
-            {/* BENEFIT INPUT */}
-            <Text style={{ color: textMuted, fontSize: 12 }}>
+            {/* KORZYŚCI */}
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
               Dlaczego to będzie pomocne? (opcjonalnie)
             </Text>
-
             <TextInput
               value={benefit}
               onChangeText={setBenefit}
-              placeholder="Np. ułatwi planowanie tygodnia całej rodzinie..."
-              placeholderTextColor={textMuted}
+              placeholder="Np. ułatwi planowanie tygodnia dla całej rodziny..."
+              placeholderTextColor={colors.textMuted}
               multiline
               textAlignVertical="top"
               style={{
-                marginTop: 6,
-                marginBottom: 20,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: borderColor,
+                borderColor: colors.border,
                 padding: 12,
                 backgroundColor: inputBg,
-                color: textColor,
+                color: colors.text,
                 fontSize: 14,
+                marginBottom: 18,
                 minHeight: 80,
               }}
             />
 
-            {/* BUTTONS */}
+            {/* PRZYCISKI */}
             <View
               style={{
-                flexDirection: "row",
+                flexDirection: isPhone ? "column" : "row",
                 justifyContent: "flex-end",
-                gap: 10,
+                gap: 12,
               }}
             >
-              {/* CANCEL */}
               <TouchableOpacity
-                onPress={() => {
-                  Haptics.selectionAsync();
+                onPress={async () => {
+                  if (Platform.OS !== "web") await Haptics.selectionAsync();
                   router.back();
                 }}
-                style={{
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: borderColor,
-                }}
-              >
-                <Text
-                  style={{
-                    color: textMuted,
-                    fontSize: 14,
-                  }}
-                >
-                  Anuluj
-                </Text>
-              </TouchableOpacity>
-
-              {/* SEND */}
-              <TouchableOpacity
-                onPress={handleSend}
-                disabled={!canSend}
                 style={{
                   paddingHorizontal: 18,
                   paddingVertical: 10,
                   borderRadius: 999,
-                  backgroundColor: canSend ? accent : disabledBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSend}
+                disabled={!canSend}
+                style={{
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 999,
                   flexDirection: "row",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: 8,
-                  opacity: sending ? 0.8 : 1,
+
+                  backgroundColor: canSend ? primaryBg : disabledBg,
+                  borderWidth: 1,
+                  borderColor: canSend ? primaryBorder : disabledBorder,
+
+                  opacity: sending ? 0.75 : 1,
+
+                  shadowColor: "#000",
+                  shadowOpacity: canSend ? 0.14 : 0.06,
+                  shadowRadius: canSend ? 10 : 6,
+                  shadowOffset: { width: 0, height: canSend ? 4 : 2 },
+
+                  elevation: canSend ? 3 : 1,
                 }}
               >
                 {sending ? (
-                  <ActivityIndicator size="small" color={onAccent} />
+                  <ActivityIndicator size="small" color={canSend ? primaryFg : disabledFg} />
                 ) : (
-                  <Ionicons name="send" size={16} color={onAccent} />
+                  <Ionicons name="send" size={16} color={canSend ? primaryFg : disabledFg} />
                 )}
-
                 <Text
                   style={{
-                    color: canSend ? onAccent : textMuted,
+                    color: canSend ? primaryFg : disabledFg,
                     fontSize: 14,
-                    fontWeight: "700",
+                    fontWeight: "800",
                   }}
                 >
                   {sending ? "Wysyłanie..." : "Wyślij pomysł"}

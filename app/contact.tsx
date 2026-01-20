@@ -6,34 +6,29 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  Platform,
   Linking,
   Alert,
-  StyleSheet,
-  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useThemeColors } from "../src/context/ThemeContext";
 
-const SUPPORT_EMAIL = "support@missionhome.app";
-const BIZ_EMAIL = "hello@missionhome.app";
+// Jeden wspólny mail (wkleisz docelowy później)
+const CONTACT_EMAIL = "office.missionhome@gmail.com";
 
 export default function ContactScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
 
-  /* =========================
-     HELPERS
-  ========================== */
-
   const openEmail = (to: string, subject: string) => {
-    const encoded = encodeURIComponent(subject);
-    const url = `mailto:${to}?subject=${encoded}`;
+    const encodedSubject = encodeURIComponent(subject);
+    const url = `mailto:${to}?subject=${encodedSubject}`;
 
     Linking.openURL(url).catch(() => {
       Alert.alert(
         "Nie udało się otworzyć poczty",
-        `Spróbuj napisać ręcznie:\n${to}`
+        `Napisz do nas ręcznie na adres:\n\n${to}`
       );
     });
   };
@@ -44,12 +39,56 @@ export default function ContactScreen() {
     });
   };
 
-  /* =========================
-     COMPONENTS
-  ========================== */
+  const PillButton = ({
+    icon,
+    label,
+    onPress,
+  }: {
+    icon: any;
+    label: string;
+    onPress: () => void;
+  }) => (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        marginRight: 8,
+        marginTop: 8,
+      }}
+    >
+      <Ionicons name={icon} size={16} color={colors.text} />
+      <Text
+        style={{
+          marginLeft: 8,
+          color: colors.text,
+          fontSize: 13,
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
 
   const SectionCard = ({ children }: { children: React.ReactNode }) => (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderRadius: 18,
+        padding: 16,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
       {children}
     </View>
   );
@@ -64,41 +103,31 @@ export default function ContactScreen() {
     subtitle?: string;
   }) => (
     <View style={{ marginBottom: subtitle ? 10 : 8 }}>
-      <View style={styles.sectionTitleRow}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
         <View
-          style={[
-            styles.iconCircle,
-            { backgroundColor: colors.accent + "22" },
-          ]}
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: 999,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.accent + "22",
+            marginRight: 8,
+          }}
         >
           <Ionicons name={icon} size={15} color={colors.accent} />
         </View>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
+        <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
+          {title}
+        </Text>
       </View>
 
-      {subtitle && (
-        <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+      {subtitle ? (
+        <Text style={{ marginTop: 4, color: colors.textMuted, fontSize: 12 }}>
           {subtitle}
         </Text>
-      )}
+      ) : null}
     </View>
-  );
-
-  const PillButton = ({ icon, label, onPress }: any) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={onPress}
-      style={[
-        styles.pill,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-        },
-      ]}
-    >
-      <Ionicons name={icon} size={16} color={colors.text} />
-      <Text style={[styles.pillText, { color: colors.text }]}>{label}</Text>
-    </TouchableOpacity>
   );
 
   const ContactRow = ({
@@ -113,116 +142,200 @@ export default function ContactScreen() {
     onPress?: () => void;
   }) => (
     <TouchableOpacity
-      onPress={onPress}
       activeOpacity={onPress ? 0.85 : 1}
-      style={styles.row}
+      onPress={onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 8,
+      }}
     >
       <View
-        style={[
-          styles.rowIcon,
-          {
-            backgroundColor: colors.cardSoft || colors.bg,
-            borderColor: colors.border,
-          },
-        ]}
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginRight: 10,
+        }}
       >
         <Ionicons name={icon} size={15} color={colors.text} />
       </View>
 
       <View style={{ flex: 1 }}>
-        <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
-        <Text style={[styles.rowValue, { color: colors.textMuted }]}>{value}</Text>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700" }}>
+          {label}
+        </Text>
+        <Text
+          style={{
+            color: colors.textMuted,
+            fontSize: 12,
+            marginTop: 2,
+          }}
+        >
+          {value}
+        </Text>
       </View>
 
-      {onPress && (
-        <Ionicons name="open-outline" size={16} color={colors.textMuted} />
-      )}
+      {onPress ? (
+        <Ionicons
+          name="open-outline"
+          size={16}
+          color={colors.textMuted}
+          style={{ marginLeft: 6 }}
+        />
+      ) : null}
     </TouchableOpacity>
   );
 
-  /* =========================
-       RENDER
-  ========================== */
+  const TopicCompactRow = ({
+    icon,
+    title,
+    subtitle,
+  }: {
+    icon: any;
+    title: string;
+    subtitle: string;
+  }) => (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 6,
+      }}
+    >
+      <View
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginRight: 10,
+        }}
+      >
+        <Ionicons name={icon} size={15} color={colors.text} />
+      </View>
+
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
+          {title}
+        </Text>
+        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 1 }}>
+          {subtitle}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const Divider = () => (
+    <View
+      style={{
+        height: 1,
+        backgroundColor: colors.border,
+        opacity: 0.7,
+        marginVertical: 10,
+      }}
+    />
+  );
 
   return (
-    <SafeAreaView style={[styles.page, { backgroundColor: colors.bg }]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: Platform.OS === "android" ? 32 : 20 },
-        ]}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: Platform.OS === "android" ? 40 : 20,
+          paddingBottom: 32,
+        }}
       >
         {/* HEADER */}
-        <View style={styles.header}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
           <TouchableOpacity
             onPress={() => router.back()}
-            activeOpacity={0.85}
-            style={[
-              styles.backBtn,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 12,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
           >
-            <Ionicons name="arrow-back" size={18} color={colors.text} />
+            <Ionicons name="chevron-back" size={20} color={colors.text} />
           </TouchableOpacity>
 
           <View style={{ flex: 1 }}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
+            <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
               Kontakt
-            </Text>
-            <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-              Napisz do nas, jeśli coś nie działa albo masz pomysł na MissionHome.
             </Text>
           </View>
         </View>
 
-        {/* SEKCJA – szybki kontakt */}
+        {/* SEKCJA: mail + tematy (kompakt) */}
         <SectionCard>
-          <SectionTitle
-            icon="mail-outline"
-            title="Szybki kontakt"
-            subtitle="Najlepszy sposób na szybki kontakt z zespołem."
-          />
+          <SectionTitle icon="mail-outline" title="Napisz do nas" />
 
           <ContactRow
+            icon="mail-open-outline"
+            label="Adres e-mail"
+            value={CONTACT_EMAIL}
+            onPress={() => openEmail(CONTACT_EMAIL, "MissionHome – kontakt")}
+          />
+
+          <Divider />
+
+          <TopicCompactRow
             icon="help-buoy-outline"
-            label="Wsparcie i problemy techniczne"
-            value={SUPPORT_EMAIL}
-            onPress={() =>
-              openEmail(SUPPORT_EMAIL, "MissionHome – wsparcie / błąd")
-            }
+            title="Wsparcie i problemy techniczne"
+            subtitle="Błędy, problemy z kontem, synchronizacja."
           />
-
-          <ContactRow
+          <TopicCompactRow
+            icon="sparkles-outline"
+            title="Pomysły i sugestie"
+            subtitle="Funkcje, usprawnienia, feedback."
+          />
+          <TopicCompactRow
             icon="briefcase-outline"
-            label="Współpraca i partnerstwa"
-            value={BIZ_EMAIL}
-            onPress={() =>
-              openEmail(BIZ_EMAIL, "MissionHome – zapytanie biznesowe")
-            }
+            title="Współpraca / media"
+            subtitle="Partnerstwa i zapytania medialne."
           />
-
-          <View style={styles.pillRow}>
-            <PillButton
-              icon="mail-open-outline"
-              label="Napisz do wsparcia"
-              onPress={() => openEmail(SUPPORT_EMAIL, "MissionHome – pytanie")}
-            />
-          </View>
+          <TopicCompactRow
+            icon="shield-checkmark-outline"
+            title="Prywatność i dane"
+            subtitle="Regulamin, polityka prywatności, dane."
+          />
         </SectionCard>
 
-        {/* SEKCJA – zgłaszanie błędów */}
+        {/* SEKCJA: zgłaszanie błędów i pomysłów */}
         <SectionCard>
           <SectionTitle
-            icon="bug-outline"
+            icon="sparkles-outline"
             title="Zgłaszanie błędów i pomysłów"
-            subtitle="Twoje zgłoszenia pomagają nam ulepszać aplikację."
+            subtitle="Twoje zgłoszenia realnie wpływają na rozwój MissionHome."
           />
 
-          <Text style={[styles.infoText, { color: colors.textMuted }]}>
-            Opisz krok po kroku co się stało i podaj urządzenie, z którego korzystasz.
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 10 }}>
+            Najlepiej, jeśli opiszesz krok po kroku co się stało i dodasz, na jakim
+            urządzeniu korzystasz z aplikacji.
           </Text>
 
-          <View style={styles.pillRow}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             <PillButton
               icon="bug-outline"
               label="Zgłoś błąd"
@@ -236,42 +349,47 @@ export default function ContactScreen() {
           </View>
         </SectionCard>
 
-        {/* SEKCJA – social media */}
+        {/* SEKCJA: social media */}
         <SectionCard>
           <SectionTitle
             icon="share-social-outline"
             title="Social media"
-            subtitle="Aktualności, ciekawostki i kulisy tworzenia aplikacji."
+            subtitle="Śledź aktualności, ciekawostki i zajrzyj za kulisy tworzenia aplikacji."
           />
 
-          <View style={styles.pillRow}>
-            <PillButton
-              icon="logo-instagram"
-              label="Instagram"
-              onPress={() => openLink("https://instagram.com")}
-            />
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             <PillButton
               icon="logo-facebook"
               label="Facebook"
-              onPress={() => openLink("https://facebook.com")}
+              onPress={() => openLink("https://www.facebook.com/profile.php?id=61584695554139")}
             />
             <PillButton
-              icon="logo-linkedin"
-              label="LinkedIn"
-              onPress={() => openLink("https://linkedin.com")}
+              icon="logo-instagram"
+              label="Instagram"
+              onPress={() => openLink("https://www.instagram.com/missionhome.pl/")}
+            />
+            <PillButton
+              icon="logo-tiktok"
+              label="TikTok"
+              onPress={() => openLink("https://www.tiktok.com/@missionhome.pl")}
+            />
+            <PillButton
+              icon="logo-youtube"
+              label="YouTube"
+              onPress={() => openLink("https://www.youtube.com/@missionhomepl")}
             />
           </View>
         </SectionCard>
 
-        {/* SEKCJA – formalności */}
+        {/* SEKCJA: formalności */}
         <SectionCard>
           <SectionTitle
-            icon="shield-checkmark-outline"
+            icon="document-text-outline"
             title="Formalności i bezpieczeństwo"
-            subtitle="Dane, regulaminy i zasady działania aplikacji."
+            subtitle="Szczegóły dotyczące danych, regulaminu i zasad korzystania z aplikacji."
           />
 
-          <View style={styles.pillRow}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             <PillButton
               icon="shield-checkmark-outline"
               label="Polityka prywatności"
@@ -284,145 +402,23 @@ export default function ContactScreen() {
             />
           </View>
 
-          <Text style={[styles.infoText, { color: colors.textMuted }]}>
-            Jeśli masz pytania o bezpieczeństwo danych — napisz do nas.
+          <Text style={{ marginTop: 10, color: colors.textMuted, fontSize: 12 }}>
+            Dbamy o to, aby MissionHome była bezpieczna i przejrzysta. Jeśli masz
+            wątpliwości dotyczące danych – śmiało napisz do nas.
           </Text>
         </SectionCard>
 
-        {/* SEKCJA – czas odpowiedzi */}
+        {/* SEKCJA: info o czasie odpowiedzi */}
         <View style={{ marginTop: 4, alignItems: "center" }}>
-          <Text style={[styles.footerInfo, { color: colors.textMuted }]}>
-            Odpowiadamy zwykle w ciągu{" "}
-            <Text style={{ fontWeight: "800", color: colors.text }}>
-              1–3 dni roboczych
+          <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center" }}>
+            Zazwyczaj odpowiadamy w ciągu{" "}
+            <Text style={{ fontWeight: "700", color: colors.text }}>
+              1-3 dni roboczych
             </Text>
-            . Dzięki, że pomagasz rozwijać MissionHome 💛
+            . Dziękujemy, że rozwijasz MissionHome razem z nami 💛
           </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-/* =========================
-     STYLES
-========================= */
-
-const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-  },
-
-  /* HEADER */
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-    gap: 12,
-  },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-
-  /* CARDS */
-  card: {
-    borderWidth: 1,
-    padding: 16,
-    borderRadius: 18,
-    marginBottom: 14,
-  },
-
-  /* SECTION TITLE */
-  sectionTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  iconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  sectionSubtitle: {
-    marginTop: 4,
-    fontSize: 12,
-  },
-
-  /* ROWS */
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 12,
-  },
-  rowIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  rowLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  rowValue: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  /* PILLS */
-  pillRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  pillText: {
-    marginLeft: 8,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-
-  infoText: {
-    fontSize: 13,
-    marginBottom: 10,
-  },
-
-  footerInfo: {
-    fontSize: 12,
-    textAlign: "center",
-  },
-});

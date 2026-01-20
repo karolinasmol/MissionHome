@@ -1,5 +1,5 @@
 // app/calendar.web.tsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Platform,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../src/context/ThemeContext";
@@ -132,13 +133,27 @@ function isMissionDoneOnDate(m: any, date: Date) {
   return !!m.completed;
 }
 
+function clamp01(v: number) {
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+function initialsFromName(name?: string | null) {
+  const s = String(name || "").trim();
+  if (!s) return "?";
+  const parts = s.split(/\s+/).filter(Boolean);
+  const a = parts[0]?.[0] ?? "";
+  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : parts[0]?.[1] ?? "";
+  return (a + b).toUpperCase();
+}
+
 /* ----------------------- Screen ----------------------- */
 
 export default function CalendarScreen() {
   const { colors } = useThemeColors();
   const { missions, loading } = useMissions();
 
-  // ⬇️ nie destrukturyzuję na sztywno, bo hook może mieć różne shape
   const family = useFamily() as any;
   const members = family?.members ?? [];
   const familyIdFromHook =
@@ -157,6 +172,11 @@ export default function CalendarScreen() {
   const pagePadding = isPhone ? 12 : isTablet ? 16 : 24;
   const daySize = isPhone ? 34 : 30;
 
+  // ✅ badge pod datą – skalowanie + iOS Safari friendly
+  const badgeH = isPhone ? 16 : 14;
+  const badgeMinW = isPhone ? 20 : 18;
+  const badgeFont = isPhone ? 10 : 9;
+
   const currentUser = auth.currentUser;
   const myUid = currentUser?.uid ?? null;
   const myId = myUid ? String(myUid) : null;
@@ -168,17 +188,26 @@ export default function CalendarScreen() {
   const [deletedLoading, setDeletedLoading] = useState(false);
   const [deletedError, setDeletedError] = useState<string | null>(null);
 
-  // ✅ blur na web jak w index.tsx
   const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
-  // ✅ wczytanie usuniętych – PORZĄDNIE na web (familyId -> uid) + tolerowanie permission na części bucketów
+  const cardShadow = useMemo(() => {
+    if (Platform.OS === "web") {
+      return { boxShadow: "0 10px 30px rgba(0,0,0,0.10)" } as any;
+    }
+    return {
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 10 },
+      elevation: 3,
+    } as any;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     const resolveFamilyId = async (uid: string): Promise<string | null> => {
       if (familyIdFromHook) return String(familyIdFromHook);
-
-      // fallback: /users/{uid}.familyId
       try {
         const userSnap = await getDoc(doc(db, "users", uid));
         if (!userSnap.exists()) return null;
@@ -211,8 +240,6 @@ export default function CalendarScreen() {
         setDeletedLoading(true);
 
         const fid = await resolveFamilyId(uid);
-
-        // kolejność ważna: najpierw family, potem uid (bo najczęściej deletedy są rodzinne)
         const bucketIds = [fid, uid]
           .filter(Boolean)
           .map((x) => String(x))
@@ -224,7 +251,6 @@ export default function CalendarScreen() {
         }
 
         const results = await Promise.allSettled(bucketIds.map((b) => fetchBucket(b)));
-
         if (cancelled) return;
 
         const ok = results
@@ -236,9 +262,7 @@ export default function CalendarScreen() {
           .map((r: any) => r.reason)
           .filter(Boolean);
 
-        // jeżeli coś się udało – pokazujemy co mamy, bez errora
         if (ok.length > 0) {
-          // uniq po __path
           const map = new Map<string, any>();
           ok.forEach((m) => map.set(String(m.__path || m.id), m));
 
@@ -257,7 +281,6 @@ export default function CalendarScreen() {
           return;
         }
 
-        // nic nie przyszło – wtedy dopiero diagnozujemy błąd
         const firstErr = denied[0];
         const code = String(firstErr?.code || "");
 
@@ -268,7 +291,6 @@ export default function CalendarScreen() {
         } else if (denied.length) {
           setDeletedError("Nie udało się wczytać usuniętych zadań.");
         } else {
-          // brak błędów i brak danych = po prostu pusto
           setDeletedError(null);
         }
 
@@ -279,7 +301,6 @@ export default function CalendarScreen() {
       }
     };
 
-    // odpalenie na start + na zmianę auth
     const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setDeletedMissions([]);
@@ -290,9 +311,7 @@ export default function CalendarScreen() {
       loadDeleted(user.uid);
     });
 
-    if (auth.currentUser?.uid) {
-      loadDeleted(auth.currentUser.uid);
-    }
+    if (auth.currentUser?.uid) loadDeleted(auth.currentUser.uid);
 
     return () => {
       cancelled = true;
@@ -300,54 +319,43 @@ export default function CalendarScreen() {
     };
   }, [familyIdFromHook]);
 
-  /* ---------- Predykaty: moje / delegowane ---------- */
+  const isMyTask = useCallback(
+    (m: any): boolean => {
+      if (!myId) return false;
 
-  const isMyTask = (m: any): boolean => {
-    if (!myId) return false;
+      const assignedTo = m?.assignedToUserId ? String(m.assignedToUserId) : null;
+      const assignedBy = m?.assignedByUserId ? String(m.assignedByUserId) : null;
+      const createdBy = m?.createdByUserId ? String(m.createdByUserId) : null;
 
-    const assignedTo = m?.assignedToUserId ? String(m.assignedToUserId) : null;
-    const assignedBy = m?.assignedByUserId ? String(m.assignedByUserId) : null;
-    const createdBy = m?.createdByUserId ? String(m.createdByUserId) : null;
+      if (assignedTo && assignedTo === myId) return true;
+      if (!assignedTo && (assignedBy === myId || createdBy === myId)) return true;
+      return false;
+    },
+    [myId]
+  );
 
-    if (assignedTo && assignedTo === myId) return true;
+  const isDelegatedTask = useCallback(
+    (m: any): boolean => {
+      if (!myId) return false;
 
-    if (!assignedTo && (assignedBy === myId || createdBy === myId)) {
-      return true;
-    }
+      const assignedTo = m?.assignedToUserId ? String(m.assignedToUserId) : null;
+      const assignedBy = m?.assignedByUserId ? String(m.assignedByUserId) : null;
+      const createdBy = m?.createdByUserId ? String(m.createdByUserId) : null;
 
-    return false;
-  };
-
-  const isDelegatedTask = (m: any): boolean => {
-    if (!myId) return false;
-
-    const assignedTo = m?.assignedToUserId ? String(m.assignedToUserId) : null;
-    const assignedBy = m?.assignedByUserId ? String(m.assignedByUserId) : null;
-    const createdBy = m?.createdByUserId ? String(m.createdByUserId) : null;
-
-    if (!assignedTo) return false;
-    if (assignedTo === myId) return false;
-
-    if (assignedBy === myId || createdBy === myId) return true;
-
-    return false;
-  };
+      if (!assignedTo) return false;
+      if (assignedTo === myId) return false;
+      if (assignedBy === myId || createdBy === myId) return true;
+      return false;
+    },
+    [myId]
+  );
 
   const allMissions: any[] = useMemo(() => (Array.isArray(missions) ? missions : []), [missions]);
-  const myTasks = useMemo(() => allMissions.filter(isMyTask), [allMissions, myId]);
-  const delegatedTasks = useMemo(() => allMissions.filter(isDelegatedTask), [allMissions, myId]);
-
-  /* ---------- KTO DODAŁ – getCreatorMember ---------- */
-
-  const meFromMembers = useMemo(() => {
-    if (!members || !myUid) return null;
-    return (
-      members.find((x: any) => {
-        const uid = String(x.uid || x.userId || x.id || "");
-        return uid === myUid;
-      }) || null
-    );
-  }, [members, myUid]);
+  const myTasks = useMemo(() => allMissions.filter(isMyTask), [allMissions, isMyTask]);
+  const delegatedTasks = useMemo(
+    () => allMissions.filter(isDelegatedTask),
+    [allMissions, isDelegatedTask]
+  );
 
   const membersById = useMemo(() => {
     const map = new Map<string, any>();
@@ -366,20 +374,7 @@ export default function CalendarScreen() {
     if (!creatorId && !creatorName) return null;
 
     if (myUid && creatorId && creatorId === String(myUid)) {
-      const label =
-        creatorName ||
-        (meFromMembers as any)?.displayName ||
-        (meFromMembers as any)?.username ||
-        currentUser?.displayName ||
-        "Ty";
-
-      const avatarUrl =
-        (meFromMembers as any)?.avatarUrl ||
-        (meFromMembers as any)?.photoURL ||
-        currentUser?.photoURL ||
-        null;
-
-      return { id: "self", label, avatarUrl };
+      return { id: "self", label: creatorName || "Ty", avatarUrl: currentUser?.photoURL || null };
     }
 
     if (creatorId && members) {
@@ -393,14 +388,10 @@ export default function CalendarScreen() {
       }
     }
 
-    if (creatorName) {
-      return { id: creatorId || "unknown", label: creatorName, avatarUrl: null };
-    }
-
+    if (creatorName) return { id: creatorId || "unknown", label: creatorName, avatarUrl: null };
     return null;
   };
 
-  /* ✅ WYKONANE PRZEZ (z fallbackami) */
   const getCompletedByLabel = (m: any) => {
     const completedByName = m?.completedByName ? String(m.completedByName) : null;
     const completedByUserId = m?.completedByUserId ? String(m.completedByUserId) : null;
@@ -425,8 +416,6 @@ export default function CalendarScreen() {
     return "Nieznane";
   };
 
-  /* ---------- KALENDARZ ---------- */
-
   const daysGrid = useMemo(() => {
     const first = startOfMonth(currentMonth);
     const firstWeekday = first.getDay(); // 0 = Nd, 1 = Pn...
@@ -447,6 +436,45 @@ export default function CalendarScreen() {
   }, [currentMonth]);
 
   const today = useMemo(() => startOfDay(new Date()), []);
+
+  type DayStats = { total: number; done: number };
+
+  const monthStatsByKey = useMemo(() => {
+    const map = new Map<string, DayStats>();
+
+    const bump = (key: string, done: boolean) => {
+      const cur = map.get(key) ?? ({ total: 0, done: 0 } as DayStats);
+      cur.total += 1;
+      if (done) cur.done += 1;
+      map.set(key, cur);
+    };
+
+    const days = daysGrid.filter(Boolean) as Date[];
+    if (!days.length) return map;
+
+    const hasAny = (myTasks?.length ?? 0) + (delegatedTasks?.length ?? 0);
+    if (!hasAny) return map;
+
+    for (const day of days) {
+      const key = formatDateKey(day);
+
+      if (myTasks?.length) {
+        for (const m of myTasks) {
+          if (!missionOccursOnDay(m, day)) continue;
+          bump(key, isMissionDoneOnDate(m, day));
+        }
+      }
+
+      if (delegatedTasks?.length) {
+        for (const m of delegatedTasks) {
+          if (!missionOccursOnDay(m, day)) continue;
+          bump(key, isMissionDoneOnDate(m, day));
+        }
+      }
+    }
+
+    return map;
+  }, [daysGrid, myTasks, delegatedTasks]);
 
   const myMissionsForSelectedDay = useMemo(() => {
     if (!myTasks?.length) return [];
@@ -485,25 +513,114 @@ export default function CalendarScreen() {
       if (!involved) return false;
       return missionOccursOnDay(m, selectedDate);
     });
-  }, [deletedMissions, selectedDate, myId]);
+  }, [deletedMissions, selectedDate, isMyTask, isDelegatedTask]);
 
-  const hasMissionsOnDay = (day: Date) => {
+  const selectedKey = useMemo(() => formatDateKey(selectedDate), [selectedDate]);
+  const selectedStats = useMemo(
+    () => monthStatsByKey.get(selectedKey) || null,
+    [monthStatsByKey, selectedKey]
+  );
+
+  const dayTotal =
+    selectedStats?.total ?? myMissionsForSelectedDay.length + delegatedForSelectedDay.length;
+  const dayDone = selectedStats?.done ?? myCompletedMissions.length + delegatedCompleted.length;
+  const dayOpen = Math.max(0, dayTotal - dayDone);
+  const dayProgress = clamp01(dayTotal > 0 ? dayDone / dayTotal : 0);
+  const progressLabel = dayTotal > 0 ? `${Math.round(dayProgress * 100)}%` : "—";
+
+  const AvatarBubble = ({
+    label,
+    avatarUrl,
+    size,
+    borderColor,
+  }: {
+    label: string;
+    avatarUrl?: string | null;
+    size: number;
+    borderColor: string;
+  }) => {
+    const r = size / 2;
+    const initials = initialsFromName(label);
     return (
-      myTasks.some((m: any) => missionOccursOnDay(m, day)) ||
-      delegatedTasks.some((m: any) => missionOccursOnDay(m, day))
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: r,
+          borderWidth: 1,
+          borderColor,
+          overflow: "hidden",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.bg,
+        }}
+      >
+        {avatarUrl ? (
+          <Image
+            source={{ uri: avatarUrl }}
+            style={{ width: size, height: size }}
+            resizeMode="cover"
+          />
+        ) : (
+          <Text
+            style={{
+              color: colors.text,
+              fontWeight: "900",
+              fontSize: Math.max(10, size * 0.36),
+            }}
+          >
+            {initials}
+          </Text>
+        )}
+      </View>
     );
   };
 
-  const hasCompletedOnDay = (day: Date) => {
-    const anyMyDone = myTasks.some(
-      (m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day)
-    );
-    if (anyMyDone) return true;
+  // ✅ IKONKA OBOK CYFRY (kompaktowo)
+  const StatMini = ({
+    icon,
+    value,
+    label,
+    tint,
+  }: {
+    icon: keyof typeof Ionicons.glyphMap;
+    value: number;
+    label: string;
+    tint?: string;
+  }) => {
+    return (
+      <View
+        style={[
+          styles.statMiniCompact,
+          { borderColor: colors.border, backgroundColor: colors.bg },
+        ]}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Ionicons name={icon} size={15} color={tint || colors.textMuted} />
+          <Text
+            style={{
+              color: colors.text,
+              fontWeight: "900",
+              fontSize: 16,
+              marginLeft: 8,
+            }}
+          >
+            {value}
+          </Text>
+        </View>
 
-    const anyDelDone = delegatedTasks.some(
-      (m: any) => missionOccursOnDay(m, day) && isMissionDoneOnDate(m, day)
+        <Text
+          style={{
+            color: colors.textMuted,
+            fontWeight: "900",
+            fontSize: 10,
+            marginTop: 2,
+          }}
+        >
+          {label}
+        </Text>
+      </View>
     );
-    return anyDelDone;
   };
 
   const SectionHeader = ({
@@ -527,7 +644,7 @@ export default function CalendarScreen() {
                   styles.iconPill,
                   {
                     borderColor: colors.border,
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.bg,
                     marginRight: 8,
                   },
                 ]}
@@ -537,7 +654,9 @@ export default function CalendarScreen() {
             )}
             <Text style={[styles.cardTitle, { color: colors.text }]}>{title}</Text>
           </View>
-          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>{subtitle}</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>
+            {subtitle}
+          </Text>
         </View>
 
         <View style={{ marginLeft: 12, alignItems: "flex-end" }}>{right}</View>
@@ -545,11 +664,9 @@ export default function CalendarScreen() {
     );
   };
 
-  /* ------------------------- UI ------------------------- */
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, position: "relative" }}>
-      {/* 🔥 TŁO: “orby” / gradienty jak w index.tsx */}
+      {/* tło */}
       <View
         style={{
           pointerEvents: "none" as any,
@@ -585,49 +702,13 @@ export default function CalendarScreen() {
             ...(orbBlur as any),
           }}
         />
-        <View
-          style={{
-            position: "absolute",
-            width: 220,
-            height: 220,
-            borderRadius: 999,
-            backgroundColor: "#a855f720",
-            top: 210,
-            left: -90,
-            ...(orbBlur as any),
-          }}
-        />
-        <View
-          style={{
-            position: "absolute",
-            width: 300,
-            height: 300,
-            borderRadius: 999,
-            backgroundColor: "#0ea5e920",
-            top: 420,
-            right: -150,
-            ...(orbBlur as any),
-          }}
-        />
-        <View
-          style={{
-            position: "absolute",
-            width: 180,
-            height: 180,
-            borderRadius: 999,
-            backgroundColor: "#f9731620",
-            top: 720,
-            left: 40,
-            ...(orbBlur as any),
-          }}
-        />
       </View>
 
       <ScrollView
         style={{ flex: 1, zIndex: 1 }}
         contentContainerStyle={{
           paddingVertical: isPhone ? 12 : 16,
-          paddingBottom: 24,
+          paddingBottom: 28,
           alignItems: "stretch",
         }}
         showsVerticalScrollIndicator={false}
@@ -640,18 +721,118 @@ export default function CalendarScreen() {
             alignSelf: "center",
           }}
         >
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 24,
-              fontWeight: "800",
-              marginBottom: 12,
-            }}
-          >
-            Kalendarz domowy
-          </Text>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ color: colors.text, fontSize: 24, fontWeight: "900" }}>
+              Kalendarz domowy
+            </Text>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 13,
+                marginTop: 2,
+                textTransform: "capitalize",
+              }}
+            >
+              {formatDayLong(selectedDate)}
+            </Text>
+          </View>
 
-          {/* Karta kalendarza miesięcznego */}
+          {/* ✅ Dzień w skrócie — krótszy / zwięzły */}
+          <View style={{ marginBottom: 14 }}>
+            <View
+              style={[
+                styles.summaryCardCompact,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  ...(cardShadow as any),
+                },
+              ]}
+            >
+              {/* header */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View
+                    style={[
+                      styles.iconPill,
+                      { borderColor: colors.border, backgroundColor: colors.bg, marginRight: 8 },
+                    ]}
+                  >
+                    <Ionicons name="sparkles-outline" size={14} color={colors.text} />
+                  </View>
+                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>
+                    Dzień w skrócie
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.badgePillSmall,
+                    { borderColor: colors.border, backgroundColor: colors.bg },
+                  ]}
+                >
+                  <Ionicons
+                    name="pulse-outline"
+                    size={13}
+                    color={colors.textMuted}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 11 }}>
+                    {progressLabel}
+                  </Text>
+                </View>
+              </View>
+
+              {/* 1 linijka info */}
+              <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 8 }}>
+                Wykonane: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayDone}</Text>
+                {"  "}•{"  "}
+                Otwarte: <Text style={{ color: colors.text, fontWeight: "900" }}>{dayOpen}</Text>
+                {"  "}•{"  "}
+                Delegowane:{" "}
+                <Text style={{ color: colors.text, fontWeight: "900" }}>
+                  {delegatedForSelectedDay.length}
+                </Text>
+              </Text>
+
+              {/* mini staty */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: 10 as any,
+                  marginTop: 10,
+                }}
+              >
+                <StatMini
+                  icon="checkmark-circle-outline"
+                  value={dayDone}
+                  label="wykonane"
+                  tint="#16a34a"
+                />
+                <StatMini icon="hourglass-outline" value={dayOpen} label="otwarte" />
+                <StatMini
+                  icon="people-outline"
+                  value={delegatedForSelectedDay.length}
+                  label="delegowane"
+                />
+              </View>
+
+              {loading ? (
+                <View style={{ marginTop: 10 }}>
+                  <ActivityIndicator size="small" color={colors.accent} />
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          {/* kalendarz */}
           <View
             style={[
               styles.card,
@@ -661,38 +842,10 @@ export default function CalendarScreen() {
                 marginBottom: 16,
                 position: "relative",
                 overflow: "hidden",
+                ...(cardShadow as any),
               },
             ]}
           >
-            {/* dekoracyjne orby w karcie (subtelnie) */}
-            <View
-              style={{
-                pointerEvents: "none" as any,
-                position: "absolute",
-                top: -110,
-                right: -120,
-                width: 240,
-                height: 240,
-                borderRadius: 999,
-                backgroundColor: colors.accent + "22",
-                ...(orbBlur as any),
-              }}
-            />
-            <View
-              style={{
-                pointerEvents: "none" as any,
-                position: "absolute",
-                bottom: -130,
-                left: -120,
-                width: 260,
-                height: 260,
-                borderRadius: 999,
-                backgroundColor: "#0ea5e91a",
-                ...(orbBlur as any),
-              }}
-            />
-
-            {/* Header miesiąca */}
             <View style={styles.monthHeader}>
               <TouchableOpacity
                 onPress={() =>
@@ -703,6 +856,7 @@ export default function CalendarScreen() {
                   })
                 }
                 style={[styles.monthNavBtn, { borderColor: colors.border, backgroundColor: colors.bg }]}
+                accessibilityLabel="Poprzedni miesiąc"
               >
                 <Ionicons name="chevron-back" size={18} color={colors.text} />
               </TouchableOpacity>
@@ -712,14 +866,11 @@ export default function CalendarScreen() {
                   style={{
                     color: colors.text,
                     fontSize: 16,
-                    fontWeight: "700",
+                    fontWeight: "900",
                     textTransform: "capitalize",
                   }}
                 >
-                  {currentMonth.toLocaleDateString("pl-PL", {
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  {currentMonth.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
                 </Text>
               </View>
 
@@ -732,12 +883,12 @@ export default function CalendarScreen() {
                   })
                 }
                 style={[styles.monthNavBtn, { borderColor: colors.border, backgroundColor: colors.bg }]}
+                accessibilityLabel="Następny miesiąc"
               >
                 <Ionicons name="chevron-forward" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
 
-            {/* Nazwy dni tygodnia */}
             <View style={styles.weekLabelsRow}>
               {WEEK_LABELS.map((label) => (
                 <Text
@@ -747,7 +898,7 @@ export default function CalendarScreen() {
                     textAlign: "center",
                     color: colors.textMuted,
                     fontSize: 11,
-                    fontWeight: "600",
+                    fontWeight: "900",
                   }}
                 >
                   {label}
@@ -755,15 +906,19 @@ export default function CalendarScreen() {
               ))}
             </View>
 
-            {/* Siatka dni */}
             <View style={styles.daysGrid}>
               {daysGrid.map((day, idx) => {
                 if (!day) return <View key={`empty-${idx}`} style={styles.dayCell} />;
 
                 const isToday = isSameDay(day, today);
                 const isSelected = isSameDay(day, selectedDate);
-                const hasM = hasMissionsOnDay(day);
-                const hasDone = hasCompletedOnDay(day);
+
+                const key = formatDateKey(day);
+                const stats = monthStatsByKey.get(key) || null;
+
+                const doneCount = stats?.done ?? 0;
+                const totalCount = stats?.total ?? 0;
+                const showBadge = doneCount > 0;
 
                 let bg = "transparent";
                 let border = colors.border;
@@ -776,7 +931,11 @@ export default function CalendarScreen() {
                 } else if (isToday) {
                   bg = colors.accent + "22";
                   border = colors.accent;
+                } else if (totalCount > 0) {
+                  bg = colors.bg;
                 }
+
+                const badgeLabel = doneCount > 99 ? "99+" : String(doneCount);
 
                 return (
                   <TouchableOpacity
@@ -785,54 +944,74 @@ export default function CalendarScreen() {
                     style={styles.dayCell}
                     activeOpacity={0.85}
                   >
-                    <View
-                      style={{
-                        width: daySize,
-                        height: daySize,
-                        borderRadius: 999,
-                        backgroundColor: bg,
-                        borderWidth: 1,
-                        borderColor: border,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: textColor,
-                          fontSize: 13,
-                          fontWeight: isSelected ? "800" : "500",
-                        }}
-                      >
-                        {day.getDate()}
-                      </Text>
-                    </View>
-
-                    {hasM && (
+                    <View style={{ alignItems: "center" }}>
                       <View
                         style={{
-                          width: 4,
-                          height: 4,
+                          width: daySize,
+                          height: daySize,
                           borderRadius: 999,
-                          backgroundColor: hasDone ? "#22c55e" : colors.accent,
-                          marginTop: 3,
+                          backgroundColor: bg,
+                          borderWidth: 1,
+                          borderColor: border,
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
-                      />
-                    )}
+                      >
+                        <Text
+                          style={{
+                            color: textColor,
+                            fontSize: 13,
+                            fontWeight: isSelected ? "900" : "600",
+                          }}
+                        >
+                          {day.getDate()}
+                        </Text>
+                      </View>
+
+                      {showBadge ? (
+                        <View
+                          style={{
+                            marginTop: 4,
+                            minWidth: badgeMinW,
+                            height: badgeH,
+                            paddingHorizontal: 6,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: "#22c55e66",
+                            backgroundColor: "#22c55e22",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: badgeFont,
+                              fontWeight: "900",
+                              color: "#16a34a",
+                              lineHeight: badgeH - 2,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {badgeLabel}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={{ marginTop: 4, height: badgeH }} />
+                      )}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
             </View>
           </View>
 
-          {/* ✅ KAFELKI: AUTO-WRAP */}
+          {/* kafelki */}
           <View style={styles.cardsWrap}>
-            {/* Moje zadania na dzień */}
             <View
               style={[
                 styles.card,
                 styles.responsiveCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
+                { backgroundColor: colors.card, borderColor: colors.border, ...(cardShadow as any) },
               ]}
             >
               <SectionHeader
@@ -843,9 +1022,17 @@ export default function CalendarScreen() {
                   loading ? (
                     <ActivityIndicator color={colors.accent} />
                   ) : (
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      {myPendingMissions.length} otwarte • {myCompletedMissions.length} wykonane
-                    </Text>
+                    <View
+                      style={[
+                        styles.badgePill,
+                        { borderColor: "#22c55e66", backgroundColor: "#22c55e22" },
+                      ]}
+                    >
+                      <Ionicons name="checkmark" size={14} color="#16a34a" style={{ marginRight: 6 }} />
+                      <Text style={{ color: "#16a34a", fontWeight: "900", fontSize: 12 }}>
+                        {myCompletedMissions.length}
+                      </Text>
+                    </View>
                   )
                 }
               />
@@ -853,23 +1040,18 @@ export default function CalendarScreen() {
               {loading ? (
                 <Text style={{ color: colors.textMuted, fontSize: 13 }}>Ładowanie zadań…</Text>
               ) : myMissionsForSelectedDay.length === 0 ? (
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                  Brak zadań przypisanych do Ciebie w tym dniu.
-                </Text>
+                <View style={[styles.emptyBox, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                  <Ionicons name="leaf-outline" size={18} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6, textAlign: "center" }}>
+                    Brak zadań przypisanych do Ciebie w tym dniu.
+                  </Text>
+                </View>
               ) : (
                 <>
-                  {/* Niezrealizowane */}
                   {myPendingMissions.length > 0 && (
                     <View style={{ marginBottom: 10 }}>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 13,
-                          fontWeight: "800",
-                          marginBottom: 6,
-                        }}
-                      >
-                        Niezrealizowane
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "900", marginBottom: 6 }}>
+                        Otwarte
                       </Text>
 
                       {myPendingMissions.map((m: any) => {
@@ -880,10 +1062,7 @@ export default function CalendarScreen() {
                             key={m.id}
                             style={[
                               styles.missionRow,
-                              {
-                                borderColor: colors.border,
-                                backgroundColor: colors.card,
-                              },
+                              { borderColor: colors.border, backgroundColor: colors.bg },
                             ]}
                           >
                             <View
@@ -902,70 +1081,26 @@ export default function CalendarScreen() {
                             </View>
 
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                style={{
-                                  color: colors.text,
-                                  fontSize: 14,
-                                  fontWeight: "700",
-                                }}
-                                numberOfLines={2}
-                              >
+                              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }} numberOfLines={2}>
                                 {m.title}
                               </Text>
 
                               {creator?.label && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Dodane przez: {creator.label}
                                 </Text>
                               )}
                             </View>
-
-                            {!!m.expValue && (
-                              <View
-                                style={{
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 999,
-                                  borderWidth: 1,
-                                  borderColor: colors.accent + "88",
-                                  backgroundColor: colors.accent + "22",
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color: colors.accent,
-                                    fontSize: 11,
-                                    fontWeight: "700",
-                                  }}
-                                >
-                                  +{m.expValue} EXP
-                                </Text>
-                              </View>
-                            )}
                           </View>
                         );
                       })}
                     </View>
                   )}
 
-                  {/* Zrealizowane */}
                   {myCompletedMissions.length > 0 && (
                     <View>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 13,
-                          fontWeight: "800",
-                          marginBottom: 6,
-                        }}
-                      >
-                        Zrealizowane
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "900", marginBottom: 6 }}>
+                        Wykonane
                       </Text>
 
                       {myCompletedMissions.map((m: any) => {
@@ -977,10 +1112,7 @@ export default function CalendarScreen() {
                             key={m.id}
                             style={[
                               styles.missionRow,
-                              {
-                                borderColor: colors.accent + "66",
-                                backgroundColor: colors.card,
-                              },
+                              { borderColor: "#22c55e55", backgroundColor: "#22c55e12" },
                             ]}
                           >
                             <View
@@ -989,73 +1121,31 @@ export default function CalendarScreen() {
                                 height: 28,
                                 borderRadius: 999,
                                 borderWidth: 1,
-                                borderColor: colors.accent + "AA",
+                                borderColor: "#22c55e88",
                                 marginRight: 10,
                                 alignItems: "center",
                                 justifyContent: "center",
-                                backgroundColor: colors.accent + "22",
+                                backgroundColor: "#22c55e22",
                               }}
                             >
-                              <Ionicons name="checkmark" size={16} color={colors.accent} />
+                              <Ionicons name="checkmark" size={16} color="#16a34a" />
                             </View>
 
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                style={{
-                                  color: colors.text,
-                                  fontSize: 14,
-                                  fontWeight: "700",
-                                }}
-                                numberOfLines={2}
-                              >
+                              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }} numberOfLines={2}>
                                 {m.title}
                               </Text>
 
-                              <Text
-                                style={{
-                                  color: colors.textMuted,
-                                  fontSize: 11,
-                                  marginTop: 2,
-                                }}
-                              >
+                              <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                 Wykonane przez: {doneBy}
                               </Text>
 
                               {creator?.label && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Dodane przez: {creator.label}
                                 </Text>
                               )}
                             </View>
-
-                            {!!m.expValue && (
-                              <View
-                                style={{
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 999,
-                                  borderWidth: 1,
-                                  borderColor: colors.accent + "88",
-                                  backgroundColor: colors.accent + "22",
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color: colors.accent,
-                                    fontSize: 11,
-                                    fontWeight: "700",
-                                  }}
-                                >
-                                  +{m.expValue} EXP
-                                </Text>
-                              </View>
-                            )}
                           </View>
                         );
                       })}
@@ -1065,12 +1155,11 @@ export default function CalendarScreen() {
               )}
             </View>
 
-            {/* Zadania przypisane domownikom */}
             <View
               style={[
                 styles.card,
                 styles.responsiveCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
+                { backgroundColor: colors.card, borderColor: colors.border, ...(cardShadow as any) },
               ]}
             >
               <SectionHeader
@@ -1081,9 +1170,17 @@ export default function CalendarScreen() {
                   loading ? (
                     <ActivityIndicator color={colors.accent} />
                   ) : (
-                    <Text style={{ color: colors.textMuted, fontSize: 11 }}>
-                      {delegatedPending.length} otwarte • {delegatedCompleted.length} wykonane
-                    </Text>
+                    <View
+                      style={[
+                        styles.badgePill,
+                        { borderColor: "#22c55e66", backgroundColor: "#22c55e22" },
+                      ]}
+                    >
+                      <Ionicons name="checkmark" size={14} color="#16a34a" style={{ marginRight: 6 }} />
+                      <Text style={{ color: "#16a34a", fontWeight: "900", fontSize: 12 }}>
+                        {delegatedCompleted.length}
+                      </Text>
+                    </View>
                   )
                 }
               />
@@ -1091,23 +1188,18 @@ export default function CalendarScreen() {
               {loading ? (
                 <Text style={{ color: colors.textMuted, fontSize: 13 }}>Ładowanie zadań…</Text>
               ) : delegatedForSelectedDay.length === 0 ? (
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                  Brak zadań przypisanych przez Ciebie innym w tym dniu.
-                </Text>
+                <View style={[styles.emptyBox, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                  <Ionicons name="happy-outline" size={18} color={colors.textMuted} />
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 6, textAlign: "center" }}>
+                    Brak zadań przypisanych przez Ciebie innym w tym dniu.
+                  </Text>
+                </View>
               ) : (
                 <>
-                  {/* Niezrealizowane */}
                   {delegatedPending.length > 0 && (
                     <View style={{ marginBottom: 10 }}>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 13,
-                          fontWeight: "800",
-                          marginBottom: 6,
-                        }}
-                      >
-                        Niezrealizowane
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "900", marginBottom: 6 }}>
+                        Otwarte
                       </Text>
 
                       {delegatedPending.map((m: any) => {
@@ -1118,10 +1210,7 @@ export default function CalendarScreen() {
                             key={m.id}
                             style={[
                               styles.missionRow,
-                              {
-                                borderColor: colors.border,
-                                backgroundColor: colors.card,
-                              },
+                              { borderColor: colors.border, backgroundColor: colors.bg },
                             ]}
                           >
                             <View
@@ -1140,82 +1229,39 @@ export default function CalendarScreen() {
                             </View>
 
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                style={{
-                                  color: colors.text,
-                                  fontSize: 14,
-                                  fontWeight: "700",
-                                }}
-                                numberOfLines={2}
-                              >
+                              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }} numberOfLines={2}>
                                 {m.title}
                               </Text>
 
                               {!!m.assignedToName && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Przypisane do: {m.assignedToName}
                                 </Text>
                               )}
 
                               {creator?.label && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Dodane przez: {creator.label}
                                 </Text>
                               )}
                             </View>
 
-                            {!!m.expValue && (
-                              <View
-                                style={{
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 999,
-                                  borderWidth: 1,
-                                  borderColor: colors.accent + "88",
-                                  backgroundColor: colors.accent + "22",
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color: colors.accent,
-                                    fontSize: 11,
-                                    fontWeight: "700",
-                                  }}
-                                >
-                                  +{m.expValue} EXP
-                                </Text>
-                              </View>
-                            )}
+                            <AvatarBubble
+                              label={m.assignedToName || "Domownik"}
+                              avatarUrl={null}
+                              size={26}
+                              borderColor={colors.border}
+                            />
                           </View>
                         );
                       })}
                     </View>
                   )}
 
-                  {/* Zrealizowane */}
                   {delegatedCompleted.length > 0 && (
                     <View>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 13,
-                          fontWeight: "800",
-                          marginBottom: 6,
-                        }}
-                      >
-                        Zrealizowane
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "900", marginBottom: 6 }}>
+                        Wykonane
                       </Text>
 
                       {delegatedCompleted.map((m: any) => {
@@ -1227,10 +1273,7 @@ export default function CalendarScreen() {
                             key={m.id}
                             style={[
                               styles.missionRow,
-                              {
-                                borderColor: colors.accent + "66",
-                                backgroundColor: colors.card,
-                              },
+                              { borderColor: "#22c55e55", backgroundColor: "#22c55e12" },
                             ]}
                           >
                             <View
@@ -1239,85 +1282,44 @@ export default function CalendarScreen() {
                                 height: 28,
                                 borderRadius: 999,
                                 borderWidth: 1,
-                                borderColor: colors.accent + "AA",
+                                borderColor: "#22c55e88",
                                 marginRight: 10,
                                 alignItems: "center",
                                 justifyContent: "center",
-                                backgroundColor: colors.accent + "22",
+                                backgroundColor: "#22c55e22",
                               }}
                             >
-                              <Ionicons name="checkmark" size={16} color={colors.accent} />
+                              <Ionicons name="checkmark" size={16} color="#16a34a" />
                             </View>
 
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text
-                                style={{
-                                  color: colors.text,
-                                  fontSize: 14,
-                                  fontWeight: "700",
-                                }}
-                                numberOfLines={2}
-                              >
+                              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }} numberOfLines={2}>
                                 {m.title}
                               </Text>
 
-                              <Text
-                                style={{
-                                  color: colors.textMuted,
-                                  fontSize: 11,
-                                  marginTop: 2,
-                                }}
-                              >
+                              <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                 Wykonane przez: {doneBy}
                               </Text>
 
                               {!!m.assignedToName && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Przypisane do: {m.assignedToName}
                                 </Text>
                               )}
 
                               {creator?.label && (
-                                <Text
-                                  style={{
-                                    color: colors.textMuted,
-                                    fontSize: 11,
-                                    marginTop: 2,
-                                  }}
-                                >
+                                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                                   Dodane przez: {creator.label}
                                 </Text>
                               )}
                             </View>
 
-                            {!!m.expValue && (
-                              <View
-                                style={{
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 999,
-                                  borderWidth: 1,
-                                  borderColor: colors.accent + "88",
-                                  backgroundColor: colors.accent + "22",
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color: colors.accent,
-                                    fontSize: 11,
-                                    fontWeight: "700",
-                                  }}
-                                >
-                                  +{m.expValue} EXP
-                                </Text>
-                              </View>
-                            )}
+                            <AvatarBubble
+                              label={m.assignedToName || "Domownik"}
+                              avatarUrl={null}
+                              size={26}
+                              borderColor={"#22c55e66"}
+                            />
                           </View>
                         );
                       })}
@@ -1328,7 +1330,7 @@ export default function CalendarScreen() {
             </View>
           </View>
 
-          {/* Usunięte zadania */}
+          {/* usunięte */}
           <View
             style={[
               styles.card,
@@ -1336,6 +1338,7 @@ export default function CalendarScreen() {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
                 marginBottom: 24,
+                ...(cardShadow as any),
               },
             ]}
           >
@@ -1347,16 +1350,19 @@ export default function CalendarScreen() {
                 alignItems: "center",
               }}
             >
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 15,
-                  fontWeight: "700",
-                }}
-              >
-                Usunięte zadania tego dnia
-              </Text>
-
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={[
+                    styles.iconPill,
+                    { borderColor: colors.border, backgroundColor: colors.bg, marginRight: 8 },
+                  ]}
+                >
+                  <Ionicons name="trash-outline" size={14} color={colors.text} />
+                </View>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>
+                  Usunięte tego dnia
+                </Text>
+              </View>
               {deletedLoading && <ActivityIndicator size="small" color={colors.accent} />}
             </View>
 
@@ -1365,20 +1371,12 @@ export default function CalendarScreen() {
             ) : deletedError ? (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>{deletedError}</Text>
             ) : deletedForSelectedDay.length === 0 ? (
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                Brak usuniętych zadań tego dnia.
-              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>Brak usuniętych zadań tego dnia.</Text>
             ) : (
               deletedForSelectedDay.map((m: any) => (
                 <View
                   key={m.__path || m.id}
-                  style={[
-                    styles.missionRow,
-                    {
-                      borderColor: "#ef444466",
-                      backgroundColor: colors.card,
-                    },
-                  ]}
+                  style={[styles.missionRow, { borderColor: "#ef444466", backgroundColor: colors.bg }]}
                 >
                   <View
                     style={{
@@ -1396,24 +1394,11 @@ export default function CalendarScreen() {
                   </View>
 
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 14,
-                        fontWeight: "700",
-                      }}
-                      numberOfLines={2}
-                    >
+                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: "900" }} numberOfLines={2}>
                       {m.title}
                     </Text>
                     {!!m.assignedToName && (
-                      <Text
-                        style={{
-                          color: colors.textMuted,
-                          fontSize: 11,
-                          marginTop: 2,
-                        }}
-                      >
+                      <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>
                         Przypisane do: {m.assignedToName}
                       </Text>
                     )}
@@ -1435,6 +1420,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
 
+  summaryCardCompact: {
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1443,8 +1434,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
   },
+
   iconPill: {
     width: 26,
     height: 26,
@@ -1465,10 +1457,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
+
   weekLabelsRow: {
     flexDirection: "row",
     marginBottom: 4,
   },
+
   daysGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1503,10 +1497,51 @@ const styles = StyleSheet.create({
   missionRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+
+  emptyBox: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // ✅ bardziej kompaktowe niż wcześniej
+  statMiniCompact: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 120,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    minWidth: 0,
+  },
+
+  badgePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+
+  badgePillSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
   },
 });
+
+// app/calendar.web.tsx

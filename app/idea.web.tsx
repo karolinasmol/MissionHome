@@ -1,4 +1,4 @@
-// app/idea.tsx
+// app/idea.web.tsx
 import React, { useMemo, useState } from "react";
 import {
   View,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -46,11 +47,7 @@ function clamp255(n: number) {
 function shadeHex(hex: string, amount: number) {
   if (!isHex6(hex)) return hex;
   const { r, g, b } = hexToRgb(hex);
-  return rgbToHex(
-    clamp255(r + amount),
-    clamp255(g + amount),
-    clamp255(b + amount)
-  );
+  return rgbToHex(clamp255(r + amount), clamp255(g + amount), clamp255(b + amount));
 }
 
 function luminance(hex: string) {
@@ -64,6 +61,9 @@ type ModalKind = "success" | "error";
 export default function IdeaScreen() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const { width } = useWindowDimensions();
+
+  const isPhone = width < 520;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -92,13 +92,34 @@ export default function IdeaScreen() {
   const modalCardBg = useMemo(() => {
     const base = typeof colors.card === "string" ? colors.card : "#111827";
     if (!isHex6(base)) return base;
-    // lekko podbijamy modal, żeby wyglądał “premium”
     const lum = luminance(base);
     return lum < 0.45 ? shadeHex(base, 10) : shadeHex(base, -6);
   }, [colors.card]);
 
-  const canSend =
-    title.trim().length > 0 && description.trim().length > 0 && !sending;
+  // ====== ŁADNIEJSZY PRZYCISK NA JASNYCH MOTYWACH (jak w bug.tsx) ======
+  const bgBase = typeof colors.bg === "string" ? colors.bg : "#ffffff";
+  const isLightTheme = isHex6(bgBase) ? luminance(bgBase) > 0.62 : true;
+
+  const pickOnColor = (bgHex: string) => {
+    if (!isHex6(bgHex)) return isLightTheme ? "#0f172a" : "#e2e8f0";
+    return luminance(bgHex) > 0.62 ? "#0f172a" : "#ecfeff";
+  };
+
+  const enabledBg = typeof colors.accent === "string" ? colors.accent : "#22c55e";
+  const enabledFg = pickOnColor(enabledBg);
+
+  const disabledBg = isLightTheme ? "#e2e8f0" : "#1e293b";
+  const disabledFg = isLightTheme ? "#334155" : "#64748b";
+  const disabledBorder = isLightTheme ? "#cbd5e1" : colors.border;
+
+  const enabledBorder = isHex6(enabledBg)
+    ? isLightTheme
+      ? shadeHex(enabledBg, -22)
+      : shadeHex(enabledBg, 18)
+    : colors.border;
+  // =====================================================================
+
+  const canSend = title.trim().length > 0 && description.trim().length > 0 && !sending;
 
   const openModal = (kind: ModalKind, t: string, m: string) => {
     setModalKind(kind);
@@ -110,7 +131,6 @@ export default function IdeaScreen() {
   const closeModal = () => setModalOpen(false);
 
   const handleModalPrimary = () => {
-    // po sukcesie czyścimy i wracamy
     if (modalKind === "success") {
       setTitle("");
       setDescription("");
@@ -119,14 +139,12 @@ export default function IdeaScreen() {
       router.back();
       return;
     }
-    // po błędzie tylko zamykamy
     closeModal();
   };
 
   const handleSend = async () => {
     if (!canSend) return;
 
-    // (opcjonalnie) lepszy UX, jeśli jednak ktoś wejdzie tu niezalogowany
     if (!user?.uid) {
       openModal("error", "Zaloguj się", "Musisz być zalogowany, aby wysłać pomysł.");
       return;
@@ -150,8 +168,7 @@ export default function IdeaScreen() {
       openModal("success", "Dziękujemy!", "Twój pomysł został wysłany 💡");
     } catch (err: any) {
       console.error("IDEA REPORT ERROR", err);
-      const msg =
-        err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
+      const msg = err?.message || "Nie udało się wysłać pomysłu. Spróbuj ponownie.";
       openModal("error", "Błąd", msg);
     } finally {
       setSending(false);
@@ -164,13 +181,8 @@ export default function IdeaScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* MODAL (web + native) */}
-      <Modal
-        visible={modalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={closeModal}
-      >
+      {/* MODAL */}
+      <Modal visible={modalOpen} transparent animationType="fade" onRequestClose={closeModal}>
         <Pressable
           onPress={closeModal}
           style={{
@@ -181,7 +193,6 @@ export default function IdeaScreen() {
             padding: 16,
           }}
         >
-          {/* klik w kartę nie zamyka */}
           <Pressable
             onPress={() => {}}
             style={{
@@ -204,11 +215,7 @@ export default function IdeaScreen() {
 
               <TouchableOpacity
                 onPress={closeModal}
-                style={{
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                }}
+                style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 }}
               >
                 <Ionicons name="close" size={18} color={colors.textMuted} />
               </TouchableOpacity>
@@ -244,9 +251,7 @@ export default function IdeaScreen() {
                     borderColor: colors.border,
                   }}
                 >
-                  <Text style={{ color: colors.textMuted, fontSize: 14 }}>
-                    Zamknij
-                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 14 }}>Zamknij</Text>
                 </TouchableOpacity>
               ) : null}
 
@@ -270,11 +275,12 @@ export default function IdeaScreen() {
 
       <ScrollView
         contentContainerStyle={{
-          padding: 16,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
           paddingBottom: 32,
           width: "100%",
           maxWidth: 900,
-          alignSelf: Platform.OS === "web" ? "center" : "stretch",
+          alignSelf: "center",
         }}
         keyboardShouldPersistTaps="handled"
       >
@@ -283,24 +289,48 @@ export default function IdeaScreen() {
           style={{
             flexDirection: "row",
             alignItems: "center",
+            gap: 10,
             marginBottom: 18,
           }}
         >
           <TouchableOpacity
             onPress={() => router.back()}
-            style={{ paddingRight: 8, paddingVertical: 4 }}
+            style={{ padding: 6, borderRadius: 10 }}
           >
-            <Ionicons name="chevron-back" size={22} color={colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
+
           <Text
             style={{
               color: colors.text,
-              fontSize: 18,
-              fontWeight: "800",
+              fontSize: isPhone ? 20 : 22,
+              fontWeight: "900",
+              flex: 1, // wypycha guzik na prawo
             }}
           >
             Zgłoś pomysł
           </Text>
+
+          {/* PRZEJŚCIE: Zgłoś błąd */}
+          <TouchableOpacity
+            onPress={() => router.push("/bug")}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: inputBg,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Ionicons name="bug-outline" size={18} color={colors.text} />
+            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 13 }}>
+              Zgłoś błąd
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* FORM CARD */}
@@ -308,20 +338,26 @@ export default function IdeaScreen() {
           style={{
             ...cardStyle,
             borderWidth: 1,
-            borderRadius: 16,
-            padding: 14,
+            borderRadius: 18,
+            padding: isPhone ? 14 : 16,
+            shadowColor: "#000",
+            shadowOpacity: 0.10,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 2,
           }}
         >
           <Text
             style={{
               color: colors.text,
-              fontWeight: "700",
-              fontSize: 15,
+              fontWeight: "800",
+              fontSize: isPhone ? 15 : 16,
               marginBottom: 6,
             }}
           >
             Pomóż nam ulepszyć MissionHome 💡
           </Text>
+
           <Text
             style={{
               color: colors.textMuted,
@@ -329,8 +365,8 @@ export default function IdeaScreen() {
               marginBottom: 14,
             }}
           >
-            Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia.
-            Im bardziej konkretny opis, tym łatwiej nam będzie je wdrożyć.
+            Podziel się swoimi pomysłami na nowe funkcje, poprawki lub usprawnienia. Im bardziej
+            konkretny opis, tym łatwiej nam będzie je wdrożyć.
           </Text>
 
           {/* JAKIE POMYSŁY */}
@@ -352,13 +388,12 @@ export default function IdeaScreen() {
                 lineHeight: 16,
               }}
             >
-              • nowe funkcje aplikacji {"\n"}
-              • zmiany w wyglądzie {"\n"}
-              • usprawnienia, które ułatwią codzienne korzystanie
+              • nowe funkcje aplikacji {"\n"}• zmiany w wyglądzie {"\n"}• usprawnienia, które
+              ułatwią codzienne korzystanie
             </Text>
           </View>
 
-          {/* TYTUŁ POMYSŁU */}
+          {/* TYTUŁ */}
           <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Tytuł pomysłu
           </Text>
@@ -368,10 +403,10 @@ export default function IdeaScreen() {
             placeholder="Np. Widok tygodnia w kalendarzu"
             placeholderTextColor={colors.textMuted}
             style={{
-              borderRadius: 10,
+              borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 10,
+              padding: 12,
               backgroundColor: inputBg,
               color: colors.text,
               marginBottom: 12,
@@ -379,7 +414,7 @@ export default function IdeaScreen() {
             }}
           />
 
-          {/* OPIS POMYSŁU */}
+          {/* OPIS */}
           <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Opisz swój pomysł
           </Text>
@@ -393,10 +428,10 @@ export default function IdeaScreen() {
             multiline
             textAlignVertical="top"
             style={{
-              borderRadius: 10,
+              borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 10,
+              padding: 12,
               backgroundColor: inputBg,
               color: colors.text,
               minHeight: 140,
@@ -417,10 +452,10 @@ export default function IdeaScreen() {
             multiline
             textAlignVertical="top"
             style={{
-              borderRadius: 10,
+              borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 10,
+              padding: 12,
               backgroundColor: inputBg,
               color: colors.text,
               fontSize: 14,
@@ -432,50 +467,62 @@ export default function IdeaScreen() {
           {/* PRZYCISKI */}
           <View
             style={{
-              flexDirection: "row",
+              flexDirection: isPhone ? "column" : "row",
               justifyContent: "flex-end",
-              gap: 10,
+              gap: 12,
             }}
           >
             <TouchableOpacity
               onPress={() => router.back()}
               style={{
-                paddingHorizontal: 14,
-                paddingVertical: 8,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text style={{ color: colors.textMuted, fontSize: 14 }}>
-                Anuluj
-              </Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={handleSend}
               disabled={!canSend}
               style={{
-                paddingHorizontal: 16,
-                paddingVertical: 8,
+                paddingHorizontal: 20,
+                paddingVertical: 10,
                 borderRadius: 999,
-                backgroundColor: canSend ? colors.accent : "#1e293b",
                 flexDirection: "row",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 8,
-                opacity: sending ? 0.8 : 1,
+
+                backgroundColor: canSend ? enabledBg : disabledBg,
+                borderWidth: 1,
+                borderColor: canSend ? enabledBorder : disabledBorder,
+
+                opacity: sending ? 0.75 : 1,
+
+                shadowColor: "#000",
+                shadowOpacity: canSend ? 0.14 : 0.06,
+                shadowRadius: canSend ? 10 : 6,
+                shadowOffset: { width: 0, height: canSend ? 4 : 2 },
+
+                elevation: canSend ? 3 : 1,
               }}
             >
               {sending ? (
-                <ActivityIndicator size="small" color="#022c22" />
+                <ActivityIndicator size="small" color={canSend ? enabledFg : disabledFg} />
               ) : (
-                <Ionicons name="send" size={16} color="#022c22" />
+                <Ionicons name="send" size={16} color={canSend ? enabledFg : disabledFg} />
               )}
               <Text
                 style={{
-                  color: canSend ? "#022c22" : "#6b7280",
+                  color: canSend ? enabledFg : disabledFg,
                   fontSize: 14,
-                  fontWeight: "700",
+                  fontWeight: "800",
                 }}
               >
                 {sending ? "Wysyłanie..." : "Wyślij pomysł"}
@@ -483,7 +530,6 @@ export default function IdeaScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
       </ScrollView>
     </SafeAreaView>
   );

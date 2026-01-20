@@ -29,15 +29,16 @@ import {
   reauthenticateWithCredential,
   updatePassword,
   updateProfile,
-  updateEmail,
+  verifyBeforeUpdateEmail,
   deleteUser,
 } from "firebase/auth";
 
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
 import uuid from "react-native-uuid";
 
 import { runTransaction } from "firebase/firestore";
+
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import {
   deleteDoc,
@@ -48,8 +49,6 @@ import {
   db,
   serverTimestamp,
 } from "../src/firebase/firebase.web";
-
-const BUCKET = "domowe-443e7.firebasestorage.app";
 
 /* MOTYWY -------------------------------------------------- */
 
@@ -125,6 +124,65 @@ function ThemeRow({ t, active, onSelect, colors }: any) {
   );
 }
 
+/* ✅ PasswordField (MUSI być poza SettingsScreen!) ------------------- */
+/* To naprawia bug: wpisywanie tylko po jednym znaku na web */
+function PasswordField({
+  value,
+  onChangeText,
+  placeholder,
+  visible,
+  onToggle,
+  colors,
+  inputStyle,
+}: {
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder: string;
+  visible: boolean;
+  onToggle: () => void;
+  colors: any;
+  inputStyle: any;
+}) {
+  return (
+    <View style={{ position: "relative", marginTop: 10 }}>
+      <TextInput
+        secureTextEntry={!visible}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        style={{
+          ...inputStyle,
+          marginTop: 0,
+          paddingRight: 44,
+        }}
+        value={value}
+        onChangeText={onChangeText}
+      />
+
+      <TouchableOpacity
+        onPress={onToggle}
+        activeOpacity={0.85}
+        style={{
+          position: "absolute",
+          right: 10,
+          top: 8,
+          width: 36,
+          height: 36,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 999,
+        }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons
+          name={visible ? "eye-outline" : "eye-off-outline"}
+          size={20}
+          color={colors.textMuted}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 /* KOMPONENT SETTINGS -------------------------------------------------- */
 
 export default function SettingsScreen() {
@@ -144,7 +202,7 @@ export default function SettingsScreen() {
   const [savingNick, setSavingNick] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // INFO/ERROR modal dla nicku (pusty/brak zmian/zajęty/błąd)
+  // INFO/ERROR modal dla nicku
   const [showNickInfoModal, setShowNickInfoModal] = useState(false);
   const [nickInfoTitle, setNickInfoTitle] = useState("Info");
   const [nickInfoMessage, setNickInfoMessage] = useState("");
@@ -155,24 +213,32 @@ export default function SettingsScreen() {
   // Sukces zmiany nicku
   const [showNickSuccessModal, setShowNickSuccessModal] = useState(false);
 
-  /* Reauth + hasło */
-  const [currentPassword, setCurrentPassword] = useState("");
+  /* 🔐 ZMIANA HASŁA */
+  const [currentPasswordForPassword, setCurrentPasswordForPassword] =
+    useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [newPasswordRepeat, setNewPasswordRepeat] = useState("");
   const [busyPassword, setBusyPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
 
-  // ✅ Sukces zmiany hasła
-  const [showPasswordSuccessModal, setShowPasswordSuccessModal] = useState(false);
+  const [showPasswordSuccessModal, setShowPasswordSuccessModal] =
+    useState(false);
 
-  /* Email (✅ użytkownik MUSI sam wpisać aktualny e-mail) */
+  // ✅ oczka (show/hide)
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showRepeatPass, setShowRepeatPass] = useState(false);
+
+  /* 📩 ZMIANA EMAILA */
   const [currentEmailInput, setCurrentEmailInput] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const [passwordForEmail, setPasswordForEmail] = useState("");
+  const [showEmailPass, setShowEmailPass] = useState(false);
   const [busyEmail, setBusyEmail] = useState(false);
+  const [emailError, setEmailError] = useState("");
 
   const [showEmailConfirmModal, setShowEmailConfirmModal] = useState(false);
   const [showEmailSuccessModal, setShowEmailSuccessModal] = useState(false);
-
-  /* Wspólny błąd dla sekcji bezpieczeństwa */
-  const [securityError, setSecurityError] = useState("");
 
   /* Konto */
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -201,7 +267,7 @@ export default function SettingsScreen() {
   const isValidEmail = (email: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-  /* ŁADOWANIE PROFILU -------------------------------------------------- */
+  /* ŁADOWANIE PROFILU + SYNC EMAIL -------------------------------------------------- */
 
   useEffect(() => {
     const u = auth.currentUser;
@@ -212,16 +278,27 @@ export default function SettingsScreen() {
 
     const load = async () => {
       try {
+        try {
+          await u.reload();
+        } catch {}
+
         const ref = doc("users", u.uid);
         const snap = await getDoc(ref);
 
         if (snap.exists()) {
-          const d = snap.data();
+          const d = snap.data() as any;
           const name = (d.displayName || d.nick || "").trim();
 
           setNick(name);
           setAvatar(d.photoURL || u.photoURL || "");
           setDisplayNameState(name);
+
+          const authEmail = (u.email || "").trim();
+          const dbEmail = (d.email || "").trim();
+
+          if (authEmail && authEmail !== dbEmail) {
+            await setDoc(ref, { email: authEmail }, { merge: true });
+          }
         } else {
           await setDoc(ref, {
             email: u.email,
@@ -235,8 +312,8 @@ export default function SettingsScreen() {
           setNick(u.displayName || "");
           setAvatar(u.photoURL || "");
         }
-      } catch {
-        console.log("profile load error");
+      } catch (e) {
+        console.error("profile load error", e);
       } finally {
         setLoadingInitial(false);
       }
@@ -245,7 +322,7 @@ export default function SettingsScreen() {
     load();
   }, []);
 
-  /* AVATAR -------------------------------------------------- */
+  /* ✅ AVATAR (Firebase Storage SDK) ---------------------------------- */
 
   const pickAvatar = async () => {
     const user = auth.currentUser;
@@ -264,39 +341,29 @@ export default function SettingsScreen() {
     if (pick.canceled) return;
 
     const uri = pick.assets[0].uri;
-    const ext = pick.assets[0].mimeType
-      ? pick.assets[0].mimeType.split("/")[1]
-      : "jpg";
-
-    const id = String(uuid.v4());
-    const path = `profilePictures/${user.uid}/${id}.${ext}`;
-
-    const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o?name=${encodeURIComponent(
-      path
-    )}`;
 
     try {
       setUploadingAvatar(true);
 
-      if (Platform.OS === "web") {
-        const blob = await (await fetch(uri)).blob();
-        const form = new FormData();
-        form.append("file", blob as any);
+      // ✅ blob z obrazka (działa na web i expo)
+      const blob = await (await fetch(uri)).blob();
 
-        const res = await fetch(uploadUrl, { method: "POST", body: form });
-        if (!res.ok) throw new Error();
-      } else {
-        const res = await FileSystem.uploadAsync(uploadUrl, uri, {
-          httpMethod: "POST",
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-          fieldName: "file",
-        });
-        if (res.status !== 200 && res.status !== 201) throw new Error();
-      }
+      const ext =
+        pick.assets[0].mimeType?.split("/")[1] ||
+        (blob.type ? blob.type.split("/")[1] : "jpg");
 
-      const downloadURL = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(
-        path
-      )}?alt=media`;
+      const id = String(uuid.v4());
+      const path = `profilePictures/${user.uid}/${id}.${ext}`;
+
+      // ✅ storage z tej samej aplikacji firebase
+      const storage = getStorage(auth.app);
+      const storageRef = ref(storage, path);
+
+      await uploadBytes(storageRef, blob, {
+        contentType: blob.type || "image/jpeg",
+      });
+
+      const downloadURL = await getDownloadURL(storageRef);
 
       setAvatar(downloadURL);
 
@@ -304,8 +371,8 @@ export default function SettingsScreen() {
         updateProfile(user, { photoURL: downloadURL }),
         setDoc(doc("users", user.uid), { photoURL: downloadURL }, { merge: true }),
       ]);
-    } catch {
-      console.log("avatar upload error");
+    } catch (e) {
+      console.error("[AVATAR_UPLOAD_ERROR]", e);
     } finally {
       setUploadingAvatar(false);
     }
@@ -331,20 +398,7 @@ export default function SettingsScreen() {
 
   const performNickChange = async () => {
     const user = auth.currentUser;
-
-    // 🔎 DEBUG helper
-    const DEBUG_NICK = true;
-    const dlog = (...args: any[]) => {
-      if (!DEBUG_NICK) return;
-      try {
-        console.log("[nick][debug]", ...args);
-      } catch {}
-    };
-
-    if (!user) {
-      dlog("ABORT: auth.currentUser is null/undefined");
-      return;
-    }
+    if (!user) return;
 
     const trimmed = nick.trim();
     const newLower = trimmed.toLowerCase();
@@ -352,31 +406,7 @@ export default function SettingsScreen() {
     setSavingNick(true);
 
     try {
-      dlog("START", {
-        at: new Date().toISOString(),
-        platform: Platform.OS,
-        currentUserUid: user.uid,
-        currentUserEmail: user.email,
-        currentUserDisplayName: user.displayName,
-      });
-
-      // 🔎 token/claims (czy Firestore powinien wysyłać auth)
-      try {
-        const tokenRes = await user.getIdTokenResult?.();
-        dlog("ID_TOKEN_RESULT", {
-          authTime: tokenRes?.authTime,
-          issuedAtTime: tokenRes?.issuedAtTime,
-          expirationTime: tokenRes?.expirationTime,
-          signInProvider: tokenRes?.signInProvider,
-          claimsKeys: tokenRes?.claims ? Object.keys(tokenRes.claims) : [],
-        });
-      } catch (e: any) {
-        dlog("ID_TOKEN_RESULT FAILED", e?.code, e?.message);
-      }
-
-      // walidacja (prosta i czytelna)
       const ok = /^[a-zA-Z0-9_.-]{3,20}$/.test(trimmed);
-      dlog("VALIDATION", { trimmed, ok, newLower });
 
       if (!ok) {
         setShowNickConfirmModal(false);
@@ -387,138 +417,63 @@ export default function SettingsScreen() {
         return;
       }
 
-      // 🔎 Firestore / project sanity
-      dlog("FIRESTORE", {
-        projectId: (db as any)?.app?.options?.projectId,
-      });
-
       const userRef = doc("users", user.uid);
       const newNameRef = doc("usernames", newLower);
 
-      dlog("REFS", {
-        userRefPath: (userRef as any)?.path,
-        newNameRefPath: (newNameRef as any)?.path,
-      });
-
-      let txAttempt = 0;
-
       await runTransaction(db, async (tx) => {
-        txAttempt += 1;
-        dlog(`TX_BEGIN attempt=${txAttempt}`);
-
-        // 1) user doc
-        dlog("TX_GET userRef", (userRef as any)?.path);
         const userSnap = await tx.get(userRef);
-        dlog("TX_GOT userRef", { exists: userSnap.exists() });
-
         const userData = userSnap.exists() ? (userSnap.data() as any) : {};
         const oldLower = (userData?.usernameLower || "").toString().toLowerCase();
 
-        dlog("TX_USER_DATA", {
-          oldLower,
-          hasUsernameLower: !!oldLower,
-          displayNameInDb: userData?.displayName,
-          nickInDb: userData?.nick,
-        });
-
-        // 2) check if taken
-        dlog("TX_GET newNameRef", (newNameRef as any)?.path);
         const takenSnap = await tx.get(newNameRef);
-        dlog("TX_GOT newNameRef", { exists: takenSnap.exists() });
 
         if (takenSnap.exists()) {
           const taken = takenSnap.data() as any;
-          dlog("TX_TAKEN_DOC", taken);
-
           if (taken?.uid && taken.uid !== user.uid) {
-            dlog("TX_ABORT: NICK_TAKEN", { takenUid: taken.uid, me: user.uid });
             throw Object.assign(new Error("NICK_TAKEN"), { code: "nick/taken" });
           }
         }
 
-        // 3) release old
         if (oldLower && oldLower !== newLower) {
           const oldNameRef = doc("usernames", oldLower);
-          dlog("TX_GET oldNameRef", (oldNameRef as any)?.path);
-
           const oldSnap = await tx.get(oldNameRef);
-          dlog("TX_GOT oldNameRef", { exists: oldSnap.exists() });
 
           if (oldSnap.exists()) {
             const old = oldSnap.data() as any;
-            dlog("TX_OLD_DOC", old);
-
             if (old?.uid === user.uid) {
-              dlog("TX_DELETE oldNameRef", (oldNameRef as any)?.path);
               tx.delete(oldNameRef);
-            } else {
-              dlog("TX_SKIP delete oldNameRef: owner mismatch", {
-                oldUid: old?.uid,
-                me: user.uid,
-              });
             }
           }
-        } else {
-          dlog("TX_SKIP release oldLower", { oldLower, newLower });
         }
 
-        // 4) reserve new
-        dlog("TX_SET newNameRef", { uid: user.uid, newLower });
         tx.set(
           newNameRef,
           { uid: user.uid, createdAt: serverTimestamp() },
           { merge: true }
         );
 
-        // 5) update profile
-        const payload = {
-          displayName: trimmed,
-          nick: trimmed,
-          usernameLower: newLower,
-          photoURL: user.photoURL || avatar || "",
-          email: user.email || "",
-          updatedAt: serverTimestamp(),
-        };
-
-        dlog("TX_SET userRef merge", payload);
-        tx.set(userRef, payload, { merge: true });
-
-        dlog(`TX_END attempt=${txAttempt}`);
+        tx.set(
+          userRef,
+          {
+            displayName: trimmed,
+            nick: trimmed,
+            usernameLower: newLower,
+            photoURL: user.photoURL || avatar || "",
+            email: user.email || "",
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
       });
 
-      dlog("TX_COMMIT_OK");
-
-      // update w Auth (po transakcji)
       try {
-        dlog("AUTH updateProfile start", { displayName: trimmed });
         await updateProfile(user, { displayName: trimmed });
-        dlog("AUTH updateProfile ok");
-      } catch (e: any) {
-        console.error("[nick] updateProfile failed:", e?.code, e?.message, e);
-      }
+      } catch {}
 
       setDisplayNameState(trimmed);
       setShowNickConfirmModal(false);
       setShowNickSuccessModal(true);
-
-      dlog("DONE_OK");
     } catch (e: any) {
-      console.error("[nick] FAILED:", e?.code, e?.message, e);
-
-      // 🔎 extra info for permission-denied
-      if (e?.code === "permission-denied" || e?.message?.includes?.("permission")) {
-        try {
-          const tokenRes2 = await auth.currentUser?.getIdTokenResult?.();
-          dlog("PERM_DENIED token snapshot", {
-            currentUserUid: auth.currentUser?.uid,
-            claimsKeys: tokenRes2?.claims ? Object.keys(tokenRes2.claims) : [],
-            expirationTime: tokenRes2?.expirationTime,
-          });
-        } catch (e2: any) {
-          dlog("PERM_DENIED getIdTokenResult failed", e2?.code, e2?.message);
-        }
-      }
-
       setShowNickConfirmModal(false);
 
       if (e?.code === "nick/taken" || e?.message === "NICK_TAKEN") {
@@ -532,66 +487,111 @@ export default function SettingsScreen() {
       }
     } finally {
       setSavingNick(false);
-      try {
-        // końcowy log stanu auth (czasem auth znika w trakcie)
-        const u2 = auth.currentUser;
-        console.log("[nick][debug] FINALLY auth:", {
-          uid: u2?.uid,
-          email: u2?.email,
-          displayName: u2?.displayName,
-        });
-      } catch {}
     }
   };
 
-  /* ZMIANA HASŁA -------------------------------------------------- */
+  /* 🔐 REAUTH -------------------------------------------------- */
 
-  const reauth = async () => {
+  const reauthWithPassword = async (password: string) => {
     const user = auth.currentUser;
-    if (!user || !user.email) return false;
-    if (!currentPassword) return false;
 
-    try {
-      await reauthenticateWithCredential(
-        user,
-        EmailAuthProvider.credential(user.email, currentPassword)
-      );
-      return true;
-    } catch {
-      return false;
+    if (!user || !user.email) {
+      throw Object.assign(new Error("NO_USER"), { code: "auth/no-current-user" });
     }
+
+    if (!password) {
+      throw Object.assign(new Error("MISSING_PASSWORD"), {
+        code: "auth/missing-current-password",
+      });
+    }
+
+    // ❗ NIE trimujemy hasła – spacje są legalne w haśle
+    const cred = EmailAuthProvider.credential(user.email, password);
+    await reauthenticateWithCredential(user, cred);
+    await user.getIdToken(true);
   };
+
+  /* ✅ ZMIANA HASŁA -------------------------------------------------- */
 
   const changePassword = async () => {
     const user = auth.currentUser;
     if (!user) return;
 
-    const pass = newPassword.trim();
-    if (!pass) return;
+    setPasswordError("");
 
-    setSecurityError("");
-    setBusyPassword(true);
-    try {
-      const ok = await reauth();
-      if (!ok) {
-        setSecurityError("Nieprawidłowe aktualne hasło.");
-        setBusyPassword(false);
-        return;
-      }
-
-      await updatePassword(user, pass);
-
-      // ✅ czyścimy pola i pokazujemy modal sukcesu
-      setNewPassword("");
-      setCurrentPassword("");
-      setShowPasswordSuccessModal(true);
-    } catch {
-      setSecurityError("Nie udało się zmienić hasła. Spróbuj ponownie.");
+    if (!currentPasswordForPassword) {
+      setPasswordError("Wpisz aktualne hasło.");
+      return;
     }
-    setBusyPassword(false);
+
+    if (!newPassword) {
+      setPasswordError("Wpisz nowe hasło.");
+      return;
+    }
+
+    if (!newPasswordRepeat) {
+      setPasswordError("Powtórz nowe hasło.");
+      return;
+    }
+
+    if (newPassword !== newPasswordRepeat) {
+      setPasswordError("Nowe hasła nie są takie same.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError("Nowe hasło musi mieć minimum 6 znaków.");
+      return;
+    }
+
+    setBusyPassword(true);
+
+    try {
+      await reauthWithPassword(currentPasswordForPassword);
+      await updatePassword(user, newPassword);
+
+      setNewPassword("");
+      setNewPasswordRepeat("");
+      setCurrentPasswordForPassword("");
+      setShowPasswordSuccessModal(true);
+
+      setShowCurrentPass(false);
+      setShowNewPass(false);
+      setShowRepeatPass(false);
+    } catch (e: any) {
+      console.error("[PASSWORD_CHANGE_ERROR]", {
+        code: e?.code,
+        message: e?.message,
+        full: e,
+      });
+
+      const code = (e?.code || "").toString();
+
+      if (code === "auth/missing-current-password") {
+        setPasswordError("Wpisz aktualne hasło.");
+      } else if (
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/invalid-login-credentials"
+      ) {
+        setPasswordError("Nieprawidłowe aktualne hasło.");
+      } else if (code === "auth/too-many-requests") {
+        setPasswordError("Zbyt wiele prób. Spróbuj później.");
+      } else if (code === "auth/network-request-failed") {
+        setPasswordError("Problem z połączeniem. Spróbuj ponownie.");
+      } else if (code === "auth/requires-recent-login") {
+        setPasswordError("Zaloguj się ponownie i spróbuj jeszcze raz.");
+      } else if (code === "auth/weak-password") {
+        setPasswordError("Hasło jest za słabe. Ustaw silniejsze hasło.");
+      } else {
+        setPasswordError("Nie udało się zmienić hasła. Spróbuj ponownie.");
+      }
+    } finally {
+      setBusyPassword(false);
+    }
   };
 
-  /* ZMIANA EMAILA -------------------------------------------------- */
+  /* ZMIANA EMAILA (✅ verifyBeforeUpdateEmail) ------------------------ */
 
   const requestEmailChange = () => {
     const user = auth.currentUser;
@@ -601,30 +601,35 @@ export default function SettingsScreen() {
     const next = newEmail.trim();
     const userEmail = (user.email || "").trim();
 
-    setSecurityError("");
+    setEmailError("");
 
     if (!cur || !next) {
-      setSecurityError("Uzupełnij aktualny i nowy adres e-mail.");
+      setEmailError("Uzupełnij aktualny i nowy adres e-mail.");
       return;
     }
 
     if (!isValidEmail(cur) || !isValidEmail(next)) {
-      setSecurityError("Podaj poprawne adresy e-mail.");
+      setEmailError("Podaj poprawne adresy e-mail.");
       return;
     }
 
     if (!userEmail) {
-      setSecurityError("Brak e-maila na koncie. Spróbuj zalogować się ponownie.");
+      setEmailError("Brak e-maila na koncie. Spróbuj zalogować się ponownie.");
       return;
     }
 
     if (userEmail.toLowerCase() !== cur.toLowerCase()) {
-      setSecurityError("Aktualny e-mail nie zgadza się z tym na koncie.");
+      setEmailError("Aktualny e-mail nie zgadza się z tym na koncie.");
       return;
     }
 
     if (cur.toLowerCase() === next.toLowerCase()) {
-      setSecurityError("Nowy e-mail musi być inny niż aktualny.");
+      setEmailError("Nowy e-mail musi być inny niż aktualny.");
+      return;
+    }
+
+    if (!passwordForEmail) {
+      setEmailError("Wpisz hasło, aby potwierdzić zmianę e-maila.");
       return;
     }
 
@@ -637,36 +642,64 @@ export default function SettingsScreen() {
 
     const next = newEmail.trim();
     setBusyEmail(true);
-    setSecurityError("");
+    setEmailError("");
 
     try {
-      const ok = await reauth();
-      if (!ok) {
-        setSecurityError("Nieprawidłowe aktualne hasło.");
-        setBusyEmail(false);
-        return;
-      }
+      await reauthWithPassword(passwordForEmail);
 
-      await updateEmail(user, next);
+      const actionCodeSettings = {
+        url: `${window.location.origin}/settings`,
+        handleCodeInApp: false,
+      };
 
-      await setDoc(doc("users", user.uid), { email: next }, { merge: true });
+      await verifyBeforeUpdateEmail(user, next, actionCodeSettings);
 
       setCurrentEmailInput("");
       setNewEmail("");
+      setPasswordForEmail("");
+      setShowEmailPass(false);
 
       setShowEmailConfirmModal(false);
       setShowEmailSuccessModal(true);
     } catch (e: any) {
-      const code = e?.code as string | undefined;
+      console.error("[EMAIL_CHANGE_ERROR]", {
+        code: e?.code,
+        message: e?.message,
+        customData: e?.customData,
+        full: e,
+      });
 
-      if (code === "auth/email-already-in-use") {
-        setSecurityError("Ten e-mail jest już używany.");
-      } else if (code === "auth/invalid-email") {
-        setSecurityError("Niepoprawny adres e-mail.");
+      setShowEmailConfirmModal(false);
+
+      const code = e?.code as string | undefined;
+      const msg = (e?.message || "").toString();
+      const messageHas = (needle: string) => msg.toUpperCase().includes(needle);
+
+      if (code === "auth/missing-current-password") {
+        setEmailError("Wpisz hasło do potwierdzenia.");
+      } else if (
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/invalid-login-credentials"
+      ) {
+        setEmailError("Nieprawidłowe hasło.");
+      } else if (code === "auth/invalid-credential" || code === "auth/user-mismatch") {
+        setEmailError("Nie udało się potwierdzić konta. Zaloguj się ponownie.");
+      } else if (code === "auth/email-already-in-use" || messageHas("EMAIL_EXISTS")) {
+        setEmailError("Ten e-mail jest już używany.");
+      } else if (code === "auth/invalid-email" || messageHas("INVALID_EMAIL")) {
+        setEmailError("Niepoprawny adres e-mail.");
       } else if (code === "auth/requires-recent-login") {
-        setSecurityError("Zaloguj się ponownie i spróbuj jeszcze raz.");
+        setEmailError("Zaloguj się ponownie i spróbuj jeszcze raz.");
+      } else if (code === "auth/network-request-failed") {
+        setEmailError("Problem z połączeniem. Spróbuj ponownie.");
+      } else if (
+        code === "auth/operation-not-allowed" ||
+        messageHas("OPERATION_NOT_ALLOWED")
+      ) {
+        setEmailError("Operacja zablokowana w ustawieniach Firebase.");
       } else {
-        setSecurityError("Nie udało się zmienić e-maila. Spróbuj ponownie.");
+        setEmailError("Nie udało się wysłać maila weryfikacyjnego. Spróbuj ponownie.");
       }
     } finally {
       setBusyEmail(false);
@@ -722,13 +755,12 @@ export default function SettingsScreen() {
     alignItems: "center",
   };
 
-  // ✅ blur na web jak w stats/index
-  const orbBlur = Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
+  const orbBlur =
+    Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null;
 
   if (loadingInitial) {
     return (
       <View style={[styles.page, { backgroundColor: colors.bg }]}>
-        {/* 🔥 TŁO jak w osiągnięciach */}
         <View pointerEvents="none" style={styles.bgLayer}>
           <View
             style={[
@@ -808,7 +840,6 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      {/* 🔥 TŁO: orby/gradienty jak w stats.tsx */}
       <View pointerEvents="none" style={styles.bgLayer}>
         <View
           style={[
@@ -901,7 +932,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
 
-          {/* KARTA PROFIL (TYLKO TU ZOSTAJĄ KÓŁKA) */}
+          {/* KARTA PROFIL */}
           <View
             style={{
               ...cardStyle,
@@ -950,14 +981,6 @@ export default function SettingsScreen() {
                 alignItems: "center",
               }}
             >
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 12,
-                  alignSelf: "flex-start",
-                }}
-              ></Text>
-
               <Image
                 source={{
                   uri: avatar || "https://i.ibb.co/4pDNDk1/avatar-placeholder.png",
@@ -1019,7 +1042,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* KARTA WYGLĄD (BEZ KÓŁEK) */}
+          {/* KARTA WYGLĄD */}
           <View
             style={{
               ...cardStyle,
@@ -1054,7 +1077,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* KARTA BEZPIECZEŃSTWO (BEZ KÓŁEK) */}
+          {/* KARTA BEZPIECZEŃSTWO */}
           <View
             style={{
               ...cardStyle,
@@ -1066,38 +1089,64 @@ export default function SettingsScreen() {
           >
             <Text style={labelStyle}>Bezpieczeństwo</Text>
             <Text style={[mutedStyle, { marginTop: 4 }]}>
-              Operacje wymagają podania hasła.
+              Zmieniaj hasło i e-mail. Każda operacja wymaga potwierdzenia.
             </Text>
 
-            {/* ✅ USUNIĘTE: wyświetlanie aktualnego e-maila */}
-
-            <TextInput
-              secureTextEntry
-              placeholder="Aktualne hasło"
-              placeholderTextColor={colors.textMuted}
-              style={inputStyle}
-              value={currentPassword}
-              onChangeText={(v) => {
-                setCurrentPassword(v);
-                if (securityError) setSecurityError("");
+            {/* ZMIANA HASŁA */}
+            <View
+              style={{
+                marginTop: 16,
+                padding: 14,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.bg,
               }}
-            />
-
-            <View style={{ marginTop: 14 }}>
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
+            >
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
                 Zmień hasło
               </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                Wpisz aktualne hasło i ustaw nowe (z potwierdzeniem).
+              </Text>
 
-              <TextInput
-                secureTextEntry
-                placeholder="Nowe hasło"
-                placeholderTextColor={colors.textMuted}
-                style={inputStyle}
+              <PasswordField
+                value={currentPasswordForPassword}
+                onChangeText={(v) => {
+                  setCurrentPasswordForPassword(v);
+                  if (passwordError) setPasswordError("");
+                }}
+                placeholder="Aktualne hasło"
+                visible={showCurrentPass}
+                onToggle={() => setShowCurrentPass((s) => !s)}
+                colors={colors}
+                inputStyle={inputStyle}
+              />
+
+              <PasswordField
                 value={newPassword}
                 onChangeText={(v) => {
                   setNewPassword(v);
-                  if (securityError) setSecurityError("");
+                  if (passwordError) setPasswordError("");
                 }}
+                placeholder="Nowe hasło"
+                visible={showNewPass}
+                onToggle={() => setShowNewPass((s) => !s)}
+                colors={colors}
+                inputStyle={inputStyle}
+              />
+
+              <PasswordField
+                value={newPasswordRepeat}
+                onChangeText={(v) => {
+                  setNewPasswordRepeat(v);
+                  if (passwordError) setPasswordError("");
+                }}
+                placeholder="Powtórz nowe hasło"
+                visible={showRepeatPass}
+                onToggle={() => setShowRepeatPass((s) => !s)}
+                colors={colors}
+                inputStyle={inputStyle}
               />
 
               <TouchableOpacity
@@ -1111,41 +1160,79 @@ export default function SettingsScreen() {
                 }}
               >
                 <Text style={{ fontWeight: "800", color: "#022c22" }}>
-                  {busyPassword ? "Aktualizuję..." : "Zaktualizuj hasło"}
+                  {busyPassword ? "Zmieniam..." : "Zmień hasło"}
                 </Text>
               </TouchableOpacity>
+
+              {!!passwordError && (
+                <Text
+                  style={{
+                    marginTop: 10,
+                    color: "#b91c1c",
+                    fontSize: 13,
+                    textAlign: "center",
+                  }}
+                >
+                  {passwordError}
+                </Text>
+              )}
             </View>
 
-            {/* ✅ ZMIANA EMAILA */}
-            <View style={{ marginTop: 18 }}>
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
+            {/* ZMIANA EMAILA */}
+            <View
+              style={{
+                marginTop: 14,
+                padding: 14,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.bg,
+              }}
+            >
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
                 Zmień e-mail
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                Wyślemy link na nowy adres. Zmiana nastąpi dopiero po kliknięciu w mailu.
               </Text>
 
               <TextInput
-                placeholder="Wpisz aktualny e-mail"
+                placeholder="Aktualny e-mail"
                 placeholderTextColor={colors.textMuted}
                 style={inputStyle}
                 value={currentEmailInput}
                 autoCapitalize="none"
-                keyboardType={Platform.OS === "ios" ? "email-address" : "email-address"}
+                keyboardType="email-address"
                 onChangeText={(v) => {
                   setCurrentEmailInput(v);
-                  if (securityError) setSecurityError("");
+                  if (emailError) setEmailError("");
                 }}
               />
 
               <TextInput
-                placeholder="Wpisz nowy e-mail"
+                placeholder="Nowy e-mail"
                 placeholderTextColor={colors.textMuted}
                 style={inputStyle}
                 value={newEmail}
                 autoCapitalize="none"
-                keyboardType={Platform.OS === "ios" ? "email-address" : "email-address"}
+                keyboardType="email-address"
                 onChangeText={(v) => {
                   setNewEmail(v);
-                  if (securityError) setSecurityError("");
+                  if (emailError) setEmailError("");
                 }}
+              />
+
+              <PasswordField
+                value={passwordForEmail}
+                onChangeText={(v) => {
+                  setPasswordForEmail(v);
+                  if (emailError) setEmailError("");
+                }}
+                placeholder="Hasło do potwierdzenia"
+                visible={showEmailPass}
+                onToggle={() => setShowEmailPass((s) => !s)}
+                colors={colors}
+                inputStyle={inputStyle}
               />
 
               <TouchableOpacity
@@ -1159,26 +1246,26 @@ export default function SettingsScreen() {
                 }}
               >
                 <Text style={{ fontWeight: "800", color: "#022c22" }}>
-                  {busyEmail ? "Aktualizuję..." : "Zaktualizuj e-mail"}
+                  {busyEmail ? "Wysyłam..." : "Wyślij link zmiany e-maila"}
                 </Text>
               </TouchableOpacity>
-            </View>
 
-            {!!securityError && (
-              <Text
-                style={{
-                  marginTop: 12,
-                  color: "#b91c1c",
-                  fontSize: 13,
-                  textAlign: "center",
-                }}
-              >
-                {securityError}
-              </Text>
-            )}
+              {!!emailError && (
+                <Text
+                  style={{
+                    marginTop: 10,
+                    color: "#b91c1c",
+                    fontSize: 13,
+                    textAlign: "center",
+                  }}
+                >
+                  {emailError}
+                </Text>
+              )}
+            </View>
           </View>
 
-          {/* USUWANIE KONTA (BEZ KÓŁEK) */}
+          {/* USUWANIE KONTA */}
           <View
             style={{
               ...cardStyle,
@@ -1189,10 +1276,15 @@ export default function SettingsScreen() {
             }}
           >
             <Text style={labelStyle}>Niebezpieczna strefa</Text>
-            <Text style={[mutedStyle, { marginTop: 4 }]}>Usunięcie konta jest nieodwracalne.</Text>
+            <Text style={[mutedStyle, { marginTop: 4 }]}>
+              Usunięcie konta jest nieodwracalne.
+            </Text>
 
             <TouchableOpacity
-              onPress={openDeleteConfirm}
+              onPress={() => {
+                setDeleteError("");
+                setShowDeleteConfirm(true);
+              }}
               disabled={busyDelete}
               style={{
                 ...smallBtnBase,
@@ -1206,7 +1298,9 @@ export default function SettingsScreen() {
           </View>
         </ScrollView>
 
-        {/* MODAL — INFO/ERROR NICK */}
+        {/* MODALE – (zostawione jak u Ciebie, bez zmian wizualnych) */}
+
+        {/* INFO/ERROR NICK */}
         <Modal
           visible={showNickInfoModal}
           transparent
@@ -1271,7 +1365,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — POTWIERDZENIE ZMIANY NICKU */}
+        {/* POTWIERDZENIE ZMIANY NICKU */}
         <Modal
           visible={showNickConfirmModal}
           transparent
@@ -1369,7 +1463,9 @@ export default function SettingsScreen() {
                   {savingNick ? (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <ActivityIndicator size="small" color="#022c22" />
-                      <Text style={{ color: "#022c22", fontWeight: "800" }}>Zapisuję...</Text>
+                      <Text style={{ color: "#022c22", fontWeight: "800" }}>
+                        Zapisuję...
+                      </Text>
                     </View>
                   ) : (
                     <Text style={{ color: "#022c22", fontWeight: "800" }}>Tak, zmień</Text>
@@ -1380,7 +1476,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — SUKCES ZMIANY NICKU */}
+        {/* SUKCES ZMIANY NICKU */}
         <Modal
           visible={showNickSuccessModal}
           transparent
@@ -1439,7 +1535,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* ✅ MODAL — SUKCES ZMIANY HASŁA */}
+        {/* SUKCES ZMIANY HASŁA */}
         <Modal
           visible={showPasswordSuccessModal}
           transparent
@@ -1498,7 +1594,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — POTWIERDZENIE ZMIANY EMAILA */}
+        {/* POTWIERDZENIE ZMIANY EMAILA */}
         <Modal
           visible={showEmailConfirmModal}
           transparent
@@ -1540,7 +1636,7 @@ export default function SettingsScreen() {
               </Text>
 
               <Text style={{ color: colors.textMuted, textAlign: "center", fontSize: 14 }}>
-                Na pewno chcesz zmienić e-mail na:
+                Wyślemy link potwierdzający na:
               </Text>
 
               <Text
@@ -1596,10 +1692,12 @@ export default function SettingsScreen() {
                   {busyEmail ? (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <ActivityIndicator size="small" color="#022c22" />
-                      <Text style={{ color: "#022c22", fontWeight: "800" }}>Zmieniam...</Text>
+                      <Text style={{ color: "#022c22", fontWeight: "800" }}>
+                        Wysyłam...
+                      </Text>
                     </View>
                   ) : (
-                    <Text style={{ color: "#022c22", fontWeight: "800" }}>Tak, zmień</Text>
+                    <Text style={{ color: "#022c22", fontWeight: "800" }}>Tak, wyślij</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -1607,7 +1705,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — SUKCES ZMIANY EMAILA */}
+        {/* SUKCES ZMIANY EMAILA */}
         <Modal
           visible={showEmailSuccessModal}
           transparent
@@ -1643,11 +1741,12 @@ export default function SettingsScreen() {
                   marginBottom: 8,
                 }}
               >
-                Gotowe ✅
+                Prawie gotowe ✅
               </Text>
 
               <Text style={{ color: colors.textMuted, textAlign: "center", fontSize: 14 }}>
-                E-mail został zmieniony.
+                Wysłaliśmy link potwierdzający na nowy adres e-mail.
+                Zmiana nastąpi dopiero po kliknięciu w wiadomości.
               </Text>
 
               <TouchableOpacity
@@ -1666,7 +1765,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — POTWIERDZENIE USUNIĘCIA */}
+        {/* POTWIERDZENIE USUNIĘCIA */}
         <Modal
           visible={showDeleteConfirm}
           transparent
@@ -1765,7 +1864,7 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* MODAL — SUKCES USUNIĘCIA */}
+        {/* SUKCES USUNIĘCIA */}
         <Modal
           visible={showDeleteSuccess}
           transparent

@@ -10,6 +10,9 @@ import {
   Image,
   SafeAreaView,
   useWindowDimensions,
+  Platform,
+  KeyboardAvoidingView,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -31,7 +34,11 @@ import {
   startAfter,
   QueryDocumentSnapshot,
   DocumentData,
+  Timestamp,
 } from "firebase/firestore";
+
+// ✅ ThemeContext (REAL)
+import { useThemeColors } from "../src/context/ThemeContext";
 
 /* ============================================================
    Helpers
@@ -69,14 +76,30 @@ function parseInputDate(value: string) {
   const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const [, year, month, day] = m;
+  // ✅ 12:00 żeby nie wpadać w dziury DST
   const d = new Date(Number(year), Number(month) - 1, Number(day), 12);
   return isNaN(d.getTime()) ? null : d;
 }
 
 function toSafeDate(v: any): Date | null {
   if (!v) return null;
-  const d = v?.toDate?.() ? v.toDate() : new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+
+  // Firestore Timestamp
+  if (typeof v === "object" && typeof v.toDate === "function") {
+    const d = v.toDate();
+    return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+  }
+
+  // Date
+  if (v instanceof Date) return !isNaN(v.getTime()) ? v : null;
+
+  // string
+  if (typeof v === "string") {
+    const d = new Date(v);
+    return !isNaN(d.getTime()) ? d : null;
+  }
+
+  return null;
 }
 
 function normalizeText(input: string) {
@@ -92,6 +115,58 @@ function normalizeText(input: string) {
   }
 }
 
+/* ----------------------- Color helpers (jak WEB) ----------------------- */
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const h = hex.replace("#", "").trim();
+  if (!(h.length === 3 || h.length === 6)) return null;
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return null;
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function withAlpha(color: string, alpha: number) {
+  const a = Math.max(0, Math.min(1, alpha));
+
+  const rgbaMatch = color
+    .trim()
+    .match(
+      /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)$/i
+    );
+
+  if (rgbaMatch) {
+    const r = Number(rgbaMatch[1]);
+    const g = Number(rgbaMatch[2]);
+    const b = Number(rgbaMatch[3]);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  if (color.trim().startsWith("#")) {
+    const rgb = hexToRgb(color);
+    if (!rgb) return color;
+    return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
+  }
+
+  return color;
+}
+
+function relativeLuminance(hex: string) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 1;
+  const srgb = [rgb.r, rgb.g, rgb.b].map((v) => v / 255);
+  const lin = srgb.map((c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  );
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+function onColorForHex(hexOrRgba: string) {
+  if (!hexOrRgba.trim().startsWith("#")) return "#ffffff";
+  const L = relativeLuminance(hexOrRgba);
+  return L > 0.6 ? "#0b1020" : "#ffffff";
+}
+
 /* ============================================================
    Config
 ============================================================ */
@@ -100,7 +175,9 @@ const DIFFICULTY_OPTIONS = [
   { type: "easy", label: "Łatwe", exp: 25 },
   { type: "medium", label: "Średnie", exp: 50 },
   { type: "hard", label: "Trudne", exp: 100 },
-];
+] as const;
+
+type DifficultyType = (typeof DIFFICULTY_OPTIONS)[number]["type"];
 
 const REPEAT_OPTIONS: { type: RepeatType; label: string }[] = [
   { type: "none", label: "Brak" },
@@ -118,8 +195,13 @@ type AssigneeChip = {
   isSelf: boolean;
 };
 
+function missionDocRef(id: string) {
+  // ✅ jak na web (zmień jeśli masz families/{id}/missions/{id})
+  return doc(db, "missions", id);
+}
+
 /* ============================================================
-   MAIN SCREEN — PREMIUM MISSIONHOME NATIVE
+   MAIN SCREEN — MISSIONHOME NATIVE (WEB-LIKE)
 ============================================================ */
 
 export default function EditMissionScreen() {
@@ -127,10 +209,46 @@ export default function EditMissionScreen() {
   const { width } = useWindowDimensions();
   const isPhone = width < 500;
 
-  const params = useLocalSearchParams<{ date?: string; missionId?: string }>();
-  const missionId = params.missionId ? String(params.missionId) : null;
+  const params = useLocalSearchParams<{ date?: string; missionId?: string; id?: string }>();
+  const missionId = params.missionId ? String(params.missionId) : params.id ? String(params.id) : null;
 
   const { members, loading: membersLoading } = useFamily();
+
+  // ✅ Theme tokens z ThemeContext (jak web)
+  const { colors, isDark } = useThemeColors();
+  const C = useMemo(() => {
+    const pageBg = colors?.bg ?? "#141b26";
+    const cardBg = colors?.card ?? "#1f2937";
+    const text = colors?.text ?? "#e6edf3";
+    const muted = colors?.textMuted ?? "#a3b0c2";
+    const primary = colors?.accent ?? "#1dd4c7";
+    const border = colors?.border ?? "rgba(255,255,255,0.12)";
+
+    return {
+      pageBg,
+      cardBg,
+
+      text,
+      muted,
+      subtle: withAlpha(text, isDark ? 0.65 : 0.7),
+      placeholder: withAlpha(text, isDark ? 0.45 : 0.5),
+
+      border,
+      borderStrong: withAlpha(text, isDark ? 0.28 : 0.22),
+      inputBorder: withAlpha(text, isDark ? 0.22 : 0.18),
+
+      inputBg: isDark ? withAlpha("#ffffff", 0.03) : withAlpha("#000000", 0.04),
+
+      primary,
+      onPrimary: onColorForHex(primary),
+
+      primaryAlpha: withAlpha(primary, 0.12),
+      primaryAlpha2: withAlpha(primary, 0.22),
+
+      disabledBg: isDark ? withAlpha("#ffffff", 0.08) : withAlpha("#000000", 0.08),
+      disabledText: withAlpha(text, 0.45),
+    };
+  }, [colors, isDark]);
 
   // ✅ Auth state reaktywnie
   const [me, setMe] = useState(() => {
@@ -167,7 +285,7 @@ export default function EditMissionScreen() {
   const [currentMonth, setCurrentMonth] = useState(startOfMonth(initialDate));
 
   const [repeatType, setRepeatType] = useState<RepeatType>("none");
-  const [difficulty, setDifficulty] = useState("easy");
+  const [difficulty, setDifficulty] = useState<DifficultyType>("easy");
 
   const [saving, setSaving] = useState(false);
   const [loadingMission, setLoadingMission] = useState(false);
@@ -175,7 +293,7 @@ export default function EditMissionScreen() {
 
   const hydratedOnce = useRef(false);
 
-  // AUTOCOMPLETE
+  // AUTOCOMPLETE (zostawiamy, ale wizualnie pasuje do WEB)
   const [knownTitles, setKnownTitles] = useState<string[]>([]);
   const titleInputRef = useRef<TextInput>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -230,6 +348,7 @@ export default function EditMissionScreen() {
       });
     }
 
+    // fallback, gdy assignedTo nie ma w rodzinie (np. stary user)
     const fallbackUserId = loadedMission?.assignedToUserId
       ? String(loadedMission.assignedToUserId)
       : null;
@@ -275,9 +394,10 @@ export default function EditMissionScreen() {
     (async () => {
       try {
         setLoadingMission(true);
-        const snap = await getDoc(doc(db, "missions", missionId));
+
+        const snap = await getDoc(missionDocRef(missionId));
         if (!snap.exists()) {
-          alert("Nie znaleziono zadania.");
+          Alert.alert("Nie znaleziono", "Nie znaleziono zadania do edycji.");
           router.back();
           return;
         }
@@ -289,7 +409,7 @@ export default function EditMissionScreen() {
 
         const due = toSafeDate(data?.dueDate) || new Date();
         const rep = (data?.repeat?.type ?? "none") as RepeatType;
-        const diff = (data?.expMode ?? "easy") as string;
+        const diff = (data?.expMode ?? "easy") as DifficultyType;
 
         setTitle(String(data?.title ?? ""));
         setRepeatType(rep);
@@ -300,9 +420,7 @@ export default function EditMissionScreen() {
         setInputDate(formatInputDate(dueStart));
         setCurrentMonth(startOfMonth(dueStart));
 
-        const assId = data?.assignedToUserId
-          ? String(data.assignedToUserId)
-          : null;
+        const assId = data?.assignedToUserId ? String(data.assignedToUserId) : null;
 
         if (assId && myUid && assId === myUid) setAssignedToId("self");
         else if (assId) setAssignedToId(assId);
@@ -311,7 +429,7 @@ export default function EditMissionScreen() {
         hydratedOnce.current = true;
       } catch (e) {
         console.error(e);
-        alert("Błąd ładowania zadania.");
+        Alert.alert("Błąd", "Błąd ładowania zadania.");
         router.back();
       } finally {
         if (alive) setLoadingMission(false);
@@ -324,7 +442,7 @@ export default function EditMissionScreen() {
   }, [missionId, router, myUid]);
 
   /* ============================================================
-     AUTOCOMPLETE — paginacja po missions, żeby nie uciąć tytułów
+     AUTOCOMPLETE — paginacja po missions
   ============================================================ */
 
   useEffect(() => {
@@ -361,7 +479,7 @@ export default function EditMissionScreen() {
         }
 
         const nextLast = Math.max(prev.last, ts);
-        const preferThis = ts >= prev.last; // kanon = najnowsza pisownia
+        const preferThis = ts >= prev.last;
         map.set(key, {
           title: preferThis ? tRaw : prev.title,
           count: prev.count + 1,
@@ -382,7 +500,7 @@ export default function EditMissionScreen() {
       const col = collection(db, "missions");
 
       const pageSize = 500;
-      const maxPages = 10; // max 5000 dokumentów na pole
+      const maxPages = 10;
       const maxUniqueTitles = 400;
 
       let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
@@ -419,7 +537,6 @@ export default function EditMissionScreen() {
 
     (async () => {
       try {
-        // bierzemy oba przypadki: jesteś wykonawcą + twórcą (żeby objąć też misje dla kogoś)
         const [toDocs, byDocs] = await Promise.all([
           fetchPaged("assignedToUserId"),
           fetchPaged("assignedByUserId"),
@@ -459,8 +576,7 @@ export default function EditMissionScreen() {
       if (starts.length >= 8) break;
     }
 
-    const out = Array.from(new Set([...starts, ...contains])).slice(0, 8);
-    return out;
+    return Array.from(new Set([...starts, ...contains])).slice(0, 8);
   }, [title, knownTitles]);
 
   const showSuggestions =
@@ -492,24 +608,23 @@ export default function EditMissionScreen() {
   }, [currentMonth]);
 
   /* ============================================================
-     SAVE MISSION
+     SAVE
   ============================================================ */
 
   const handleSave = async () => {
     if (!title.trim() || saving) return;
 
     if (!myUid) {
-      alert("Musisz być zalogowany.");
+      Alert.alert("Brak dostępu", "Musisz być zalogowany, żeby edytować zadanie.");
       return;
     }
 
-    const expValue =
-      DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
+    const expValue = DIFFICULTY_OPTIONS.find((d) => d.type === difficulty)?.exp ?? 0;
 
     const ass = selectedMember;
     const assignedToUserId = ass.isSelf ? myUid : ass.userId;
     if (!assignedToUserId) {
-      alert("Brak osoby przypisanej.");
+      Alert.alert("Błąd", "Nie udało się ustalić osoby przypisanej do zadania.");
       return;
     }
     const assignedToName = ass.isSelf ? myName : ass.label;
@@ -517,22 +632,34 @@ export default function EditMissionScreen() {
     try {
       setSaving(true);
 
+      // ✅ EDIT (jak WEB)
       if (missionId) {
-        await updateDoc(doc(db, "missions", missionId), {
+        await updateDoc(missionDocRef(missionId), {
           title: title.trim(),
+          dueDate: Timestamp.fromDate(chosenDate),
+
+          repeat: { type: repeatType },
+
+          expMode: difficulty,
+          expValue,
+
           assignedToUserId,
           assignedToName,
           assignedToAvatarUrl: ass.avatarUrl ?? null,
-          dueDate: chosenDate,
-          repeat: { type: repeatType },
-          expValue,
-          expMode: difficulty,
+
+          // ✅ tak jak web: aktualizujemy też "assignedBy" przy edycji
+          assignedByUserId: myUid,
+          assignedByName: myName || "Ty",
+          assignedByAvatarUrl: myPhoto ?? null,
+
           updatedAt: serverTimestamp(),
         });
+
         router.back();
         return;
       }
 
+      // ✅ CREATE (zostawiamy przez serwis)
       await createMission({
         title: title.trim(),
         assignedToUserId,
@@ -550,14 +677,14 @@ export default function EditMissionScreen() {
       router.back();
     } catch (e) {
       console.error(e);
-      alert("Błąd zapisu!");
+      Alert.alert("Błąd", "Błąd zapisu!");
     } finally {
       setSaving(false);
     }
   };
 
   /* ============================================================
-     LOADING STATES
+     LOADING
   ============================================================ */
 
   if (loadingMission || membersLoading) {
@@ -565,548 +692,468 @@ export default function EditMissionScreen() {
       <SafeAreaView
         style={{
           flex: 1,
-          backgroundColor: "#020617",
+          backgroundColor: C.pageBg,
           justifyContent: "center",
           alignItems: "center",
         }}
       >
-        <ActivityIndicator size="large" color="#22d3ee" />
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={{ color: C.muted, marginTop: 10 }}>
+          {membersLoading ? "Wczytywanie rodziny..." : "Wczytywanie zadania..."}
+        </Text>
       </SafeAreaView>
     );
   }
 
   /* ============================================================
-     UI — PREMIUM MISSIONHOME LAYOUT
+     UI
   ============================================================ */
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#020617" }}>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: 40,
-          width: "100%",
-          maxWidth: 900,
-          alignSelf: "center",
-        }}
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.pageBg }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {/* HEADER */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 20,
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            padding: 16,
+            paddingBottom: 40,
+            width: "100%",
+            maxWidth: 900,
+            alignSelf: "center",
           }}
         >
-          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
-            <Ionicons name="chevron-back" size={24} color="#e5e7eb" />
-          </TouchableOpacity>
+          {/* HEADER */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+            <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 8 }}>
+              <Ionicons name="chevron-back" size={22} color={C.text} />
+            </TouchableOpacity>
 
-          <Text
-            style={{
-              color: "#e5e7eb",
-              fontSize: 22,
-              fontWeight: "800",
-            }}
-          >
-            {missionId ? "Edytuj zadanie" : "Nowe zadanie"}
-          </Text>
-        </View>
-
-        {/* MAIN CARD */}
-        <View
-          style={{
-            backgroundColor: "#0f172a",
-            borderWidth: 1,
-            borderColor: "rgba(75,85,99,0.4)",
-            padding: isPhone ? 14 : 18,
-            borderRadius: 18,
-          }}
-        >
-          {/* ASSIGNEE */}
-          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
-            Przypisane do
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              padding: 12,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "rgba(75,85,99,0.7)",
-              backgroundColor: "#020617",
-              marginBottom: 12,
-              gap: 12,
-            }}
-          >
-            {selectedMember.avatarUrl ? (
-              <Image
-                source={{ uri: selectedMember.avatarUrl }}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 999,
-                }}
-              />
-            ) : (
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 999,
-                  backgroundColor: "#22d3ee33",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: "#22d3ee",
-                    fontWeight: "700",
-                    fontSize: 18,
-                  }}
-                >
-                  {selectedMember.label?.[0] ?? "?"}
-                </Text>
-              </View>
-            )}
-
-            <View>
-              <Text
-                style={{
-                  color: "#e5e7eb",
-                  fontSize: 16,
-                  fontWeight: "700",
-                }}
-              >
-                {selectedMember.label}
-              </Text>
-              <Text style={{ color: "#64748b", fontSize: 12 }}>
-                Poziom {selectedMember.level}
-              </Text>
-            </View>
+            <Text style={{ color: C.text, fontSize: 18, fontWeight: "700" }}>
+              {missionId ? "Edytuj zadanie" : "Nowe zadanie"}
+            </Text>
           </View>
 
-          {/* MEMBER SELECTOR */}
+          {/* MAIN CARD */}
           <View
             style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 20,
-            }}
-          >
-            {memberChips.map((m) => {
-              const active = m.id === selectedMember.id;
-              return (
-                <TouchableOpacity
-                  key={m.id}
-                  onPress={() => setAssignedToId(m.id)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
-                    backgroundColor: active ? "#22d3ee22" : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: active ? "#22d3ee" : "#e5e7eb",
-                      fontSize: 13,
-                    }}
-                  >
-                    {m.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* DIFFICULTY */}
-          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
-            Trudność zadania
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 20,
-            }}
-          >
-            {DIFFICULTY_OPTIONS.map((opt) => {
-              const active = difficulty === opt.type;
-              return (
-                <TouchableOpacity
-                  key={opt.type}
-                  onPress={() => setDifficulty(opt.type)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
-                    backgroundColor: active ? "#22d3ee22" : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: active ? "#22d3ee" : "#e5e7eb",
-                      fontSize: 13,
-                    }}
-                  >
-                    {opt.label} ({opt.exp} EXP)
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* REPEAT */}
-          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
-            Powtarzalność
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 20,
-            }}
-          >
-            {REPEAT_OPTIONS.map((r) => {
-              const active = repeatType === r.type;
-              return (
-                <TouchableOpacity
-                  key={r.type}
-                  onPress={() => setRepeatType(r.type)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? "#22d3ee" : "rgba(75,85,99,0.7)",
-                    backgroundColor: active ? "#22d3ee22" : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: active ? "#22d3ee" : "#e5e7eb",
-                      fontSize: 13,
-                    }}
-                  >
-                    {r.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* TITLE INPUT */}
-          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
-            Nazwa zadania
-          </Text>
-
-          <TextInput
-            ref={titleInputRef}
-            value={title}
-            onChangeText={(t) => {
-              setTitle(t);
-              setSuggestOpen(true);
-            }}
-            onFocus={() => setSuggestOpen(true)}
-            onBlur={() => {
-              // dajemy czas na ensure klik w sugestię
-              setTimeout(() => setSuggestOpen(false), 120);
-            }}
-            placeholder="Np. Umyć naczynia"
-            placeholderTextColor="#64748b"
-            style={{
-              borderRadius: 12,
+              backgroundColor: C.cardBg,
+              borderRadius: 18,
               borderWidth: 1,
-              borderColor: "rgba(75,85,99,0.7)",
-              padding: 12,
-              marginBottom: showSuggestions ? 8 : 20,
-              backgroundColor: "#020617",
-              color: "#f1f5f9",
-              fontSize: 15,
-            }}
-          />
-
-          {/* SUGGESTIONS */}
-          {showSuggestions && (
-            <View
-              style={{
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: "rgba(75,85,99,0.7)",
-                backgroundColor: "#020617",
-                overflow: "hidden",
-                marginBottom: 20,
-              }}
-            >
-              {titleSuggestions.map((s, idx) => (
-                <TouchableOpacity
-                  key={`${s}-${idx}`}
-                  onPress={() => {
-                    setTitle(s);
-                    setSuggestOpen(false);
-                    titleInputRef.current?.blur();
-                  }}
-                  style={{
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderTopWidth: idx === 0 ? 0 : 1,
-                    borderTopColor: "rgba(75,85,99,0.35)",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <Ionicons name="time-outline" size={16} color="#94a3b8" />
-                  <Text style={{ color: "#e5e7eb", fontSize: 14 }}>{s}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          {/* DATE INPUT */}
-          <Text style={{ color: "#94a3b8", marginBottom: 6, fontSize: 13 }}>
-            Data (RRRR-MM-DD)
-          </Text>
-
-          <TextInput
-            value={inputDate}
-            onChangeText={(t) => {
-              setInputDate(t);
-              const valid = parseInputDate(t);
-              if (valid) {
-                const d0 = startOfDay(valid);
-                setChosenDate(d0);
-                setCurrentMonth(startOfMonth(d0));
-              }
-            }}
-            placeholder="2025-01-01"
-            placeholderTextColor="#64748b"
-            style={{
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: "rgba(75,85,99,0.7)",
-              padding: 12,
-              marginBottom: 10,
-              backgroundColor: "#020617",
-              color: "#f1f5f9",
-              fontSize: 15,
-            }}
-          />
-
-          <Text
-            style={{
-              color: "#e5e7eb",
-              fontSize: 15,
-              marginBottom: 14,
-              fontWeight: "600",
+              borderColor: C.border,
+              padding: isPhone ? 14 : 16,
             }}
           >
-            {formatDayLong(chosenDate)}
-          </Text>
+            {/* ASSIGNED TO */}
+            <Text style={{ color: C.muted, fontSize: 13, marginBottom: 6 }}>
+              Przypisane do
+            </Text>
 
-          {/* CALENDAR CARD */}
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: "rgba(75,85,99,0.6)",
-              padding: 14,
-              borderRadius: 16,
-              backgroundColor: "#020617",
-              marginBottom: 24,
-            }}
-          >
-            {/* MONTH HEADER */}
             <View
               style={{
                 flexDirection: "row",
-                justifyContent: "space-between",
                 alignItems: "center",
-                marginBottom: 10,
+                padding: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: C.borderStrong,
+                backgroundColor: C.inputBg,
+                marginBottom: 12,
               }}
             >
-              <TouchableOpacity
-                onPress={() =>
-                  setCurrentMonth((prev) => {
-                    const d = new Date(prev);
-                    d.setMonth(d.getMonth() - 1);
-                    return startOfMonth(d);
-                  })
-                }
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: "rgba(75,85,99,0.7)",
-                }}
-              >
-                <Ionicons name="chevron-back" size={18} color="#e5e7eb" />
-              </TouchableOpacity>
-
-              <Text
-                style={{
-                  color: "#e5e7eb",
-                  fontSize: 15,
-                  fontWeight: "700",
-                }}
-              >
-                {currentMonth.toLocaleDateString("pl-PL", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </Text>
-
-              <TouchableOpacity
-                onPress={() =>
-                  setCurrentMonth((prev) => {
-                    const d = new Date(prev);
-                    d.setMonth(d.getMonth() + 1);
-                    return startOfMonth(d);
-                  })
-                }
-                style={{
-                  padding: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: "rgba(75,85,99,0.7)",
-                }}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#e5e7eb" />
-              </TouchableOpacity>
-            </View>
-
-            {/* WEEK LABELS */}
-            <View style={{ flexDirection: "row", marginBottom: 6 }}>
-              {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
-                <Text
-                  key={d}
+              {selectedMember.avatarUrl ? (
+                <Image
+                  source={{ uri: selectedMember.avatarUrl }}
+                  style={{ width: 42, height: 42, borderRadius: 999, marginRight: 12 }}
+                />
+              ) : (
+                <View
                   style={{
-                    flex: 1,
-                    textAlign: "center",
-                    color: "#64748b",
-                    fontSize: 11,
+                    width: 42,
+                    height: 42,
+                    borderRadius: 999,
+                    backgroundColor: C.primaryAlpha2,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 12,
                   }}
                 >
-                  {d}
+                  <Text style={{ color: C.primary, fontWeight: "700" }}>
+                    {selectedMember.label?.[0] ?? "?"}
+                  </Text>
+                </View>
+              )}
+
+              <View>
+                <Text style={{ color: C.text, fontSize: 15, fontWeight: "700" }}>
+                  {selectedMember.label}
                 </Text>
-              ))}
+                <Text style={{ color: C.subtle, fontSize: 12 }}>
+                  Poziom {selectedMember.level}
+                </Text>
+              </View>
             </View>
 
-            {/* DAYS GRID */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-              {daysGrid.map((d, index) => {
-                if (!d)
-                  return (
-                    <View key={index} style={{ width: "14.28%", height: 40 }} />
-                  );
-
-                const selected = d.getTime() === chosenDate.getTime();
-
+            {/* MEMBER CHIPS */}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 20 }}>
+              {memberChips.map((m) => {
+                const active = m.id === selectedMember.id;
                 return (
                   <TouchableOpacity
-                    key={index}
-                    onPress={() => {
-                      const d0 = startOfDay(d);
-                      setChosenDate(d0);
-                      setInputDate(formatInputDate(d0));
-                    }}
+                    key={m.id}
+                    onPress={() => setAssignedToId(m.id)}
                     style={{
-                      width: "14.28%",
-                      height: 40,
-                      alignItems: "center",
-                      justifyContent: "center",
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? C.primary : C.borderStrong,
+                      backgroundColor: active ? C.primaryAlpha : "transparent",
+                      marginRight: 8,
+                      marginBottom: 8,
                     }}
                   >
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 999,
-                        backgroundColor: selected ? "#22d3ee" : "transparent",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: selected ? "#022c22" : "#e2e8f0",
-                          fontSize: 13,
-                          fontWeight: selected ? "700" : "400",
-                        }}
-                      >
-                        {d.getDate()}
-                      </Text>
-                    </View>
+                    <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>
+                      {m.label}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </View>
 
-          {/* BUTTONS */}
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "flex-end",
-              gap: 12,
-            }}
-          >
-            <TouchableOpacity
-              onPress={() => router.back()}
+            {/* DIFFICULTY */}
+            <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
+              Trudność zadania
+            </Text>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 20 }}>
+              {DIFFICULTY_OPTIONS.map((opt) => {
+                const active = difficulty === opt.type;
+                return (
+                  <TouchableOpacity
+                    key={opt.type}
+                    onPress={() => setDifficulty(opt.type)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? C.primary : C.borderStrong,
+                      backgroundColor: active ? C.primaryAlpha : "transparent",
+                      marginRight: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>
+                      {opt.label} ({opt.exp} EXP)
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* REPEAT */}
+            <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
+              Cykliczność
+            </Text>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 20 }}>
+              {REPEAT_OPTIONS.map((r) => {
+                const active = repeatType === r.type;
+                return (
+                  <TouchableOpacity
+                    key={r.type}
+                    onPress={() => setRepeatType(r.type)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? C.primary : C.borderStrong,
+                      backgroundColor: active ? C.primaryAlpha : "transparent",
+                      marginRight: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Text style={{ color: active ? C.primary : C.text, fontSize: 13 }}>
+                      {r.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* TITLE INPUT */}
+            <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
+              Nazwa zadania
+            </Text>
+
+            <TextInput
+              ref={titleInputRef}
+              value={title}
+              onChangeText={(t) => {
+                setTitle(t);
+                setSuggestOpen(true);
+              }}
+              onFocus={() => setSuggestOpen(true)}
+              onBlur={() => {
+                // dajemy czas na tap w sugestię
+                setTimeout(() => setSuggestOpen(false), 120);
+              }}
+              placeholder="Np. Umyć naczynia"
+              placeholderTextColor={C.placeholder}
               style={{
-                paddingHorizontal: 18,
-                paddingVertical: 10,
-                borderRadius: 999,
+                borderRadius: 10,
                 borderWidth: 1,
-                borderColor: "rgba(148,163,184,0.5)",
+                borderColor: C.inputBorder,
+                padding: 10,
+                marginBottom: showSuggestions ? 8 : 20,
+                backgroundColor: C.inputBg,
+                color: C.text,
               }}
-            >
-              <Text style={{ color: "#94a3b8", fontSize: 14 }}>Anuluj</Text>
-            </TouchableOpacity>
+            />
 
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={!title.trim() || saving}
-              style={{
-                paddingHorizontal: 20,
-                paddingVertical: 10,
-                borderRadius: 999,
-                backgroundColor:
-                  title.trim() && !saving
-                    ? "#22d3ee"
-                    : "rgba(148,163,184,0.2)",
-                opacity: saving ? 0.6 : 1,
-              }}
-            >
-              <Text
+            {/* SUGGESTIONS */}
+            {showSuggestions && (
+              <View
                 style={{
-                  color:
-                    title.trim() && !saving
-                      ? "#022c22"
-                      : "rgba(148,163,184,0.7)",
-                  fontSize: 14,
-                  fontWeight: "700",
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: C.borderStrong,
+                  backgroundColor: C.inputBg,
+                  overflow: "hidden",
+                  marginBottom: 20,
                 }}
               >
-                {saving ? "Zapisywanie..." : "Zapisz"}
-              </Text>
-            </TouchableOpacity>
+                {titleSuggestions.map((s, idx) => (
+                  <TouchableOpacity
+                    key={`${s}-${idx}`}
+                    onPress={() => {
+                      setTitle(s);
+                      setSuggestOpen(false);
+                      titleInputRef.current?.blur();
+                    }}
+                    style={{
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderTopWidth: idx === 0 ? 0 : 1,
+                      borderTopColor: C.border,
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={16} color={C.muted} />
+                    <Text style={{ color: C.text, fontSize: 14, marginLeft: 10 }}>{s}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* DATE INPUT */}
+            <Text style={{ color: C.muted, marginBottom: 6, fontSize: 13 }}>
+              Data (RRRR-MM-DD)
+            </Text>
+
+            <TextInput
+              value={inputDate}
+              onChangeText={(t) => {
+                setInputDate(t);
+                const valid = parseInputDate(t);
+                if (valid) {
+                  const d0 = startOfDay(valid);
+                  setChosenDate(d0);
+                  setCurrentMonth(startOfMonth(d0));
+                }
+              }}
+              placeholder="2025-01-01"
+              placeholderTextColor={C.placeholder}
+              style={{
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: C.inputBorder,
+                padding: 10,
+                marginBottom: 14,
+                backgroundColor: C.inputBg,
+                color: C.text,
+              }}
+            />
+
+            <Text style={{ color: C.text, marginBottom: 10, fontSize: 15 }}>
+              {formatDayLong(chosenDate)}
+            </Text>
+
+            {/* CALENDAR */}
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: C.borderStrong,
+                padding: 12,
+                borderRadius: 12,
+                backgroundColor: C.inputBg,
+                marginBottom: 24,
+              }}
+            >
+              {/* Month Navigation */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                  alignItems: "center",
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() =>
+                    setCurrentMonth((prev) => {
+                      const d = new Date(prev);
+                      d.setMonth(d.getMonth() - 1);
+                      return startOfMonth(d);
+                    })
+                  }
+                  style={{
+                    padding: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={16} color={C.text} />
+                </TouchableOpacity>
+
+                <Text style={{ color: C.text, fontSize: 14, fontWeight: "600" }}>
+                  {currentMonth.toLocaleDateString("pl-PL", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() =>
+                    setCurrentMonth((prev) => {
+                      const d = new Date(prev);
+                      d.setMonth(d.getMonth() + 1);
+                      return startOfMonth(d);
+                    })
+                  }
+                  style={{
+                    padding: 6,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: C.borderStrong,
+                  }}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={C.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Week labels */}
+              <View style={{ flexDirection: "row", marginBottom: 6 }}>
+                {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
+                  <Text
+                    key={d}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      color: C.placeholder,
+                      fontSize: 11,
+                    }}
+                  >
+                    {d}
+                  </Text>
+                ))}
+              </View>
+
+              {/* Days Grid */}
+              <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                {daysGrid.map((d, index) => {
+                  if (!d) return <View key={index} style={{ width: "14.28%", height: 34 }} />;
+
+                  const selected = d.toDateString() === chosenDate.toDateString();
+
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => {
+                        const d0 = startOfDay(d);
+                        setChosenDate(d0);
+                        setInputDate(formatInputDate(d0));
+                      }}
+                      style={{
+                        width: "14.28%",
+                        height: 34,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 999,
+                          backgroundColor: selected ? C.primary : "transparent",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: selected ? C.onPrimary : C.text,
+                            fontSize: 13,
+                            fontWeight: selected ? "700" : "400",
+                          }}
+                        >
+                          {d.getDate()}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* ACTIONS */}
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  marginRight: 10,
+                }}
+              >
+                <Text style={{ color: C.muted, fontSize: 14 }}>Anuluj</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={!title.trim() || saving}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  backgroundColor: title.trim() && !saving ? C.primary : C.disabledBg,
+                  opacity: saving ? 0.7 : 1,
+                }}
+              >
+                <Text
+                  style={{
+                    color: title.trim() && !saving ? C.onPrimary : C.disabledText,
+                    fontSize: 14,
+                    fontWeight: "700",
+                  }}
+                >
+                  {saving ? "Zapisywanie..." : "Zapisz zmiany"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

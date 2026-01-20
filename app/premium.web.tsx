@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   Alert,
+  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -459,6 +460,7 @@ export default function PremiumScreen() {
     { icon: "stats-chart" as const, title: "Statystyki dla wszystkich", desc: "Wspólna statystyka postępu — widać kto dowozi." },
     { icon: "trophy" as const, title: "Rywalizacja i motywacja", desc: "Lekka rywalizacja, rankingi i dodatkowy kop do działania." },
     { icon: "chatbubble-ellipses" as const, title: "Wiadomości tekstowe", desc: "Szybka komunikacja w rodzinie bez kombinowania." },
+    { icon: "rocket" as const, title: "Natychmiastowa aktywacja", desc: "Po płatności Premium aktywuje się automatycznie." },
   ];
 
   const yearlyValue = useMemo(() => {
@@ -470,61 +472,75 @@ export default function PremiumScreen() {
   }, []);
 
   const ui = useMemo(() => {
-    const r = 20;
-
-    const card = {
-      backgroundColor: colors.card,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: r,
-    };
+    const r = 24;
 
     const shadow = {
       shadowColor: "#000",
-      shadowOpacity: 0.08,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 4,
+      shadowOpacity: 0.14,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 10 },
+      elevation: 6,
+    };
+
+    const glass = {
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.10)",
+      backgroundColor: Platform.OS === "web" ? "rgba(255,255,255,0.06)" : colors.card,
+      borderRadius: r,
+    };
+
+    const card = {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: r,
     };
 
     const pill = (bg: string, border: string) => ({
       backgroundColor: bg,
       borderColor: border,
       borderWidth: 1,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
       borderRadius: 999,
       flexDirection: "row" as const,
       alignItems: "center" as const,
       gap: 8,
     });
 
-    const h1 = { color: colors.text, fontWeight: "900" as const, fontSize: 20 };
-    const h2 = { color: colors.text, fontWeight: "900" as const, fontSize: 15 };
+    const h1 = { color: colors.text, fontWeight: "950" as const, fontSize: 22, letterSpacing: -0.2 };
+    const h2 = { color: colors.text, fontWeight: "950" as const, fontSize: 15, letterSpacing: -0.1 };
     const sub = { color: colors.textMuted, fontWeight: "700" as const, fontSize: 12, lineHeight: 17 };
 
-    return { r, card, shadow, pill, h1, h2, sub };
+    const maxW = 980;
+    const pad = 14;
+
+    return { r, shadow, glass, card, pill, h1, h2, sub, maxW, pad };
   }, [colors]);
+
+  const isWeb = Platform.OS === "web";
+  const screenW = Dimensions.get("window").width;
+  const gridTwoCols = isWeb && screenW >= 860;
 
   const SectionHeader = ({ icon, title, hint }: { icon: any; title: string; hint?: string }) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-      <View
+      <LinearGradient
+        colors={["rgba(59,130,246,0.22)", "rgba(251,191,36,0.18)"]}
         style={{
-          width: 32,
-          height: 32,
-          borderRadius: 11,
+          width: 34,
+          height: 34,
+          borderRadius: 13,
           alignItems: "center",
           justifyContent: "center",
           borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
+          borderColor: "rgba(255,255,255,0.14)",
         }}
       >
         <Ionicons name={icon} size={16} color={colors.text} />
-      </View>
+      </LinearGradient>
       <View style={{ flex: 1 }}>
         <Text style={ui.h2}>{title}</Text>
-        {!!hint && <Text style={[ui.sub, { marginTop: 2 }]}>{hint}</Text>}
+        {!!hint && <Text style={[ui.sub, { marginTop: 3 }]}>{hint}</Text>}
       </View>
     </View>
   );
@@ -544,95 +560,125 @@ export default function PremiumScreen() {
 
     const badgeColors =
       badgeTone === "gold"
-        ? { bg: "rgba(251,191,36,0.18)", border: "rgba(251,191,36,0.35)", text: PremiumGold }
+        ? { bg: "rgba(251,191,36,0.14)", border: "rgba(251,191,36,0.28)", text: PremiumGold }
         : badgeTone === "blue"
-        ? { bg: "rgba(59,130,246,0.16)", border: "rgba(59,130,246,0.30)", text: PrimaryBlue }
-        : { bg: "rgba(148,163,184,0.14)", border: "rgba(148,163,184,0.25)", text: colors.textMuted };
+        ? { bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.28)", text: PrimaryBlue }
+        : { bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.22)", text: colors.textMuted };
+
+    const glow = highlighted
+      ? {
+          borderColor: "rgba(251,191,36,0.55)",
+          shadowColor: "#000",
+          shadowOpacity: 0.18,
+          shadowRadius: 26,
+          shadowOffset: { width: 0, height: 14 },
+          elevation: 7,
+        }
+      : {
+          borderColor: "rgba(255,255,255,0.10)",
+        };
 
     return (
       <Pressable
         onPress={() => openPlan(planId)}
         style={{
-          ...ui.card,
-          ...ui.shadow,
-          padding: 14,
-          borderColor: highlighted ? "rgba(251,191,36,0.65)" : colors.border,
-          backgroundColor: colors.card,
+          borderRadius: ui.r,
+          borderWidth: 1,
+          ...glow,
+          backgroundColor: isWeb ? "rgba(255,255,255,0.05)" : colors.card,
+          overflow: "hidden",
+          ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
         }}
       >
-        {/* top row */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 13,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: highlighted ? "rgba(251,191,36,0.16)" : "rgba(59,130,246,0.12)",
-              borderWidth: 1,
-              borderColor: highlighted ? "rgba(251,191,36,0.35)" : "rgba(59,130,246,0.25)",
-            }}
-          >
-            <Ionicons
-              name={highlighted ? "sparkles" : "flash"}
-              size={17}
-              color={highlighted ? PremiumGold : PrimaryBlue}
-            />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>{plan.title}</Text>
-            <Text style={{ color: colors.textMuted, fontWeight: "700", marginTop: 2, fontSize: 12 }}>
-              {plan.priceLabel}
-            </Text>
-          </View>
-
-          {!!badge && (
-            <View
+        <LinearGradient
+          colors={
+            highlighted
+              ? ["rgba(251,191,36,0.14)", "rgba(59,130,246,0.10)", "rgba(255,255,255,0.04)"]
+              : ["rgba(59,130,246,0.14)", "rgba(255,255,255,0.04)", "rgba(255,255,255,0.03)"]
+          }
+          style={{ padding: 14 }}
+        >
+          {/* top */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <LinearGradient
+              colors={highlighted ? ["rgba(251,191,36,0.40)", "rgba(251,191,36,0.14)"] : ["rgba(59,130,246,0.32)", "rgba(59,130,246,0.12)"]}
               style={{
-                backgroundColor: badgeColors.bg,
-                borderColor: badgeColors.border,
+                width: 44,
+                height: 44,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
                 borderWidth: 1,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
+                borderColor: highlighted ? "rgba(251,191,36,0.30)" : "rgba(59,130,246,0.28)",
               }}
             >
-              <Text style={{ color: badgeColors.text, fontWeight: "900", fontSize: 12 }}>{badge}</Text>
+              <Ionicons
+                name={highlighted ? "sparkles" : "flash"}
+                size={18}
+                color={highlighted ? PremiumGold : PrimaryBlue}
+              />
+            </LinearGradient>
+
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: "950", fontSize: 15 }}>{plan.title}</Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "700", marginTop: 2, fontSize: 12 }}>
+                {plan.priceLabel}
+              </Text>
             </View>
-          )}
-        </View>
 
-        {/* price row */}
-        <View style={{ marginTop: 12, flexDirection: "row", alignItems: "flex-end" }}>
-          <Text style={{ color: colors.text, fontWeight: "950", fontSize: 20 }}>{plan.amountPln.toFixed(0)} zł</Text>
-          <Text style={{ color: colors.textMuted, fontWeight: "800", marginLeft: 6, marginBottom: 2, fontSize: 12 }}>
-            {planId === "monthly" ? "/ mies." : "/ rok"}
-          </Text>
-          <View style={{ flex: 1 }} />
-          <LinearGradient
-            colors={highlighted ? ["#FBBF24", "#F59E0B"] : ["#3B82F6", "#2563EB"]}
-            style={{
-              paddingHorizontal: 12,
-              paddingVertical: 9,
-              borderRadius: 14,
-              opacity: busy ? 0.75 : 1,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
-            }}
-          >
-            {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="lock-closed" size={15} color="#fff" />}
-            <Text style={{ color: "#fff", fontWeight: "900", fontSize: 13 }}>{busy ? "..." : "Wybieram"}</Text>
-          </LinearGradient>
-        </View>
+            {!!badge && (
+              <View
+                style={{
+                  backgroundColor: badgeColors.bg,
+                  borderColor: badgeColors.border,
+                  borderWidth: 1,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                }}
+              >
+                <Text style={{ color: badgeColors.text, fontWeight: "950", fontSize: 12 }}>{badge}</Text>
+              </View>
+            )}
+          </View>
 
-        {/* microcopy */}
-        <Text style={{ color: colors.textMuted, marginTop: 8, lineHeight: 17, fontSize: 12 }}>
-          Bezpieczna płatność przez Stripe Checkout (P24 / BLIK / karta).
-        </Text>
+          {/* price + cta */}
+          <View style={{ marginTop: 14 }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+              <Text style={{ color: colors.text, fontWeight: "950", fontSize: 26, letterSpacing: -0.4 }}>
+                {plan.amountPln.toFixed(0)} zł
+              </Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "800", marginLeft: 8, marginBottom: 4, fontSize: 12 }}>
+                {planId === "monthly" ? "/ mies." : "/ rok"}
+              </Text>
+            </View>
+
+            <TouchableOpacity onPress={() => openPlan(planId)} activeOpacity={0.9} disabled={busy} style={{ marginTop: 12 }}>
+              <LinearGradient
+                colors={highlighted ? ["#FBBF24", "#F59E0B"] : ["#3B82F6", "#2563EB"]}
+                style={{
+                  paddingVertical: 12,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 10,
+                  opacity: busy ? 0.75 : 1,
+                }}
+              >
+                {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="lock-closed" size={16} color="#fff" />}
+                <Text style={{ color: "#fff", fontWeight: "950", fontSize: 14 }}>{busy ? "..." : "Wybieram"}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="shield-checkmark" size={16} color={PrimaryBlue} />
+              <Text style={{ color: colors.textMuted, lineHeight: 17, fontSize: 12, flex: 1 }}>
+                Bezpieczna płatność przez Stripe Checkout (P24 / BLIK / karta).
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
       </Pressable>
     );
   };
@@ -640,124 +686,140 @@ export default function PremiumScreen() {
   const niceOverlayStyle: any =
     Platform.OS === "web"
       ? ({
-          backdropFilter: "blur(10px)",
+          backdropFilter: "blur(14px)",
         } as any)
       : null;
 
   const PayModalContent = (
     <View
       style={{
-        ...ui.card,
-        ...ui.shadow,
         width: "100%",
-        maxWidth: 520,
-        padding: 16,
+        maxWidth: 560,
+        borderRadius: 28,
+        overflow: "hidden",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        backgroundColor: Platform.OS === "web" ? "rgba(20,22,28,0.72)" : colors.card,
+        ...ui.shadow,
       }}
     >
-      {/* header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <LinearGradient
-          colors={["rgba(251,191,36,0.25)", "rgba(59,130,246,0.15)"]}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 15,
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            borderColor: "rgba(251,191,36,0.35)",
-          }}
-        >
-          <Ionicons name="sparkles" size={17} color={PremiumGold} />
-        </LinearGradient>
-
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontWeight: "950", fontSize: 15 }}>Finalizacja Premium</Text>
-          <Text style={{ color: colors.textMuted, fontWeight: "700", marginTop: 2, fontSize: 12 }}>
-            Za chwilę przejdziesz do bezpiecznej płatności.
-          </Text>
-        </View>
-
-        <TouchableOpacity onPress={closePayModal} style={{ padding: 6 }} activeOpacity={0.8}>
-          <Ionicons name="close" size={21} color={colors.textMuted} />
-        </TouchableOpacity>
-      </View>
-
-      {/* plan summary */}
-      <View
-        style={{
-          marginTop: 14,
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.bg,
-          padding: 12,
-        }}
+      <LinearGradient
+        colors={["rgba(59,130,246,0.22)", "rgba(251,191,36,0.14)", "rgba(255,255,255,0.04)"]}
+        style={{ padding: 16 }}
       >
-        <Text style={{ color: colors.textMuted, fontWeight: "900", fontSize: 11, letterSpacing: 0.4 }}>
-          WYBRANY PLAN
-        </Text>
-
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-          <Text style={{ color: colors.text, fontWeight: "950", fontSize: 16, flex: 1 }}>
-            {payModal.planId ? PLANS[payModal.planId].title : "—"}
-          </Text>
+        {/* handle */}
+        <View style={{ alignItems: "center", marginBottom: 10 }}>
           <View
             style={{
-              backgroundColor: "rgba(59,130,246,0.12)",
-              borderColor: "rgba(59,130,246,0.22)",
-              borderWidth: 1,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              borderRadius: 999,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
+              width: 44,
+              height: 5,
+              borderRadius: 99,
+              backgroundColor: "rgba(255,255,255,0.18)",
             }}
-          >
-            <Ionicons name="shield-checkmark" size={13} color={PrimaryBlue} />
-            <Text style={{ color: PrimaryBlue, fontWeight: "900", fontSize: 12 }}>Stripe</Text>
-          </View>
+          />
         </View>
 
-        <Text style={{ color: colors.textMuted, marginTop: 8, fontSize: 12 }}>
-          Do zapłaty:{" "}
-          <Text style={{ color: colors.text, fontWeight: "950" }}>
-            {payModal.planId ? `${PLANS[payModal.planId].amountPln.toFixed(2)} PLN` : "—"}
-          </Text>
-        </Text>
-      </View>
+        {/* header */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <LinearGradient
+            colors={["rgba(251,191,36,0.30)", "rgba(59,130,246,0.18)"]}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 16,
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.14)",
+            }}
+          >
+            <Ionicons name="sparkles" size={18} color={PremiumGold} />
+          </LinearGradient>
 
-      {!!err && <Text style={{ color: DangerRed, marginTop: 10, fontWeight: "900", fontSize: 12 }}>{err}</Text>}
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: "950", fontSize: 16 }}>Finalizacja Premium</Text>
+            <Text style={{ color: colors.textMuted, fontWeight: "700", marginTop: 3, fontSize: 12 }}>
+              Za chwilę przejdziesz do bezpiecznej płatności.
+            </Text>
+          </View>
 
-      {/* CTA */}
-      <TouchableOpacity onPress={doCheckout} disabled={busy} activeOpacity={0.9} style={{ marginTop: 14 }}>
-        <LinearGradient
-          colors={["#3B82F6", "#2563EB"]}
+          <TouchableOpacity onPress={closePayModal} style={{ padding: 6 }} activeOpacity={0.8}>
+            <Ionicons name="close" size={22} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* plan summary */}
+        <View
           style={{
-            paddingVertical: 13,
-            borderRadius: 16,
-            alignItems: "center",
-            opacity: busy ? 0.7 : 1,
-            flexDirection: "row",
-            justifyContent: "center",
-            gap: 10,
+            marginTop: 14,
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.10)",
+            backgroundColor: Platform.OS === "web" ? "rgba(255,255,255,0.05)" : colors.bg,
+            padding: 12,
           }}
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="card" size={17} color="#fff" />}
-          <Text style={{ color: "#fff", fontWeight: "950", fontSize: 14 }}>
-            Przejdź do płatności (P24 / BLIK / karta)
+          <Text style={{ color: colors.textMuted, fontWeight: "950", fontSize: 11, letterSpacing: 0.45 }}>
+            WYBRANY PLAN
           </Text>
-        </LinearGradient>
-      </TouchableOpacity>
 
-      <TouchableOpacity
-        onPress={closePayModal}
-        style={{ marginTop: 10, paddingVertical: 10, alignItems: "center" }}
-        disabled={busy}
-      >
-        <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>Anuluj</Text>
-      </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+            <Text style={{ color: colors.text, fontWeight: "950", fontSize: 16, flex: 1 }}>
+              {payModal.planId ? PLANS[payModal.planId].title : "—"}
+            </Text>
+            <View
+              style={{
+                backgroundColor: "rgba(59,130,246,0.14)",
+                borderColor: "rgba(59,130,246,0.26)",
+                borderWidth: 1,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Ionicons name="shield-checkmark" size={13} color={PrimaryBlue} />
+              <Text style={{ color: PrimaryBlue, fontWeight: "950", fontSize: 12 }}>Stripe</Text>
+            </View>
+          </View>
+
+          <Text style={{ color: colors.textMuted, marginTop: 10, fontSize: 12 }}>
+            Do zapłaty:{" "}
+            <Text style={{ color: colors.text, fontWeight: "950" }}>
+              {payModal.planId ? `${PLANS[payModal.planId].amountPln.toFixed(2)} PLN` : "—"}
+            </Text>
+          </Text>
+        </View>
+
+        {!!err && <Text style={{ color: DangerRed, marginTop: 10, fontWeight: "950", fontSize: 12 }}>{err}</Text>}
+
+        {/* CTA */}
+        <TouchableOpacity onPress={doCheckout} disabled={busy} activeOpacity={0.9} style={{ marginTop: 14 }}>
+          <LinearGradient
+            colors={["#3B82F6", "#2563EB"]}
+            style={{
+              paddingVertical: 14,
+              borderRadius: 18,
+              alignItems: "center",
+              opacity: busy ? 0.75 : 1,
+              flexDirection: "row",
+              justifyContent: "center",
+              gap: 10,
+            }}
+          >
+            {busy ? <ActivityIndicator color="#fff" /> : <Ionicons name="card" size={18} color="#fff" />}
+            <Text style={{ color: "#fff", fontWeight: "950", fontSize: 14 }}>
+              Przejdź do płatności (P24 / BLIK / karta)
+            </Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={closePayModal} style={{ marginTop: 10, paddingVertical: 10, alignItems: "center" }} disabled={busy}>
+          <Text style={{ color: colors.textMuted, fontWeight: "800", fontSize: 12 }}>Anuluj</Text>
+        </TouchableOpacity>
+      </LinearGradient>
     </View>
   );
 
@@ -772,18 +834,59 @@ export default function PremiumScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      {/* Background (premium + safe look) */}
+      <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+        <LinearGradient
+          colors={["rgba(59,130,246,0.18)", "rgba(251,191,36,0.10)", "rgba(0,0,0,0.00)"]}
+          style={{ flex: 1 }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            left: -120,
+            top: -120,
+            width: 260,
+            height: 260,
+            borderRadius: 999,
+            backgroundColor: "rgba(59,130,246,0.18)",
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            right: -140,
+            top: 40,
+            width: 280,
+            height: 280,
+            borderRadius: 999,
+            backgroundColor: "rgba(251,191,36,0.14)",
+          }}
+        />
+      </View>
+
       <ScrollView
         contentContainerStyle={{
-          padding: 12,
-          paddingBottom: 28,
+          padding: ui.pad,
+          paddingBottom: 30,
           width: "100%",
-          maxWidth: 900,
+          maxWidth: ui.maxW,
           alignSelf: Platform.OS === "web" ? "center" : "stretch",
           gap: 12,
         }}
       >
-        {/* TOP BAR */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        {/* TOP BAR (glass) */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            padding: 10,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.10)",
+            backgroundColor: Platform.OS === "web" ? "rgba(255,255,255,0.05)" : colors.card,
+          }}
+        >
           <TouchableOpacity onPress={() => router.back()} style={{ paddingVertical: 6, paddingRight: 8 }}>
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
@@ -794,142 +897,161 @@ export default function PremiumScreen() {
 
           <TouchableOpacity
             onPress={refreshPremiumNow}
-            style={ui.pill("rgba(148,163,184,0.10)", "rgba(148,163,184,0.22)")}
+            style={ui.pill("rgba(255,255,255,0.06)", "rgba(255,255,255,0.10)")}
             activeOpacity={0.9}
           >
             <Ionicons name="refresh" size={17} color={colors.text} />
-            <Text style={{ color: colors.text, fontWeight: "950", fontSize: 13 }}>Sprawdź</Text>
+            <Text style={{ color: colors.text, fontWeight: "950", fontSize: 13 }}>Zweryfikuj status Premium</Text>
           </TouchableOpacity>
         </View>
 
-        {/* HERO */}
-        <View style={{ ...ui.card, ...ui.shadow, overflow: "hidden" }}>
+        {/* HERO (big premium panel) */}
+        <View style={{ borderRadius: 28, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" }}>
           <LinearGradient
-            colors={["rgba(59,130,246,0.20)", "rgba(251,191,36,0.12)", colors.card]}
-            style={{ padding: 14 }}
+            colors={["rgba(59,130,246,0.28)", "rgba(251,191,36,0.14)", "rgba(255,255,255,0.04)"]}
+            style={{ padding: 16 }}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" as any }}>
               <LinearGradient
                 colors={heroIconGradient}
                 style={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: 16,
+                  width: 52,
+                  height: 52,
+                  borderRadius: 18,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <Ionicons name={heroIconName} size={20} color="#fff" />
+                <Ionicons name={heroIconName} size={22} color="#fff" />
               </LinearGradient>
 
               <View style={{ flex: 1, minWidth: 220 }}>
                 <Text style={ui.h1}>{heroTitle}</Text>
-                <Text style={[ui.sub, { marginTop: 4 }]}>{heroSubtitle}</Text>
+                <Text style={[ui.sub, { marginTop: 5 }]}>{heroSubtitle}</Text>
               </View>
 
-              {/* kafelek (Do: / Stripe) */}
               {isPremium && premiumUntilText ? (
                 <View style={[ui.pill("rgba(251,191,36,0.14)", "rgba(251,191,36,0.26)"), { marginTop: 4 }]}>
                   <Ionicons name="calendar" size={15} color={PremiumGold} />
                   <Text style={{ color: colors.text, fontWeight: "950", fontSize: 13 }}>Do: {premiumUntilText}</Text>
                 </View>
               ) : (
-                <View style={[ui.pill("rgba(59,130,246,0.12)", "rgba(59,130,246,0.22)"), { marginTop: 4 }]}>
+                <View style={[ui.pill("rgba(59,130,246,0.14)", "rgba(59,130,246,0.26)"), { marginTop: 4 }]}>
                   <Ionicons name="shield-checkmark" size={15} color={PrimaryBlue} />
                   <Text style={{ color: colors.text, fontWeight: "950", fontSize: 13 }}>Płatność Stripe</Text>
                 </View>
               )}
             </View>
 
-            {!!err && <Text style={{ color: DangerRed, marginTop: 10, fontWeight: "900", fontSize: 12 }}>{err}</Text>}
+            {!!err && <Text style={{ color: DangerRed, marginTop: 12, fontWeight: "950", fontSize: 12 }}>{err}</Text>}
           </LinearGradient>
         </View>
 
-        {/* BENEFITS */}
-        <View style={{ ...ui.card, ...ui.shadow, padding: 14 }}>
+        {/* PLANS (mocno wyeksponowane, od razu pod hero) */}
+        <View style={{ borderRadius: 28, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" }}>
+          <LinearGradient colors={["rgba(255,255,255,0.05)", "rgba(255,255,255,0.03)"]} style={{ padding: 14 }}>
+            <SectionHeader
+              icon="pricetag"
+              title={isPremium ? "Przedłuż Premium" : "Wybierz plan"}
+              hint={
+                yearlyValue.save > 0
+                  ? `Roczny opłaca się najbardziej: oszczędzasz ~${yearlyValue.save} zł (${yearlyValue.pct}%).`
+                  : "Wybierz plan dopasowany do Ciebie."
+              }
+            />
+
+            {!authReady ? (
+              <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "950", fontSize: 12 }}>
+                Ładowanie sesji…
+              </Text>
+            ) : null}
+
+            <View
+              style={{
+                marginTop: 12,
+                gap: 12,
+                flexDirection: gridTwoCols ? ("row" as const) : ("column" as const),
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <PlanCard planId="yearly" highlighted badge="Najlepsza wartość" badgeTone="gold" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <PlanCard planId="monthly" badge="Elastycznie" badgeTone="blue" />
+              </View>
+            </View>
+
+            <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.10)", paddingTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Ionicons name="information-circle" size={17} color={colors.textMuted} />
+                <Text style={{ color: colors.textMuted, lineHeight: 17, flex: 1, fontSize: 12 }}>
+                  Po kliknięciu przejdziesz do Stripe Checkout. Aplikacja nie przechowuje danych karty.
+                </Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* BENEFITS (bardziej premium-grid) */}
+        <View style={{ ...ui.glass, ...ui.shadow, padding: 14 }}>
           <SectionHeader
             icon="gift"
             title="Co daje Premium"
             hint="Rodzina, zadania, statystyki, rywalizacja i wiadomości — w jednym miejscu."
           />
 
-          <View style={{ marginTop: 12, gap: 10 }}>
+          <View
+            style={{
+              marginTop: 12,
+              gap: 10,
+              flexDirection: gridTwoCols ? ("row" as const) : ("column" as const),
+              flexWrap: gridTwoCols ? ("wrap" as const) : ("nowrap" as const),
+            }}
+          >
             {perks.map((p, i) => (
               <View
                 key={i}
                 style={{
-                  flexDirection: "row",
-                  alignItems: "flex-start",
-                  gap: 10,
-                  padding: 10,
-                  borderRadius: 16,
+                  width: gridTwoCols ? "48.7%" : "100%",
+                  borderRadius: 22,
                   borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.bg,
+                  borderColor: "rgba(255,255,255,0.10)",
+                  backgroundColor: Platform.OS === "web" ? "rgba(255,255,255,0.04)" : colors.bg,
+                  padding: 12,
+                  overflow: "hidden",
                 }}
               >
-                <View
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 13,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: "rgba(251,191,36,0.14)",
-                    borderWidth: 1,
-                    borderColor: "rgba(251,191,36,0.24)",
-                    marginTop: 1,
-                  }}
-                >
-                  <Ionicons name={p.icon} size={17} color={PremiumGold} />
-                </View>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                  <LinearGradient
+                    colors={["rgba(251,191,36,0.22)", "rgba(251,191,36,0.10)"]}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 16,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderColor: "rgba(251,191,36,0.18)",
+                      marginTop: 1,
+                    }}
+                  >
+                    <Ionicons name={p.icon} size={18} color={PremiumGold} />
+                  </LinearGradient>
 
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontWeight: "950", fontSize: 14 }}>{p.title}</Text>
-                  <Text style={{ color: colors.textMuted, marginTop: 3, lineHeight: 17, fontSize: 12 }}>{p.desc}</Text>
-                </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: "950", fontSize: 14 }}>{p.title}</Text>
+                    <Text style={{ color: colors.textMuted, marginTop: 4, lineHeight: 17, fontSize: 12 }}>{p.desc}</Text>
+                  </View>
 
-                <Ionicons name="checkmark-circle" size={17} color={SuccessGreen} style={{ marginTop: 4 }} />
+                  <Ionicons name="checkmark-circle" size={18} color={SuccessGreen} style={{ marginTop: 4 }} />
+                </View>
               </View>
             ))}
           </View>
         </View>
-
-        {/* PLANS */}
-        <View style={{ ...ui.card, ...ui.shadow, padding: 14 }}>
-          <SectionHeader
-            icon="pricetag"
-            title={isPremium ? "Przedłuż Premium" : "Wybierz plan"}
-            hint={
-              yearlyValue.save > 0
-                ? `Roczny opłaca się najbardziej: oszczędzasz ~${yearlyValue.save} zł (${yearlyValue.pct}%).`
-                : "Wybierz plan dopasowany do Ciebie."
-            }
-          />
-
-          {!authReady ? (
-            <Text style={{ color: colors.textMuted, marginTop: 10, fontWeight: "900", fontSize: 12 }}>
-              Ładowanie sesji…
-            </Text>
-          ) : null}
-
-          <View style={{ marginTop: 12, gap: 12 }}>
-            <PlanCard planId="yearly" highlighted badge="Najlepsza wartość" badgeTone="gold" />
-            <PlanCard planId="monthly" badge="Elastycznie" badgeTone="blue" />
-          </View>
-
-          <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Ionicons name="information-circle" size={17} color={colors.textMuted} />
-              <Text style={{ color: colors.textMuted, lineHeight: 17, flex: 1, fontSize: 12 }}>
-                Po kliknięciu przejdziesz do Stripe Checkout. Aplikacja nie przechowuje danych karty.
-              </Text>
-            </View>
-          </View>
-        </View>
       </ScrollView>
 
-      {/* PAY MODAL */}
+      {/* PAY MODAL (premium bottom-sheet) */}
       {Platform.OS === "web" ? (
         payModal.open ? (
           <View
@@ -946,10 +1068,10 @@ export default function PremiumScreen() {
             <Pressable
               style={{
                 flex: 1,
-                backgroundColor: "rgba(0,0,0,0.55)",
-                justifyContent: "center",
+                backgroundColor: "rgba(0,0,0,0.60)",
+                justifyContent: "flex-end",
                 alignItems: "center",
-                padding: 14,
+                padding: 12,
                 ...(niceOverlayStyle || {}),
               }}
               onPress={closePayModal}
@@ -966,9 +1088,9 @@ export default function PremiumScreen() {
             onPress={closePayModal}
             style={{
               flex: 1,
-              backgroundColor: "rgba(0,0,0,0.55)",
-              padding: 14,
-              justifyContent: "center",
+              backgroundColor: "rgba(0,0,0,0.60)",
+              padding: 12,
+              justifyContent: "flex-end",
             }}
           >
             <Pressable onPress={() => {}} style={{ width: "100%", alignItems: "center" }}>
@@ -987,7 +1109,7 @@ export default function PremiumScreen() {
             right: 0,
             top: 0,
             bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: "rgba(0,0,0,0.60)",
             justifyContent: "center",
             alignItems: "center",
             padding: 14,
@@ -995,48 +1117,61 @@ export default function PremiumScreen() {
             ...(niceOverlayStyle || {}),
           }}
         >
-          <View style={{ ...ui.card, ...ui.shadow, maxWidth: 420, width: "100%", padding: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <LinearGradient
-                colors={["rgba(251,191,36,0.22)", "rgba(59,130,246,0.14)"]}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 15,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderWidth: 1,
-                  borderColor: "rgba(251,191,36,0.30)",
-                }}
-              >
-                <Ionicons name="sparkles" size={17} color={PremiumGold} />
-              </LinearGradient>
+          <View
+            style={{
+              maxWidth: 420,
+              width: "100%",
+              borderRadius: 28,
+              overflow: "hidden",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.12)",
+              backgroundColor: "rgba(20,22,28,0.72)",
+              ...ui.shadow,
+            }}
+          >
+            <LinearGradient colors={["rgba(59,130,246,0.18)", "rgba(251,191,36,0.10)", "rgba(255,255,255,0.04)"]} style={{ padding: 16 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <LinearGradient
+                  colors={["rgba(251,191,36,0.26)", "rgba(59,130,246,0.16)"]}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 16,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.14)",
+                  }}
+                >
+                  <Ionicons name="sparkles" size={18} color={PremiumGold} />
+                </LinearGradient>
 
-              <Text style={{ fontSize: 16, fontWeight: "950", color: colors.text, flex: 1 }}>{alertState.title}</Text>
+                <Text style={{ fontSize: 16, fontWeight: "950", color: colors.text, flex: 1 }}>{alertState.title}</Text>
 
-              <Pressable onPress={closeNiceAlert} hitSlop={8} style={{ padding: 6 }}>
-                <Ionicons name="close" size={21} color={colors.textMuted} />
+                <Pressable onPress={closeNiceAlert} hitSlop={8} style={{ padding: 6 }}>
+                  <Ionicons name="close" size={21} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              <Text style={{ marginTop: 10, color: colors.text, lineHeight: 18, fontSize: 12 }}>{alertState.message}</Text>
+
+              <Pressable onPress={closeNiceAlert} style={{ marginTop: 14 }}>
+                <LinearGradient
+                  colors={["#3B82F6", "#2563EB"]}
+                  style={{
+                    paddingVertical: 11,
+                    borderRadius: 18,
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Ionicons name="checkmark" size={17} color="#fff" />
+                  <Text style={{ color: "#fff", fontWeight: "950", fontSize: 14 }}>OK</Text>
+                </LinearGradient>
               </Pressable>
-            </View>
-
-            <Text style={{ marginTop: 10, color: colors.text, lineHeight: 18, fontSize: 12 }}>{alertState.message}</Text>
-
-            <Pressable onPress={closeNiceAlert} style={{ marginTop: 14 }}>
-              <LinearGradient
-                colors={["#3B82F6", "#2563EB"]}
-                style={{
-                  paddingVertical: 11,
-                  borderRadius: 16,
-                  alignItems: "center",
-                  flexDirection: "row",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
-              >
-                <Ionicons name="checkmark" size={17} color="#fff" />
-                <Text style={{ color: "#fff", fontWeight: "950", fontSize: 14 }}>OK</Text>
-              </LinearGradient>
-            </Pressable>
+            </LinearGradient>
           </View>
         </View>
       )}
@@ -1051,21 +1186,23 @@ export default function PremiumScreen() {
             right: 0,
             top: 0,
             bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.14)",
+            backgroundColor: "rgba(0,0,0,0.18)",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
           <View
             style={{
-              ...ui.card,
-              ...ui.shadow,
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.12)",
+              backgroundColor: Platform.OS === "web" ? "rgba(20,22,28,0.72)" : colors.card,
               paddingHorizontal: 14,
               paddingVertical: 12,
-              borderRadius: 18,
+              borderRadius: 20,
               flexDirection: "row",
               alignItems: "center",
               gap: 10,
+              ...ui.shadow,
             }}
           >
             <ActivityIndicator color={colors.accent} />

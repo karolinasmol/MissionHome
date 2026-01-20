@@ -1,5 +1,4 @@
-// app/achievements.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +9,11 @@ import {
   Image,
   ActivityIndicator,
   useWindowDimensions,
+  Animated,
+  Easing,
+  Pressable,
+  LayoutAnimation,
+  UIManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -82,8 +86,12 @@ function clampPct(v: number) {
 
 function requiredExpForLevel(level: number): number {
   if (level <= 1) return 0;
+
   let total = 0;
-  for (let l = 1; l < level; l++) total += 100 + 50 * (l - 1);
+  for (let l = 1; l < level; l++) {
+    const gainForThisLevelUp = 100 + 50 * (l - 1);
+    total += gainForThisLevelUp;
+  }
   return total;
 }
 
@@ -105,7 +113,7 @@ function computeLevelProgress(totalExp: number, levelFromDoc?: number) {
 }
 
 /* =========================
-   Achievements
+   Achievements definitions
 ========================= */
 
 type StatKey =
@@ -137,14 +145,7 @@ const ACHIEVEMENTS: Achievement[] = [
     description: "Wykonuj zadania i utrzymuj tempo.",
     statKey: "missionsCompletedTotal",
     thresholds: [50, 150, 400, 900, 1800, 3000],
-    tierNames: [
-      "Pierwsze kroki",
-      "Wkręcony",
-      "Zorganizowany",
-      "Maszyna",
-      "Mistrz domu",
-      "Legenda porządku",
-    ],
+    tierNames: ["Pierwsze kroki", "Wkręcony", "Zorganizowany", "Maszyna", "Mistrz domu", "Legenda porządku"],
   },
   {
     id: "exp_total",
@@ -157,17 +158,10 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "streak",
     label: "Streak",
-    description: "Codziennie choć jedno wykonane zadanie.",
+    description: "Rób cokolwiek codziennie - choć jedno wykonane zadanie.",
     statKey: "streakDays",
     thresholds: [7, 21, 45, 90, 180, 365],
-    tierNames: [
-      "Start",
-      "Trzymasz się",
-      "Tydzień ognia",
-      "Dwa tygodnie",
-      "Miesiąc mocy",
-      "Niezniszczalny",
-    ],
+    tierNames: ["Start", "Trzymasz się", "Tydzień ognia", "Dwa tygodnie", "Miesiąc mocy", "Niezniszczalny"],
   },
   {
     id: "created",
@@ -180,7 +174,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "hard",
     label: "Hardcore",
-    description: "Trudne misje (hard / ≥100 EXP).",
+    description: "Wykonuj trudne misje (hard / ≥100 EXP).",
     statKey: "hardCompletedTotal",
     thresholds: [10, 30, 80, 180, 350],
     tierNames: ["Odważny", "Twardziel", "Niezły zawodnik", "Czołg", "Boss"],
@@ -188,7 +182,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "help",
     label: "Pomocna dłoń",
-    description: "Misje wykonane dla innych domowników.",
+    description: "Wykonuj misje dla innych członków rodziny.",
     statKey: "missionsCompletedForOthers",
     thresholds: [5, 20, 60, 150, 400],
     tierNames: ["Miły", "Wsparcie", "Dobrodziej", "Ostoja", "Filantrop"],
@@ -196,7 +190,7 @@ const ACHIEVEMENTS: Achievement[] = [
   {
     id: "ontime",
     label: "Perfekcjonista",
-    description: "Misje wykonane tego samego dnia.",
+    description: "Wykonuj misje na czas (tego samego dnia).",
     statKey: "missionsCompletedOnTime",
     thresholds: [10, 40, 120, 300, 800],
     tierNames: ["Punktualny", "Solidny", "Terminowy", "Perfekcyjny", "Absolut"],
@@ -219,7 +213,8 @@ function progressFor(stats: MHStats, a: Achievement) {
       break;
     }
   }
-  return { progress, tierIndex, currentThreshold, nextThreshold };
+
+  return { nextThreshold, progress, tierIndex, currentThreshold };
 }
 
 function percent(val: number, max?: number | null) {
@@ -227,8 +222,65 @@ function percent(val: number, max?: number | null) {
   return clampPct((val / max) * 100);
 }
 
+function computeNextTier(a: Achievement, p: ReturnType<typeof progressFor>) {
+  if (p.nextThreshold == null) {
+    const lastTier = a.tierNames[Math.max(0, Math.min(a.tierNames.length - 1, p.tierIndex - 1))] ?? "—";
+    return {
+      hasNext: false as const,
+      nextTierName: null as string | null,
+      lastTierName: lastTier,
+      remaining: 0,
+      nextThreshold: null as number | null,
+    };
+  }
+
+  const nextTierName =
+    a.tierNames[Math.max(0, Math.min(a.tierNames.length - 1, p.tierIndex))] ??
+    a.tierNames[a.tierNames.length - 1] ??
+    "—";
+
+  const remaining = Math.max(0, Math.floor(p.nextThreshold - p.progress));
+
+  return {
+    hasNext: true as const,
+    nextTierName,
+    lastTierName: null as string | null,
+    remaining,
+    nextThreshold: p.nextThreshold,
+  };
+}
+
 /* =========================
-   Obrazki osiągnięć (jak web)
+   Etykiety licznika
+========================= */
+
+function statMeta(statKey: StatKey) {
+  switch (statKey) {
+    case "missionsCompletedTotal":
+      return { label: "Wykonane", icon: "checkmark-done-outline" as const };
+    case "totalExp":
+      return { label: "EXP", icon: "flash-outline" as const };
+    case "streakDays":
+      return { label: "Dni z rzędu", icon: "flame-outline" as const };
+    case "missionsCreatedTotal":
+      return { label: "Utworzone", icon: "create-outline" as const };
+    case "hardCompletedTotal":
+      return { label: "Hardy", icon: "skull-outline" as const };
+    case "missionsCompletedForOthers":
+      return { label: "Dla innych", icon: "hand-left-outline" as const };
+    case "missionsCompletedOnTime":
+      return { label: "Na czas", icon: "time-outline" as const };
+    case "missionsCompletedWeek":
+      return { label: "W tym tyg.", icon: "calendar-outline" as const };
+    case "missionsCompletedMonth":
+      return { label: "W tym mies.", icon: "calendar-number-outline" as const };
+    default:
+      return { label: "Licznik", icon: "stats-chart-outline" as const };
+  }
+}
+
+/* =========================
+   Obrazki rang
 ========================= */
 
 const ACHIEVEMENT_IMAGES: Record<string, any> = {
@@ -244,9 +296,11 @@ const ACHIEVEMENT_IMAGES: Record<string, any> = {
 function AchievementImage({
   id,
   colors,
+  size,
 }: {
   id: string;
   colors: ReturnType<typeof useThemeColors>["colors"];
+  size: number;
 }) {
   const src = ACHIEVEMENT_IMAGES[id];
 
@@ -254,25 +308,17 @@ function AchievementImage({
     return (
       <View
         style={{
-          width: 44,
-          height: 44,
+          width: size,
+          height: size,
           borderRadius: 14,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.accent + "22",
+          backgroundColor: colors.accent + "18",
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.accent + "55",
         }}
       >
-        <Text
-          style={{
-            color: colors.accent,
-            fontSize: 10,
-            fontWeight: "900",
-            textAlign: "center",
-          }}
-          numberOfLines={2}
-        >
+        <Text style={{ color: colors.accent, fontSize: 10, fontWeight: "900" }} numberOfLines={2}>
           {id}
         </Text>
       </View>
@@ -283,8 +329,8 @@ function AchievementImage({
     <Image
       source={src}
       style={{
-        width: 44,
-        height: 44,
+        width: size,
+        height: size,
         borderRadius: 14,
         resizeMode: "cover",
       }}
@@ -293,7 +339,480 @@ function AchievementImage({
 }
 
 /* =========================
-   SCREEN
+   UI Bits
+========================= */
+
+function softShadow() {
+  return Platform.select({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.14,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 9 },
+    },
+    android: { elevation: 4 },
+    default: {},
+  });
+}
+
+function GlassCard({
+  children,
+  colors,
+  style,
+}: {
+  children: React.ReactNode;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  style?: any;
+}) {
+  return (
+    <View style={[styles.cardBase, { backgroundColor: colors.card, borderColor: colors.border }, softShadow(), style]}>
+      <View pointerEvents="none" style={[styles.cardTopLine, { backgroundColor: colors.accent + "55" }]} />
+      {children}
+    </View>
+  );
+}
+
+function Pill({
+  colors,
+  icon,
+  label,
+  tone = "accent",
+  compact = false,
+  fill = false,
+}: {
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  tone?: "accent" | "orange" | "muted";
+  compact?: boolean;
+  fill?: boolean;
+}) {
+  const bg =
+    tone === "orange" ? "#f973161a" : tone === "muted" ? colors.border + "18" : colors.accent + "16";
+  const border =
+    tone === "orange" ? "#f9731677" : tone === "muted" ? colors.border + "4F" : colors.accent + "55";
+  const fg = tone === "orange" ? "#f97316" : tone === "muted" ? colors.textMuted : colors.accent;
+
+  return (
+    <View
+      style={[
+        ui.pill,
+        { backgroundColor: bg, borderColor: border },
+        compact && { paddingHorizontal: 8, paddingVertical: 6, gap: 5 },
+        fill && { flex: 1, flexBasis: 0, justifyContent: "center" },
+      ]}
+    >
+      <Ionicons name={icon} size={compact ? 13 : 14} color={fg} />
+      <Text style={[ui.pillText, { color: fg }, compact && { fontSize: 10 }]} numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function ProgressBar({
+  value,
+  colors,
+  compact = false,
+}: {
+  value: number;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  compact?: boolean;
+}) {
+  const pct = clampPct(value);
+  return (
+    <View
+      style={[
+        ui.progressTrack,
+        {
+          height: compact ? 8 : 12,
+          borderColor: colors.border,
+          backgroundColor: colors.cardSoft || colors.bg,
+        },
+      ]}
+    >
+      <View style={[ui.progressFill, { width: `${pct}%`, backgroundColor: colors.accent }]} />
+      <View pointerEvents="none" style={[ui.progressShine, { backgroundColor: "#fff", opacity: 0.08 }]} />
+    </View>
+  );
+}
+
+function TierSegments({
+  total,
+  active,
+  colors,
+}: {
+  total: number;
+  active: number;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+}) {
+  const segments = Array.from({ length: total }, (_, i) => i);
+  return (
+    <View style={ui.segRow}>
+      {segments.map((i) => {
+        const on = i < active;
+        return (
+          <View
+            key={i}
+            style={[
+              ui.seg,
+              {
+                backgroundColor: on ? colors.accent : colors.border + "40",
+                borderColor: on ? colors.accent : colors.border + "88",
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function MiniChip({
+  label,
+  colors,
+  tone = "muted",
+  icon,
+  compact = false,
+  flex1 = false,
+}: {
+  label: string;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  tone?: "muted" | "accent" | "good";
+  icon?: keyof typeof Ionicons.glyphMap;
+  compact?: boolean;
+  flex1?: boolean;
+}) {
+  const bg =
+    tone === "accent" ? colors.accent + "14" : tone === "good" ? "#22c55e18" : colors.border + "16";
+  const border =
+    tone === "accent" ? colors.accent + "4F" : tone === "good" ? "#22c55e55" : colors.border + "44";
+  const fg = tone === "accent" ? colors.accent : tone === "good" ? "#22c55e" : colors.textMuted;
+
+  return (
+    <View
+      style={[
+        ui.chip,
+        { backgroundColor: bg, borderColor: border },
+        compact && { paddingHorizontal: 9, paddingVertical: 6 },
+        flex1 && { flex: 1, minWidth: 0 },
+      ]}
+    >
+      {!!icon && <Ionicons name={icon} size={12} color={fg} />}
+      <Text style={[ui.chipText, { color: fg }, compact && { fontSize: 10 }]} numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/* =========================
+   PulseWrap
+========================= */
+
+function PulseWrap({
+  children,
+  colors,
+  intensity = 1,
+}: {
+  children: React.ReactNode;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  intensity?: number;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const glow = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const sUp = 1 + 0.04 * intensity;
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: sUp,
+            duration: 1200,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glow, {
+            toValue: 0.62,
+            duration: 1200,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glow, {
+            toValue: 0.35,
+            duration: 1200,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, [scale, glow, intensity]);
+
+  return (
+    <View style={{ position: "relative" }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.pulseGlow,
+          {
+            backgroundColor: colors.accent + "22",
+            opacity: glow,
+            transform: [{ scale }],
+          },
+        ]}
+      />
+      <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>
+    </View>
+  );
+}
+
+/* =========================
+   Header
+========================= */
+
+function Header({
+  title,
+  subtitle,
+  colors,
+  onBack,
+  stacked,
+}: {
+  title: string;
+  subtitle?: string;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  onBack: () => void;
+  stacked: boolean;
+}) {
+  return (
+    <View style={[header.wrap, stacked && header.wrapStack]}>
+      <TouchableOpacity
+        onPress={onBack}
+        activeOpacity={0.85}
+        style={[header.backBtn, { borderColor: colors.border, backgroundColor: colors.cardSoft || "transparent" }]}
+      >
+        <Ionicons name="arrow-back" size={18} color={colors.text} />
+        <Text style={[header.backText, { color: colors.text }]}>Powrót</Text>
+      </TouchableOpacity>
+
+      <View style={header.titleCol}>
+        <Text style={[header.title, { color: colors.text }, stacked && { textAlign: "left" }]} numberOfLines={1}>
+          {title}
+        </Text>
+        {!!subtitle && (
+          <Text style={[header.subtitle, { color: colors.textMuted }, stacked && { textAlign: "left" }]} numberOfLines={2}>
+            {subtitle}
+          </Text>
+        )}
+      </View>
+
+      <View style={{ width: stacked ? 0 : 84 }} />
+    </View>
+  );
+}
+
+/* =========================
+   Achievement Card
+========================= */
+
+function configureLayoutAnimOnce() {
+  if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+}
+
+function runLayoutAnim() {
+  LayoutAnimation.configureNext(
+    LayoutAnimation.create(170, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+  );
+}
+
+function AchCard({
+  a,
+  colors,
+  isSM,
+  stats,
+  expanded,
+  onToggle,
+}: {
+  a: Achievement;
+  colors: ReturnType<typeof useThemeColors>["colors"];
+  isSM: boolean;
+  stats: MHStats;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const p = progressFor(stats, a);
+  const n = computeNextTier(a, p);
+
+  const currentTierName = p.tierIndex <= 0 ? "—" : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
+  const barMax = p.nextThreshold ?? p.currentThreshold;
+  const barPct = percent(p.progress, barMax);
+  const progressLabel = p.nextThreshold != null ? `${p.progress}/${p.nextThreshold}` : `${p.currentThreshold}+`;
+
+  const isMaxed = !n.hasNext;
+  const railColor = isMaxed ? "#22c55e" : colors.accent;
+
+  const meta = statMeta(a.statKey);
+
+  // ✅ “Tier” -> “Ranga”
+  const rankLabel = isSM ? `${p.tierIndex}/${a.thresholds.length}` : `Ranga ${p.tierIndex}/${a.thresholds.length}`;
+  const detailsLabel = expanded ? (isSM ? "Zwiń" : "Zwiń") : isSM ? "Więcej" : "Szczegóły";
+
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.achCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          opacity: pressed ? 0.96 : 1,
+        },
+        softShadow(),
+      ]}
+    >
+      <View pointerEvents="none" style={[styles.achRail, { backgroundColor: railColor + "55", borderColor: railColor + "66" }]} />
+
+      <View style={styles.achTopRow}>
+        <View
+          style={[
+            styles.iconWrap,
+            {
+              width: isSM ? 52 : 58,
+              height: isSM ? 52 : 58,
+              borderColor: colors.border,
+              backgroundColor: colors.accent + "0E",
+            },
+          ]}
+        >
+          <PulseWrap colors={colors} intensity={isMaxed ? 0.7 : 1.0}>
+            <AchievementImage id={a.id} colors={colors} size={isSM ? 40 : 44} />
+          </PulseWrap>
+
+          <View
+            style={[
+              styles.cornerBadge,
+              {
+                backgroundColor: isMaxed ? "#22c55e22" : colors.accent + "1A",
+                borderColor: isMaxed ? "#22c55e66" : colors.accent + "55",
+              },
+            ]}
+          >
+            <Ionicons name={isMaxed ? "checkmark" : "sparkles-outline"} size={12} color={isMaxed ? "#22c55e" : colors.accent} />
+          </View>
+        </View>
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.achTitleRow}>
+            <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
+              {a.label}
+            </Text>
+
+            <View style={[styles.valuePill, { backgroundColor: colors.border + "12", borderColor: colors.border + "44" }]}>
+              <Text style={[styles.valueNumSmall, { color: colors.text }]} numberOfLines={1}>
+                {p.progress}
+              </Text>
+              <Ionicons name={meta.icon} size={13} color={colors.textMuted} />
+            </View>
+          </View>
+
+          <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={isSM ? 1 : 2}>
+            {a.description}
+          </Text>
+
+          {/* ✅ wszystko w 1 wierszu */}
+          <View style={styles.chipsLine}>
+            <MiniChip
+              label={currentTierName}
+              colors={colors}
+              tone={isMaxed ? "good" : "muted"}
+              icon="ribbon-outline"
+              flex1
+              compact={isSM}
+            />
+            <MiniChip label={rankLabel} colors={colors} tone="accent" icon="medal-outline" compact={isSM} />
+            <MiniChip
+              label={detailsLabel}
+              colors={colors}
+              tone="muted"
+              icon={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+              compact
+            />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.progressBlock}>
+        <View style={styles.progressRow}>
+          <Text style={[styles.progressLabel, { color: colors.textMuted }]} numberOfLines={1}>
+            {meta.label}: {progressLabel}
+          </Text>
+
+          <View style={[styles.kpiPill, { borderColor: colors.border, backgroundColor: colors.border + "12" }]}>
+            <Ionicons name="speedometer-outline" size={13} color={colors.textMuted} />
+            <Text style={[styles.kpiText, { color: colors.textMuted }]} numberOfLines={1}>
+              {barPct}%
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ marginTop: 8 }}>
+          <ProgressBar value={barPct} colors={colors} compact />
+        </View>
+      </View>
+
+      {expanded && (
+        <View style={[styles.detailsWrap, { borderTopColor: colors.border + "55" }]}>
+          <View style={styles.detailsRow}>
+            <Ionicons
+              name={isMaxed ? "checkmark-circle-outline" : "trophy-outline"}
+              size={16}
+              color={isMaxed ? "#22c55e" : colors.textMuted}
+            />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {n.hasNext ? (
+                <>
+                  <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                    Kolejny tytuł: <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextTierName}</Text>
+                  </Text>
+                  <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                    Próg: <Text style={{ color: colors.text, fontWeight: "900" }}>{n.nextThreshold}</Text> • Brakuje:{" "}
+                    <Text style={{ color: colors.text, fontWeight: "900" }}>{n.remaining}</Text>
+                  </Text>
+                </>
+              ) : (
+                <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={2}>
+                  Wszystkie progi zdobyte ✅
+                </Text>
+              )}
+            </View>
+          </View>
+
+          <View style={{ marginTop: 10 }}>
+            <TierSegments total={a.thresholds.length} active={p.tierIndex} colors={colors} />
+          </View>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+/* =========================
+   Screen
 ========================= */
 
 export default function AchievementsScreen() {
@@ -301,21 +820,31 @@ export default function AchievementsScreen() {
   const { colors } = useThemeColors();
   const { width } = useWindowDimensions();
 
-  const isSmall = width < 380;
+  const isSM = width < 520;
+  const isMD = width >= 520 && width < 980;
+
+  const pillsCompact = width < 520;
+
+  const containerMaxWidth = 1060;
+  const padH = isSM ? 12 : isMD ? 16 : 22;
 
   const { missions, loading: missionsLoading } = useMissions();
   const { members } = useFamily();
 
   const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
-  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(
-    null
-  );
+  const [userDoc, setUserDoc] = useState<{ level: number; totalExp: number } | null>(null);
   const [userLoading, setUserLoading] = useState(true);
+
+  const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
 
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
   const weekEnd = useMemo(() => endOfDay(addDays(weekStart, 6)), [weekStart]);
   const monthStart = useMemo(() => startOfMonth(new Date()), []);
   const monthEnd = useMemo(() => endOfMonth(new Date()), []);
+
+  useEffect(() => {
+    configureLayoutAnimOnce();
+  }, []);
 
   useEffect(() => {
     const off = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
@@ -359,18 +888,8 @@ export default function AchievementsScreen() {
         createdById: m?.createdByUserId ? String(m.createdByUserId) : null,
         assignedById: m?.assignedByUserId ? String(m.assignedByUserId) : null,
         completedById: m?.completedByUserId ? String(m.completedByUserId) : null,
-        assignedAtJs: toJsDate(
-          (m as any)?.assignedAt ??
-            (m as any)?.assignedAtTs ??
-            (m as any)?.assignedDate ??
-            null
-        ),
-        createdAtJs: toJsDate(
-          (m as any)?.createdAt ??
-            (m as any)?.createdAtTs ??
-            (m as any)?.createdDate ??
-            null
-        ),
+        assignedAtJs: toJsDate((m as any)?.assignedAt ?? (m as any)?.assignedAtTs ?? (m as any)?.assignedDate ?? null),
+        createdAtJs: toJsDate((m as any)?.createdAt ?? (m as any)?.createdAtTs ?? (m as any)?.createdDate ?? null),
       }));
   }, [missions]);
 
@@ -400,9 +919,7 @@ export default function AchievementsScreen() {
     };
   }, [uid, familyMemberIds]);
 
-  const visibleMissions = useMemo(() => {
-    return normalizedMissions.filter(isMineForStats);
-  }, [normalizedMissions, isMineForStats]);
+  const visibleMissions = useMemo(() => normalizedMissions.filter(isMineForStats), [normalizedMissions, isMineForStats]);
 
   const myCompleted = useMemo(() => {
     const myId = uid ? String(uid) : null;
@@ -418,29 +935,18 @@ export default function AchievementsScreen() {
     });
   }, [visibleMissions, uid]);
 
-  const myWeekCompleted = useMemo(() => {
-    return myCompleted.filter((m: any) => {
-      if (!m.completedAtJs) return false;
-      return isWithin(m.completedAtJs, weekStart, weekEnd);
-    });
-  }, [myCompleted, weekStart, weekEnd]);
-
-  const myMonthCompleted = useMemo(() => {
-    return myCompleted.filter((m: any) => {
-      if (!m.completedAtJs) return false;
-      return isWithin(m.completedAtJs, monthStart, monthEnd);
-    });
-  }, [myCompleted, monthStart, monthEnd]);
-
-  const weekExp = useMemo(
-    () => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
-    [myWeekCompleted]
+  const myWeekCompleted = useMemo(
+    () => myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, weekStart, weekEnd)),
+    [myCompleted, weekStart, weekEnd]
   );
 
-  const monthExp = useMemo(
-    () => myMonthCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0),
-    [myMonthCompleted]
+  const myMonthCompleted = useMemo(
+    () => myCompleted.filter((m: any) => !!m.completedAtJs && isWithin(m.completedAtJs, monthStart, monthEnd)),
+    [myCompleted, monthStart, monthEnd]
   );
+
+  const weekExp = useMemo(() => myWeekCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0), [myWeekCompleted]);
+  const monthExp = useMemo(() => myMonthCompleted.reduce((acc: number, m: any) => acc + (m.expValueNum || 0), 0), [myMonthCompleted]);
 
   const totalCompleted = myCompleted.length;
 
@@ -455,9 +961,7 @@ export default function AchievementsScreen() {
   const createdTotal = useMemo(() => {
     const myId = uid ? String(uid) : null;
     if (!myId) return 0;
-    return visibleMissions.filter(
-      (m: any) => m.createdById === myId || m.assignedById === myId
-    ).length;
+    return visibleMissions.filter((m: any) => m.createdById === myId || m.assignedById === myId).length;
   }, [visibleMissions, uid]);
 
   const missionsCompletedForOthers = useMemo(() => {
@@ -490,9 +994,7 @@ export default function AchievementsScreen() {
     myCompleted.forEach((m: any) => {
       const d: Date | null = m.completedAtJs;
       if (!d) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-        d.getDate()
-      ).padStart(2, "0")}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       byDay.add(key);
     });
 
@@ -503,13 +1005,8 @@ export default function AchievementsScreen() {
     let cursor = new Date(today);
 
     for (let i = 0; i < 365 * 2; i++) {
-      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
-        2,
-        "0"
-      )}-${String(cursor.getDate()).padStart(2, "0")}`;
-
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
       if (!byDay.has(key)) break;
-
       count++;
       cursor = addDays(cursor, -1);
     }
@@ -549,579 +1046,639 @@ export default function AchievementsScreen() {
     return base.trim()?.[0]?.toUpperCase() || "U";
   }, [myDisplayName, auth.currentUser?.email]);
 
-  const levelPack = useMemo(() => {
-    return computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1);
-  }, [userDoc?.totalExp, userDoc?.level]);
+  const levelPack = useMemo(
+    () => computeLevelProgress(userDoc?.totalExp ?? 0, userDoc?.level ?? 1),
+    [userDoc?.totalExp, userDoc?.level]
+  );
 
   const busy = missionsLoading || userLoading;
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      <View pointerEvents="none" style={styles.bgOrbs}>
+        <View
+          style={{
+            position: "absolute",
+            width: 340,
+            height: 340,
+            borderRadius: 999,
+            backgroundColor: colors.accent + "26",
+            top: -160,
+            left: -140,
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 280,
+            height: 280,
+            borderRadius: 999,
+            backgroundColor: "#22c55e20",
+            top: -110,
+            right: -140,
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 240,
+            height: 240,
+            borderRadius: 999,
+            backgroundColor: "#a855f71c",
+            top: 210,
+            left: -110,
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 320,
+            height: 320,
+            borderRadius: 999,
+            backgroundColor: "#0ea5e91c",
+            top: 440,
+            right: -170,
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 200,
+            height: 200,
+            borderRadius: 999,
+            backgroundColor: "#f973161a",
+            top: 760,
+            left: 40,
+          }}
+        />
+      </View>
+
       <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingHorizontal: isSmall ? 12 : 16 },
-        ]}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingHorizontal: padH, maxWidth: containerMaxWidth }]}
+        style={{ zIndex: 1 }}
       >
         <Header
           title="Osiągnięcia"
-          subtitle="Twoje tytuły, progi i rozwój."
+          subtitle="EXP, poziom i osiągnięcia - wszystko w jednym miejscu."
           colors={colors}
           onBack={() => router.back()}
+          stacked={isSM}
         />
 
-        {/* TOP SUMMARY — lekkie, czytelne */}
-        <View
-          style={[
-            styles.topCard,
-            styles.cardShadow,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.topRow}>
-            <View
-              style={[
-                styles.avatarWrap,
-                {
-                  backgroundColor: colors.cardSoft || colors.bg,
-                  borderColor: colors.border,
-                },
-              ]}
-            >
-              {myPhotoURL ? (
-                <Image
-                  source={{ uri: myPhotoURL }}
-                  style={{ width: 44, height: 44, borderRadius: 14 }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 14,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: colors.accent + "22",
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: colors.accent + "66",
-                  }}
-                >
-                  <Text style={{ color: colors.accent, fontSize: 18, fontWeight: "900" }}>
-                    {myInitial}
-                  </Text>
-                </View>
-              )}
+        <GlassCard colors={colors}>
+          <View style={[styles.heroRow, isSM && styles.heroRowStack]}>
+            <View style={[styles.profileBox, { borderColor: colors.border, backgroundColor: colors.cardSoft || colors.bg }]}>
+              <View style={styles.avatarCol}>
+                <View pointerEvents="none" style={[styles.avatarGlow, { backgroundColor: colors.accent + "22" }]} />
+                {myPhotoURL ? (
+                  <Image
+                    source={{ uri: myPhotoURL }}
+                    style={[
+                      styles.avatar,
+                      {
+                        backgroundColor: colors.bg,
+                        width: isSM ? 54 : 60,
+                        height: isSM ? 54 : 60,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.avatar,
+                      {
+                        width: isSM ? 54 : 60,
+                        height: isSM ? 54 : 60,
+                        backgroundColor: colors.accent + "14",
+                        borderColor: colors.accent + "55",
+                        borderWidth: 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: colors.accent, fontSize: isSM ? 20 : 22, fontWeight: "900" }}>{myInitial}</Text>
+                  </View>
+                )}
+              </View>
 
-              <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.name, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
                   {myDisplayName
                     ? myDisplayName
                     : auth.currentUser?.email
                     ? auth.currentUser.email.split("@")[0]
                     : myInitial}
                 </Text>
-                <Text style={[styles.muted, { color: colors.textMuted }]}>
-                  Poziom {levelPack.level} · Suma EXP {levelPack.exp}
-                </Text>
+
+                <View style={styles.profileSubRow}>
+                  <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
+                    Statystyki użytkownika
+                  </Text>
+                  <View style={[styles.dot, { backgroundColor: colors.border }]} />
+                  <Text style={[styles.sub, { color: colors.textMuted }]} numberOfLines={1}>
+                    {totalCompleted} zadań
+                  </Text>
+                </View>
               </View>
             </View>
+
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {busy ? (
+                <View style={{ paddingVertical: 18 }}>
+                  <ActivityIndicator color={colors.accent} />
+                </View>
+              ) : (
+                <>
+                  <View style={styles.levelTop}>
+                    <View style={{ minWidth: 0, flexShrink: 1 }}>
+                      <Text style={[styles.levelTitle, { color: colors.text }]} numberOfLines={1}>
+                        Poziom {levelPack.level}
+                      </Text>
+                      <Text style={[styles.levelMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        EXP w poziomie: {levelPack.into}/{levelPack.span} • Suma: {levelPack.exp}
+                      </Text>
+                    </View>
+
+                    <Pill
+                      colors={colors}
+                      icon="trending-up-outline"
+                      label={`Do LVL ${levelPack.level + 1}: ${levelPack.toNext} EXP`}
+                      tone="muted"
+                      compact={pillsCompact}
+                    />
+                  </View>
+
+                  <ProgressBar value={levelPack.pct} colors={colors} />
+
+                  <View style={styles.pillsRow}>
+                    <Pill
+                      colors={colors}
+                      icon="flame"
+                      label={pillsCompact ? `Streak ${streakDays}` : `Streak: ${streakDays}`}
+                      tone="orange"
+                      compact={pillsCompact}
+                      fill
+                    />
+                    <Pill
+                      colors={colors}
+                      icon="calendar-outline"
+                      label={pillsCompact ? `+${weekExp} / tydz.` : `+${weekExp} EXP / tydz.`}
+                      compact={pillsCompact}
+                      fill
+                    />
+                    <Pill
+                      colors={colors}
+                      icon="time-outline"
+                      label={pillsCompact ? `+${monthExp} / mies.` : `+${monthExp} EXP / mies.`}
+                      compact={pillsCompact}
+                      fill
+                    />
+                  </View>
+                </>
+              )}
+            </View>
           </View>
+        </GlassCard>
 
-          <View style={{ marginTop: 10 }}>
-            {busy ? (
-              <View style={{ paddingVertical: 8 }}>
-                <ActivityIndicator color={colors.accent} />
-              </View>
-            ) : (
-              <>
-                <View style={styles.progressTopRow}>
-                  <Text style={[styles.progressLabel, { color: colors.textMuted }]}>
-                    EXP do następnego poziomu
-                  </Text>
-                  <Text style={[styles.progressRight, { color: colors.text }]}>
-                    {levelPack.toNext} EXP
-                  </Text>
-                </View>
-
-                <ProgressBar
-                  value={levelPack.pct}
-                  colors={colors}
-                  compact={false}
-                  label={`EXP: ${levelPack.into}/${levelPack.span}`}
-                />
-
-                <View style={styles.chipsRow}>
-                  <Chip colors={colors} icon="calendar-outline" label={`Tydzień +${weekExp} EXP`} />
-                  <Chip colors={colors} icon="time-outline" label={`Miesiąc +${monthExp} EXP`} />
-                  <Chip colors={colors} icon="flame" label={`Streak ${streakDays} dni`} tone="orange" />
-                </View>
-              </>
-            )}
+        <View style={styles.sectionHead}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Twoje osiągnięcia</Text>
+          <View style={[styles.sectionBadge, { backgroundColor: colors.border + "18", borderColor: colors.border + "44" }]}>
+            <Ionicons name="trophy-outline" size={14} color={colors.textMuted} />
+            <Text style={[styles.sectionBadgeText, { color: colors.textMuted }]}>{ACHIEVEMENTS.length} kategorii</Text>
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Twoje osiągnięcia</Text>
-
-        <View style={styles.achList}>
+        <View style={styles.list}>
           {ACHIEVEMENTS.map((a) => {
-            const p = progressFor(mhStats, a);
-
-            const tierName =
-              p.tierIndex <= 0
-                ? "Nieodblokowane"
-                : a.tierNames[Math.min(p.tierIndex - 1, a.tierNames.length - 1)];
-
-            const barMax = p.nextThreshold ?? p.currentThreshold;
-            const barPct = percent(p.progress, barMax);
-
-            const remaining =
-              p.nextThreshold != null ? Math.max(0, p.nextThreshold - p.progress) : 0;
-
-            const progressText =
-              p.nextThreshold != null
-                ? `${p.progress}/${p.nextThreshold}`
-                : `${p.progress}/${p.currentThreshold}+`;
-
+            const expanded = !!expandedMap[a.id];
             return (
-              <View
+              <AchCard
                 key={a.id}
-                style={[
-                  styles.achCard,
-                  styles.cardShadowSoft,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-              >
-                <View style={styles.achHeader}>
-                  <View
-                    style={[
-                      styles.achIconWrap,
-                      {
-                        backgroundColor: colors.accent + "0A",
-                        borderColor: colors.accent + "33",
-                      },
-                    ]}
-                  >
-                    <AchievementImage id={a.id} colors={colors} />
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.achTitleRow}>
-                      <Text style={[styles.achTitle, { color: colors.text }]} numberOfLines={1}>
-                        {a.label}
-                      </Text>
-
-                      <View
-                        style={[
-                          styles.tierPill,
-                          {
-                            backgroundColor: colors.cardSoft || colors.bg,
-                            borderColor: colors.border,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.tierPillText, { color: colors.text }]} numberOfLines={1}>
-                          {tierName}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text style={[styles.achDesc, { color: colors.textMuted }]} numberOfLines={2}>
-                      {a.description}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* REAL PROGRESS */}
-                <View style={{ marginTop: 10 }}>
-                  <View style={styles.progressMeta}>
-                    <Text style={[styles.metaLeft, { color: colors.textMuted }]}>
-                      Postęp: <Text style={{ color: colors.text }}>{progressText}</Text>
-                    </Text>
-
-                    <Text style={[styles.metaRight, { color: colors.text }]}>
-                      {barPct}%
-                    </Text>
-                  </View>
-
-                  <ProgressBar value={barPct} colors={colors} compact label={undefined} />
-
-                  {p.nextThreshold != null ? (
-                    <Text style={[styles.metaHint, { color: colors.textMuted }]}>
-                      Brakuje:{" "}
-                      <Text style={{ color: colors.text, fontWeight: "900" }}>
-                        {remaining}
-                      </Text>
-                    </Text>
-                  ) : (
-                    <Text style={[styles.metaHint, { color: colors.textMuted }]}>
-                      Wszystkie progi zdobyte ✅
-                    </Text>
-                  )}
-
-                  {/* THRESHOLDS — lekkie kropki */}
-                  <View style={styles.dotsRow}>
-                    {a.thresholds.map((t, idx) => {
-                      const earned = idx < p.tierIndex;
-                      const isNext = p.nextThreshold === t;
-                      const dotBg = earned ? colors.accent : colors.border;
-
-                      return (
-                        <View key={`${a.id}_${t}`} style={styles.dotWrap}>
-                          <View
-                            style={[
-                              styles.dot,
-                              {
-                                backgroundColor: dotBg,
-                                opacity: earned ? 1 : 0.45,
-                                transform: [{ scale: isNext ? 1.25 : 1 }],
-                              },
-                            ]}
-                          />
-                          {!isSmall && (
-                            <Text
-                              style={[
-                                styles.dotLabel,
-                                { color: earned ? colors.text : colors.textMuted },
-                              ]}
-                            >
-                              {t}
-                            </Text>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </View>
-                </View>
-              </View>
+                a={a}
+                colors={colors}
+                isSM={isSM}
+                stats={mhStats}
+                expanded={expanded}
+                onToggle={() => {
+                  runLayoutAnim();
+                  setExpandedMap((prev) => ({ ...prev, [a.id]: !prev[a.id] }));
+                }}
+              />
             );
           })}
         </View>
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 36 }} />
       </ScrollView>
     </View>
   );
 }
 
 /* =========================
-   COMPONENTS
-========================= */
-
-function Header({
-  title,
-  subtitle,
-  colors,
-  onBack,
-}: {
-  title: string;
-  subtitle?: string;
-  colors: ReturnType<typeof useThemeColors>["colors"];
-  onBack: () => void;
-}) {
-  return (
-    <View style={headerStyles.wrap}>
-      <TouchableOpacity
-        onPress={onBack}
-        activeOpacity={0.85}
-        style={headerStyles.backBtn}
-      >
-        <Ionicons name="arrow-back" size={18} color={colors.text} />
-        <Text style={[headerStyles.backText, { color: colors.text }]}>
-          Powrót
-        </Text>
-      </TouchableOpacity>
-
-      <View style={headerStyles.titleCol}>
-        <Text style={[headerStyles.title, { color: colors.text }]}>{title}</Text>
-        {!!subtitle && (
-          <Text style={[headerStyles.subtitle, { color: colors.textMuted }]}>
-            {subtitle}
-          </Text>
-        )}
-      </View>
-
-      <View style={{ width: 80 }} />
-    </View>
-  );
-}
-
-function ProgressBar({
-  value,
-  colors,
-  label,
-  compact = false,
-}: {
-  value: number;
-  colors: ReturnType<typeof useThemeColors>["colors"];
-  label?: string;
-  compact?: boolean;
-}) {
-  const pct = clampPct(value);
-  const trackBg = colors.cardSoft || colors.bg;
-
-  return (
-    <View style={{ width: "100%", marginTop: label ? 6 : 0, marginBottom: compact ? 6 : 10 }}>
-      {!!label && (
-        <Text style={{ fontSize: 12, fontWeight: "800", color: colors.textMuted, marginBottom: 6 }}>
-          {label}
-        </Text>
-      )}
-
-      <View
-        style={{
-          width: "100%",
-          height: compact ? 8 : 10,
-          backgroundColor: trackBg,
-          borderRadius: 999,
-          overflow: "hidden",
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-        }}
-      >
-        <View
-          style={{
-            width: `${pct}%`,
-            height: "100%",
-            backgroundColor: colors.accent,
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
-function Chip({
-  colors,
-  icon,
-  label,
-  tone,
-}: {
-  colors: ReturnType<typeof useThemeColors>["colors"];
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  tone?: "orange";
-}) {
-  const bg = tone === "orange" ? "#f9731622" : colors.accent + "1F";
-  const border = tone === "orange" ? "#f9731680" : colors.accent + "55";
-  const fg = tone === "orange" ? "#f97316" : colors.accent;
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: bg,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: border,
-      }}
-    >
-      <Ionicons name={icon} size={14} color={fg} />
-      <Text style={{ marginLeft: 6, color: fg, fontSize: 11, fontWeight: "900" }}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-/* =========================
-   STYLES
+   Styles
 ========================= */
 
 const styles = StyleSheet.create({
   page: { flex: 1 },
 
+  bgOrbs: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
+  },
+
   scroll: {
-    paddingTop: 14,
+    paddingTop: 16,
     paddingBottom: 30,
     width: "100%",
-    maxWidth: 920,
     alignSelf: "center",
   },
 
-  cardShadow: Platform.select({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.08,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 8 },
-    },
-    android: { elevation: 2 },
-    default: {},
-  }),
+  cardBase: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 22,
+    padding: 16,
+    overflow: "hidden",
+  },
+  cardTopLine: {
+    position: "absolute",
+    top: 0,
+    left: 14,
+    right: 14,
+    height: 2,
+    borderRadius: 999,
+    opacity: 0.85,
+  },
 
-  cardShadowSoft: Platform.select({
-    ios: {
-      shadowColor: "#000",
-      shadowOpacity: 0.06,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 6 },
-    },
-    android: { elevation: 1 },
-    default: {},
-  }),
+  heroRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+  },
+  heroRowStack: { flexDirection: "column" },
+
+  profileBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: 380,
+    overflow: "hidden",
+  },
+
+  avatarCol: { position: "relative" },
+  avatarGlow: {
+    position: "absolute",
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    top: 4,
+    left: 4,
+  },
+
+  avatar: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+
+  name: {
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+
+  profileSubRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  dot: {
+    width: 4,
+    height: 4,
+    borderRadius: 999,
+    opacity: 0.9,
+  },
+
+  sub: { fontSize: 12, fontWeight: "800" },
+
+  levelTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+    marginBottom: 8,
+  },
+
+  levelTitle: {
+    fontSize: 22,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+    letterSpacing: 0.2,
+  },
+
+  levelMeta: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.92,
+    marginTop: 4,
+  },
+
+  pillsRow: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    gap: 8,
+    marginTop: 12,
+    alignItems: "center",
+  },
+
+  sectionHead: {
+    marginTop: 14,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
 
   sectionTitle: {
     fontSize: 18,
     fontWeight: "900",
-    marginTop: 10,
-    marginBottom: 10,
+    letterSpacing: 0.2,
   },
 
-  /* Top card */
-  topCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 10,
-  },
-
-  topRow: {
+  sectionBadge: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-
-  avatarWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  sectionBadgeText: { fontSize: 11, fontWeight: "900" },
 
-  name: { fontSize: 15, fontWeight: "900" },
-  muted: { fontSize: 12, fontWeight: "800", marginTop: 2 },
-
-  progressTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 2,
-  },
-  progressLabel: { fontSize: 12, fontWeight: "800" },
-  progressRight: { fontSize: 12, fontWeight: "900" },
-
-  chipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
-  },
-
-  /* Ach cards */
-  achList: { gap: 12 },
+  list: { gap: 10 },
 
   achCard: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 22,
+    padding: 10,
+    overflow: "hidden",
+    width: "100%",
   },
 
-  achHeader: {
+  achRail: {
+    position: "absolute",
+    left: 0,
+    top: 10,
+    bottom: 10,
+    width: 4,
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 0,
+    opacity: 0.95,
+  },
+
+  achTopRow: {
     flexDirection: "row",
-    alignItems: "center",
     gap: 10,
+    alignItems: "center",
   },
 
-  achIconWrap: {
-    width: 52,
-    height: 52,
+  iconWrap: {
     borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
+    position: "relative",
+    overflow: "hidden",
+  },
+
+  cornerBadge: {
+    position: "absolute",
+    right: 6,
+    top: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pulseGlow: {
+    position: "absolute",
+    left: -10,
+    right: -10,
+    top: -10,
+    bottom: -10,
+    borderRadius: 999,
   },
 
   achTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 10,
   },
 
-  achTitle: { fontSize: 15, fontWeight: "900" },
-
-  tierPill: {
-    maxWidth: 150,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
+  achTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+    letterSpacing: 0.15,
   },
-  tierPillText: { fontSize: 11, fontWeight: "900" },
 
   achDesc: {
     fontSize: 12,
     fontWeight: "800",
     opacity: 0.95,
-    marginTop: 4,
+    marginTop: 3,
+    lineHeight: 16,
   },
 
-  progressMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  metaLeft: { fontSize: 12, fontWeight: "800" },
-  metaRight: { fontSize: 12, fontWeight: "900" },
-  metaHint: { fontSize: 12, fontWeight: "800", marginTop: 2 },
-
-  dotsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 10,
-    alignItems: "center",
-  },
-
-  dotWrap: {
+  valuePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-
-  dot: {
-    width: 10,
-    height: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
+  },
+  valueNumSmall: { fontSize: 14, fontWeight: "900", letterSpacing: 0.1 },
+
+  // ✅ utrzymuje w 1 wierszu
+  chipsLine: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "nowrap",
   },
 
-  dotLabel: {
-    fontSize: 11,
-    fontWeight: "800",
+  progressBlock: {
+    marginTop: 10,
   },
+
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  progressLabel: { fontSize: 12, fontWeight: "800" },
+
+  kpiPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
+  },
+
+  kpiText: { fontSize: 11, fontWeight: "900" },
+
+  detailsWrap: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+
+  metaText: { fontSize: 12, fontWeight: "800", lineHeight: 16 },
 });
 
-const headerStyles = StyleSheet.create({
+const header = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
-    minHeight: 40,
+    minHeight: 44,
   },
-
+  wrapStack: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 8,
+  },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  backText: {
+    fontWeight: "900",
+    fontSize: 14,
+    letterSpacing: 0.1,
+  },
+  titleCol: {
+    flex: 1,
     paddingHorizontal: 6,
-    borderRadius: 10,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.2,
+  },
+  subtitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    opacity: 0.9,
+    textAlign: "center",
+    marginTop: 3,
+    lineHeight: 16,
+  },
+});
+
+const ui = StyleSheet.create({
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    minWidth: 0,
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
   },
 
-  backText: { fontWeight: "900", fontSize: 14 },
+  progressTrack: {
+    width: "100%",
+    borderRadius: 999,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    position: "relative",
+  },
+  progressFill: { height: "100%" },
+  progressShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "100%",
+  },
 
-  titleCol: { flex: 1, paddingHorizontal: 6 },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  chipText: { fontSize: 11, fontWeight: "900" },
 
-  title: { fontSize: 20, fontWeight: "900", textAlign: "center" },
-
-  subtitle: { fontSize: 12, fontWeight: "800", opacity: 0.9, textAlign: "center" },
+  segRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  seg: {
+    height: 8,
+    width: 18,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 });
+
+// app/achievements.tsx

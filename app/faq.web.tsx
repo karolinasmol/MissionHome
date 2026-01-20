@@ -1,4 +1,4 @@
-// app/faq.tsx
+// app/faq.web.tsx
 import React, { useMemo, useState } from "react";
 import {
   View,
@@ -185,11 +185,55 @@ const FAQ_DATA: FaqItem[] = [
   },
 ];
 
+// ✅ Bezpieczne alpha dla placeholdera (HEX i rgb)
+const withAlpha = (color: string, alpha: number) => {
+  if (!color) return color;
+
+  if (color.startsWith("#")) {
+    let hex = color.replace("#", "").trim();
+    if (hex.length === 3) {
+      hex = hex
+        .split("")
+        .map((c) => c + c)
+        .join("");
+    }
+    if (hex.length !== 6) return color;
+
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  if (color.startsWith("rgb(")) {
+    return color.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+  }
+
+  if (color.startsWith("rgba(")) return color;
+
+  return color;
+};
+
 const FaqScreen = () => {
   const router = useRouter();
-  const colors = useThemeColors();
+
+  // ✅ TO JEST KLUCZ: useThemeColors() -> { isDark, colors }
+  const { colors } = useThemeColors();
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+
+  const ui = useMemo(() => {
+    return {
+      background: colors.bg,
+      card: colors.card,
+      border: colors.border,
+      text: colors.text,
+      textSecondary: colors.textMuted,
+      placeholder: withAlpha(colors.textMuted, 0.65),
+    };
+  }, [colors]);
 
   const handleToggle = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -215,7 +259,6 @@ const FaqScreen = () => {
       map.set(item.category, arr);
     }
 
-    // wywalamy puste kategorie
     return CATEGORY_ORDER.filter((cat) => (map.get(cat)?.length ?? 0) > 0).map(
       (cat) => ({
         category: cat,
@@ -225,13 +268,8 @@ const FaqScreen = () => {
   }, [filteredData]);
 
   return (
-    <SafeAreaView
-      style={[
-        styles.safeArea,
-        { backgroundColor: colors.background ?? "#05030A" },
-      ]}
-    >
-      <View style={styles.headerWrapper}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: ui.background }]}>
+      <View style={[styles.headerWrapper, { backgroundColor: ui.background }]}>
         <View style={styles.headerInner}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -243,36 +281,24 @@ const FaqScreen = () => {
             <Ionicons
               name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
               size={22}
-              color={colors.text ?? "#FFFFFF"}
+              color={ui.text}
             />
           </TouchableOpacity>
 
-          <Text
-            style={[styles.headerTitle, { color: colors.text ?? "#FFFFFF" }]}
-            numberOfLines={1}
-          >
+          <Text style={[styles.headerTitle, { color: ui.text }]} numberOfLines={1}>
             FAQ
           </Text>
 
-          {/* pusty placeholder dla wyrównania */}
           <View style={{ width: 32 }} />
         </View>
       </View>
 
       <ScrollView
-        style={[
-          styles.scroll,
-          { backgroundColor: colors.background ?? "#05030A" },
-        ]}
+        style={[styles.scroll, { backgroundColor: ui.background }]}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text
-          style={[
-            styles.introText,
-            { color: colors.textSecondary ?? colors.text ?? "#C6C3D7" },
-          ]}
-        >
+        <Text style={[styles.introText, { color: ui.textSecondary }]}>
           Najczęściej zadawane pytania o MissionHome.{"\n"}
           Dotknij pytania, aby rozwinąć odpowiedź.
         </Text>
@@ -280,27 +306,21 @@ const FaqScreen = () => {
         <View
           style={[
             styles.searchWrapper,
-            {
-              backgroundColor: colors.card ?? "#110C23",
-              borderColor: colors.border ?? "rgba(255,255,255,0.08)",
-            },
+            { backgroundColor: ui.card, borderColor: ui.border },
           ]}
         >
           <Ionicons
             name="search"
             size={18}
-            color={colors.textSecondary ?? "#C6C3D7"}
+            color={ui.textSecondary}
             style={{ marginRight: 8 }}
           />
           <TextInput
             value={query}
             onChangeText={setQuery}
             placeholder="Szukaj w FAQ…"
-            placeholderTextColor={(colors.textSecondary ?? "#C6C3D7") + "AA"}
-            style={[
-              styles.searchInput,
-              { color: colors.text ?? "#FFFFFF" },
-            ]}
+            placeholderTextColor={ui.placeholder}
+            style={[styles.searchInput, { color: ui.text }]}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
@@ -313,38 +333,18 @@ const FaqScreen = () => {
           <View
             style={[
               styles.emptyCard,
-              {
-                backgroundColor: colors.card ?? "#110C23",
-                borderColor: colors.border ?? "rgba(255,255,255,0.08)",
-              },
+              { backgroundColor: ui.card, borderColor: ui.border },
             ]}
           >
-            <Text
-              style={[
-                styles.emptyTitle,
-                { color: colors.text ?? "#FFFFFF" },
-              ]}
-            >
-              Brak wyników
-            </Text>
-            <Text
-              style={[
-                styles.emptyText,
-                { color: colors.textSecondary ?? "#C6C3D7" },
-              ]}
-            >
+            <Text style={[styles.emptyTitle, { color: ui.text }]}>Brak wyników</Text>
+            <Text style={[styles.emptyText, { color: ui.textSecondary }]}>
               Spróbuj wpisać inne słowo kluczowe (np. „premium”, „rodzina”, „zadanie”).
             </Text>
           </View>
         ) : (
           grouped.map(({ category, items }) => (
             <View key={category} style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: colors.textSecondary ?? "#C6C3D7" },
-                ]}
-              >
+              <Text style={[styles.sectionTitle, { color: ui.textSecondary }]}>
                 {CATEGORY_LABEL[category]}
               </Text>
 
@@ -355,10 +355,7 @@ const FaqScreen = () => {
                     key={item.id}
                     style={[
                       styles.card,
-                      {
-                        backgroundColor: colors.card ?? "#110C23",
-                        borderColor: colors.border ?? "rgba(255,255,255,0.08)",
-                      },
+                      { backgroundColor: ui.card, borderColor: ui.border },
                     ]}
                   >
                     <TouchableOpacity
@@ -371,29 +368,19 @@ const FaqScreen = () => {
                         isExpanded ? "Zwiń odpowiedź" : "Rozwiń odpowiedź"
                       }
                     >
-                      <Text
-                        style={[
-                          styles.questionText,
-                          { color: colors.text ?? "#FFFFFF" },
-                        ]}
-                      >
+                      <Text style={[styles.questionText, { color: ui.text }]}>
                         {item.question}
                       </Text>
                       <Ionicons
                         name={isExpanded ? "chevron-up" : "chevron-down"}
                         size={18}
-                        color={colors.textSecondary ?? "#C6C3D7"}
+                        color={ui.textSecondary}
                       />
                     </TouchableOpacity>
 
                     {isExpanded && (
                       <View style={styles.answerWrapper}>
-                        <Text
-                          style={[
-                            styles.answerText,
-                            { color: colors.textSecondary ?? "#C6C3D7" },
-                          ]}
-                        >
+                        <Text style={[styles.answerText, { color: ui.textSecondary }]}>
                           {item.answer}
                         </Text>
                       </View>

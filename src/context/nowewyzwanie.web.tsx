@@ -6,15 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import {
-  Modal,
-  ScrollView,
-  Text,
-  View,
-  Pressable,
-  Platform,
-  useWindowDimensions,
-} from "react-native";
+import { Modal, ScrollView, Text, View, Pressable, Platform } from "react-native";
 import {
   collection,
   doc,
@@ -415,17 +407,20 @@ function onColorForHex(hex: string) {
 }
 
 /* ----------------------------------------------------
-   MODAL (NATIVE)
+   MODAL
 ---------------------------------------------------- */
 
 export const NoweWyzwanieModalRN = () => {
   const { isOpen, challenges, submitSelection } = useNoweWyzwanie();
   const { colors, isDark } = useThemeColors();
 
-  const { height: windowH } = useWindowDimensions();
-
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [confirmDecline, setConfirmDecline] = useState(false);
+
+  const webNoOutline =
+    Platform.OS === "web"
+      ? ({ outlineStyle: "none", outlineWidth: 0 } as any)
+      : {};
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
@@ -456,15 +451,12 @@ export const NoweWyzwanieModalRN = () => {
 
   const overlayBg = isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)";
   const cardBg = colors.card;
-  const border = colors.border;
+  const border = colors.border; // ✅ może być rgba(...)
   const text = colors.text;
   const muted = colors.textMuted;
   const accent = colors.accent;
 
   const listTileBase = isDark ? rgba("#ffffff", 0.04) : rgba("#000000", 0.04);
-
-  // ✅ klucz: wysokość modala na native (żeby ScrollView miało miejsce)
-  const modalHeight = Math.min(windowH * 0.78, 680);
 
   return (
     <Modal
@@ -481,18 +473,20 @@ export const NoweWyzwanieModalRN = () => {
           alignItems: "center",
           justifyContent: "center",
           padding: 16,
+          ...webNoOutline,
         }}
       >
         <View
           style={{
             width: "100%",
             maxWidth: 600,
-            height: modalHeight,
+            maxHeight: "80%",
             borderRadius: 18,
             backgroundColor: cardBg,
             borderWidth: 1,
             borderColor: border,
             overflow: "hidden",
+            ...webNoOutline,
           }}
         >
           {/* HEADER */}
@@ -500,7 +494,7 @@ export const NoweWyzwanieModalRN = () => {
             style={{
               padding: 18,
               borderBottomWidth: 1,
-              borderBottomColor: border,
+              borderBottomColor: border, // ✅ fix
             }}
           >
             <Text style={{ fontSize: 20, fontWeight: "800", color: text }}>
@@ -513,16 +507,14 @@ export const NoweWyzwanieModalRN = () => {
 
           {/* LISTA */}
           <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 18, paddingBottom: 14 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            style={{ flex: 1, ...webNoOutline }}
+            contentContainerStyle={{ padding: 18, gap: 10 }}
           >
-            {challenges.map((ch, idx) => {
+            {challenges.map((ch) => {
               const sel = selected[ch.id];
 
               const tileBg = sel ? rgba(accent, isDark ? 0.14 : 0.18) : listTileBase;
-              const tileBorder = sel ? accent : border;
+              const tileBorder = sel ? accent : border; // ✅ fix
 
               return (
                 <Pressable
@@ -535,7 +527,7 @@ export const NoweWyzwanieModalRN = () => {
                     borderWidth: 1,
                     borderColor: tileBorder,
                     backgroundColor: tileBg,
-                    marginBottom: idx === challenges.length - 1 ? 0 : 10,
+                    ...webNoOutline,
                   }}
                 >
                   <View
@@ -544,7 +536,7 @@ export const NoweWyzwanieModalRN = () => {
                       height: 22,
                       borderRadius: 999,
                       borderWidth: 2,
-                      borderColor: sel ? accent : border,
+                      borderColor: sel ? accent : border, // ✅ fix
                       marginRight: 10,
                       alignItems: "center",
                       justifyContent: "center",
@@ -594,8 +586,10 @@ export const NoweWyzwanieModalRN = () => {
             style={{
               padding: 16,
               borderTopWidth: 1,
-              borderTopColor: border,
+              borderTopColor: border, // ✅ fix
               flexDirection: "row",
+              gap: 12,
+              ...webNoOutline,
             }}
           >
             <Pressable
@@ -605,10 +599,10 @@ export const NoweWyzwanieModalRN = () => {
                 paddingVertical: 12,
                 borderRadius: 999,
                 borderWidth: 1,
-                borderColor: border,
+                borderColor: border, // ✅ fix
                 backgroundColor: rgba(colors.bg, isDark ? 0.25 : 0.4),
                 alignItems: "center",
-                marginRight: 10,
+                ...webNoOutline,
               }}
             >
               <Text style={{ color: text, fontWeight: "800" }}>
@@ -626,6 +620,7 @@ export const NoweWyzwanieModalRN = () => {
                 borderWidth: 1,
                 borderColor: rgba(accent, 0.7),
                 alignItems: "center",
+                ...webNoOutline,
               }}
             >
               <Text style={{ color: onColorForHex(accent), fontWeight: "900" }}>
@@ -651,6 +646,7 @@ export const NoweWyzwanieModalRN = () => {
             justifyContent: "center",
             alignItems: "center",
             padding: 20,
+            ...webNoOutline,
           }}
         >
           <View
@@ -662,6 +658,7 @@ export const NoweWyzwanieModalRN = () => {
               borderRadius: 18,
               borderWidth: 1,
               borderColor: border,
+              ...webNoOutline,
             }}
           >
             <Text style={{ color: text, fontSize: 18, fontWeight: "900" }}>
@@ -673,7 +670,14 @@ export const NoweWyzwanieModalRN = () => {
               Na pewno chcesz odrzucić?
             </Text>
 
-            <View style={{ flexDirection: "row", marginTop: 22 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 12,
+                marginTop: 22,
+                ...webNoOutline,
+              }}
+            >
               <Pressable
                 onPress={() => setConfirmDecline(false)}
                 style={{
@@ -684,7 +688,7 @@ export const NoweWyzwanieModalRN = () => {
                   borderColor: border,
                   alignItems: "center",
                   backgroundColor: rgba(colors.bg, isDark ? 0.25 : 0.4),
-                  marginRight: 10,
+                  ...webNoOutline,
                 }}
               >
                 <Text style={{ color: text, fontWeight: "800" }}>
@@ -705,6 +709,7 @@ export const NoweWyzwanieModalRN = () => {
                   borderWidth: 1,
                   borderColor: "rgba(239,68,68,0.7)",
                   alignItems: "center",
+                  ...webNoOutline,
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "900" }}>

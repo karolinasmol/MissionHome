@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -15,9 +17,49 @@ import { useThemeColors } from "../src/context/ThemeContext";
 import { auth, db } from "../src/firebase/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
+function isHex6(color: string) {
+  return /^#?[0-9a-fA-F]{6}$/.test(color);
+}
+
+function normalizeHex6(color: string) {
+  return color.startsWith("#") ? color : `#${color}`;
+}
+
+function hexToRgb(hex: string) {
+  const h = normalizeHex6(hex).slice(1);
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const to2 = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
+}
+
+function clamp255(n: number) {
+  return Math.max(0, Math.min(255, n));
+}
+
+function shadeHex(hex: string, amount: number) {
+  if (!isHex6(hex)) return hex;
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex(clamp255(r + amount), clamp255(g + amount), clamp255(b + amount));
+}
+
+function luminance(hex: string) {
+  if (!isHex6(hex)) return 0.5;
+  const { r, g, b } = hexToRgb(hex);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
 export default function BugReportNative() {
   const router = useRouter();
   const { colors } = useThemeColors();
+  const { width } = useWindowDimensions();
+
+  const isPhone = width < 520;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -26,11 +68,46 @@ export default function BugReportNative() {
 
   const user = auth.currentUser;
 
-  const canSend =
-    title.trim().length > 0 && description.trim().length > 0 && !sending;
+  const canSend = title.trim().length > 0 && description.trim().length > 0 && !sending;
+
+  const inputBg = (() => {
+    const base = typeof colors.card === "string" ? colors.card : "#111827";
+    if (!isHex6(base)) return base;
+    const lum = luminance(base);
+    return lum < 0.45 ? shadeHex(base, 18) : shadeHex(base, -12);
+  })();
+
+  // ====== ŁADNIEJSZY PRZYCISK NA JASNYCH MOTYWACH (jak w web) ======
+  const bgBase = typeof colors.bg === "string" ? colors.bg : "#ffffff";
+  const isLightTheme = isHex6(bgBase) ? luminance(bgBase) > 0.62 : true;
+
+  const pickOnColor = (bgHex: string) => {
+    if (!isHex6(bgHex)) return isLightTheme ? "#0f172a" : "#e2e8f0";
+    return luminance(bgHex) > 0.62 ? "#0f172a" : "#ecfeff";
+  };
+
+  const enabledBg = typeof colors.accent === "string" ? colors.accent : "#22c55e";
+  const enabledFg = pickOnColor(enabledBg);
+
+  const disabledBg = isLightTheme ? "#e2e8f0" : "#1e293b";
+  const disabledFg = isLightTheme ? "#334155" : "#64748b";
+  const disabledBorder = isLightTheme ? "#cbd5e1" : colors.border;
+
+  const enabledBorder = isHex6(enabledBg)
+    ? isLightTheme
+      ? shadeHex(enabledBg, -22)
+      : shadeHex(enabledBg, 18)
+    : colors.border;
+  // ================================================================
 
   const handleSend = async () => {
     if (!canSend) return;
+
+    // ✅ ważne: jeśli rules wymagają auth, nie strzelamy w Firestore bez usera
+    if (!user?.uid) {
+      Alert.alert("Zaloguj się", "Musisz być zalogowany, aby wysłać zgłoszenie.");
+      return;
+    }
 
     try {
       setSending(true);
@@ -39,18 +116,23 @@ export default function BugReportNative() {
         title: title.trim(),
         description: description.trim(),
         frequency: frequency.trim() || null,
-        platform: "native",
+        platform: Platform.OS, // ios/android
         appVersion: "1.0.0",
-        userId: user?.uid || null,
-        userEmail: user?.email || null,
+        userId: user.uid,
+        userEmail: user.email || null,
         createdAt: serverTimestamp(),
         status: "new",
       });
 
-      Alert.alert("Dziękujemy!", "Zgłoszenie zostało wysłane.");
+      Alert.alert("Dziękujemy!", "Zgłoszenie zostało wysłane ✅");
+      setTitle("");
+      setDescription("");
+      setFrequency("");
       router.back();
-    } catch (e) {
-      Alert.alert("Błąd", "Nie udało się wysłać zgłoszenia.");
+    } catch (e: any) {
+      console.error("BUG REPORT ERROR:", e);
+      const msg = e?.message || "Nie udało się wysłać zgłoszenia.";
+      Alert.alert("Błąd", msg);
     } finally {
       setSending(false);
     }
@@ -60,56 +142,107 @@ export default function BugReportNative() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
         contentContainerStyle={{
-          padding: 18,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
           paddingBottom: 32,
+          width: "100%",
+          maxWidth: 820,
+          alignSelf: "center",
         }}
+        keyboardShouldPersistTaps="handled"
       >
         {/* HEADER */}
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            marginBottom: 22,
             gap: 10,
+            marginBottom: 20,
           }}
         >
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={26} color={colors.text} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              padding: 6,
+              borderRadius: 10,
+            }}
+          >
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
 
-          <Text style={{ fontSize: 22, fontWeight: "900", color: colors.text }}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: isPhone ? 20 : 22,
+              fontWeight: "900",
+              flex: 1,
+            }}
+          >
             Zgłoś błąd
           </Text>
+
+          {/* PRZEJŚCIE: Zgłoś pomysł */}
+          <TouchableOpacity
+            onPress={() => router.push("/idea")}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: inputBg,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Ionicons name="bulb-outline" size={18} color={colors.text} />
+            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 13 }}>
+              Zgłoś pomysł
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* CARD */}
         <View
           style={{
             backgroundColor: colors.card,
-            padding: 18,
-            borderRadius: 18,
-            borderWidth: 1,
             borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 18,
+            padding: isPhone ? 14 : 18,
+
+            shadowColor: "#000",
+            shadowOpacity: 0.10,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 2,
           }}
         >
           <Text
             style={{
               color: colors.text,
-              fontSize: 17,
               fontWeight: "800",
+              fontSize: isPhone ? 16 : 18,
               marginBottom: 6,
             }}
           >
             Pomóż nam ulepszyć MissionHome 💙
           </Text>
 
-          <Text style={{ color: colors.textMuted, marginBottom: 16 }}>
-            Opisz dokładnie, co się stało, a zajmiemy się resztą.
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 13,
+              marginBottom: 18,
+            }}
+          >
+            Opisz problem możliwie dokładnie — im więcej szczegółów, tym szybciej go naprawimy.
           </Text>
 
-          {/* TITLE */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
-            Temat
+          {/* TEMAT */}
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
+            Temat zgłoszenia
           </Text>
           <TextInput
             value={title}
@@ -117,66 +250,70 @@ export default function BugReportNative() {
             placeholder="Np. nie działa usuwanie zadania"
             placeholderTextColor={colors.textMuted}
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              marginBottom: 14,
+              padding: 12,
+              backgroundColor: inputBg,
               color: colors.text,
-              fontSize: 15,
+              marginBottom: 16,
+              fontSize: 14,
             }}
+            returnKeyType="next"
           />
 
-          {/* DESCRIPTION */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
+          {/* OPIS */}
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Opis błędu
           </Text>
           <TextInput
             value={description}
             onChangeText={setDescription}
-            placeholder="Opisz krok po kroku co się wydarzyło..."
+            placeholder={
+              "Co dokładnie zrobiłeś/aś?\nCo miało się wydarzyć?\nCo faktycznie się wydarzyło?"
+            }
             placeholderTextColor={colors.textMuted}
+            multiline
+            textAlignVertical="top"
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              minHeight: 150,
-              marginBottom: 14,
+              padding: 12,
+              backgroundColor: inputBg,
               color: colors.text,
-              fontSize: 15,
-              textAlignVertical: "top",
+              minHeight: 150,
+              fontSize: 14,
+              marginBottom: 16,
             }}
-            multiline
           />
 
           {/* FREQUENCY */}
-          <Text style={{ color: colors.textMuted, marginBottom: 4 }}>
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 4 }}>
             Jak często występuje?
           </Text>
           <TextInput
             value={frequency}
             onChangeText={setFrequency}
-            placeholder="Np. za każdym razem"
+            placeholder="Np. za każdym razem / rzadko / po ostatniej aktualizacji"
             placeholderTextColor={colors.textMuted}
             style={{
-              backgroundColor: "#020617",
               borderRadius: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              padding: 14,
-              marginBottom: 22,
+              padding: 12,
+              backgroundColor: inputBg,
               color: colors.text,
-              fontSize: 15,
+              fontSize: 14,
+              marginBottom: 22,
             }}
+            returnKeyType="done"
           />
 
           {/* BUTTONS */}
           <View
             style={{
-              flexDirection: "row",
+              flexDirection: isPhone ? "column" : "row",
               justifyContent: "flex-end",
               gap: 12,
             }}
@@ -184,16 +321,16 @@ export default function BugReportNative() {
             <TouchableOpacity
               onPress={() => router.back()}
               style={{
-                paddingHorizontal: 20,
+                paddingHorizontal: 18,
                 paddingVertical: 10,
                 borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>
-                Anuluj
-              </Text>
+              <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Anuluj</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -203,26 +340,38 @@ export default function BugReportNative() {
                 paddingHorizontal: 20,
                 paddingVertical: 10,
                 borderRadius: 999,
-                backgroundColor: canSend ? colors.accent : "#1e293b",
                 flexDirection: "row",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 8,
-                opacity: sending ? 0.7 : 1,
+
+                backgroundColor: canSend ? enabledBg : disabledBg,
+                borderWidth: 1,
+                borderColor: canSend ? enabledBorder : disabledBorder,
+
+                opacity: sending ? 0.75 : 1,
+
+                shadowColor: "#000",
+                shadowOpacity: canSend ? 0.14 : 0.06,
+                shadowRadius: canSend ? 10 : 6,
+                shadowOffset: { width: 0, height: canSend ? 4 : 2 },
+
+                elevation: canSend ? 3 : 1,
               }}
             >
               {sending ? (
-                <ActivityIndicator color="#022c22" />
+                <ActivityIndicator size="small" color={canSend ? enabledFg : disabledFg} />
               ) : (
-                <Ionicons name="send" size={18} color="#022c22" />
+                <Ionicons name="send" size={16} color={canSend ? enabledFg : disabledFg} />
               )}
 
               <Text
                 style={{
-                  color: canSend ? "#022c22" : "#64748b",
+                  color: canSend ? enabledFg : disabledFg,
                   fontWeight: "800",
                 }}
               >
-                {sending ? "Wysyłanie..." : "Wyślij swoje zgłoszenie"}
+                {sending ? "Wysyłanie..." : "Wyślij zgłoszenie"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -231,3 +380,5 @@ export default function BugReportNative() {
     </SafeAreaView>
   );
 }
+
+//app/bug.tsx

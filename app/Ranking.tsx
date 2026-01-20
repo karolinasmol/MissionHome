@@ -544,7 +544,7 @@ function PodiumCard({ colors, user, place, myUid, big }: any) {
 
         {isMe && (
           <View style={[styles.meTiny, { backgroundColor: colors.accent + "22", borderColor: colors.accent + "55" }]}>
-            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 10 }}>TO TY</Text>
+            <Text style={{ color: colors.accent, fontWeight: "900", fontSize: 6 }}> TO TY</Text>
           </View>
         )}
       </View>
